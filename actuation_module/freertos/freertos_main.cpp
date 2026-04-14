@@ -47,7 +47,6 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
 
 } // extern "C"
 
-
 int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
