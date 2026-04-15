@@ -9,21 +9,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            suffix: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            suffix: arm64
     permissions:
       contents: read
-      packages: write # Required to push to GitHub Container Registry
+      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
-        id: buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
@@ -33,11 +39,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker meta
+      - name: Docker meta (per-architecture tags)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/devcontainer
+          flavor: |
+            suffix=-${{ matrix.suffix }}
           tags: |
             type=sha
             type=ref,event=branch
@@ -48,9 +56,48 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./.devcontainer
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max 
+          cache-from: type=gha,scope=devcontainer-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=devcontainer-${{ matrix.suffix }}
+
+  merge-manifests:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta (multi-arch manifest tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/devcontainer
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Create multi-arch manifest lists
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag || [ -n "$tag" ]; do
+            [ -z "$tag" ] && continue
+            base="${tag%%:*}"
+            ref="${tag#*:}"
+            docker buildx imagetools create -t "$tag" \
+              "${base}:${ref}-amd64" \
+              "${base}:${ref}-arm64"
+          done <<< "${{ steps.meta.outputs.tags }}"
