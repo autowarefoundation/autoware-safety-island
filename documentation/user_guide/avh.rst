@@ -44,8 +44,8 @@ Clone the repository and its submodules:
 
 .. code-block:: console
 
-  $ git clone https://github.com/oguzkaganozt/actuation_porting.git
-  $ cd actuation_porting
+  $ git clone https://github.com/autowarefoundation/autoware-safety-island.git
+  $ cd autoware-safety-island
   $ git submodule update --init --recursive
 
 Launch the development container:
@@ -172,7 +172,7 @@ Copy the repository and the OVPN file to the EC2 instance using SCP. If needed,
 follow the `Transfer files to Linux instances using an SCP client
 <https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html#linux-file-transfer-scp>`_
 paragraph for instructions on how to do that. The following steps assume that
-the repository is in ``~/actuation_porting`` and ``~/avh.ovpn`` is the destination
+the repository is in ``~/autoware-safety-island`` and ``~/avh.ovpn`` is the destination
 path for the configuration file.
 
 Install the OpenVPN package and use the VPN configuration
@@ -208,7 +208,7 @@ Docker Compose:
 
 .. code-block:: console
 
-  $ cd ~/actuation_porting/demo
+  $ cd ~/autoware-safety-island/demo
   $ docker compose up
 
 This will start the **Autoware without actuation pipeline**, which will then connect to

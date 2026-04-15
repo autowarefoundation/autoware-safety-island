@@ -11,11 +11,11 @@ else
     echo -e "${COLOR_YELLOW}----------------------------------------------------------${COLOR_RESET}"
 fi
 
-docker run --rm -it --name actuation-devcontainer \
+docker run --rm -it --name autoware-safety-island-devcontainer \
     --privileged \
     --network host \
     -v "$HOME/.ccache:/root/.ccache" \
-    -v "$(pwd):/actuation" \
-    -w "/actuation" \
+    -v "$(pwd):/autoware-safety-island" \
+    -w "/autoware-safety-island" \
     -e CCACHE_DIR=/root/.ccache \
-    ghcr.io/oguzkaganozt/devcontainer:latest
+    ghcr.io/autowarefoundation/autoware-safety-island:devcontainer

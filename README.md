@@ -6,7 +6,7 @@
 
 # ARM Safety Island - Autoware Actuation Module
 
-   [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen)](https://oguzkaganozt.github.io/actuation_porting/)
+   [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen)](https://autowarefoundation.github.io/autoware-safety-island/)
 
     The ARM Safety Island is responsible for generating the control commands 
     for the vehicle actuators in autoware-compatible format, and publishing 
@@ -71,4 +71,4 @@ graph TD
 
 ## Getting Started
 
-Go to the [documentation](https://oguzkaganozt.github.io/actuation_porting/) for details.
+Go to the [documentation](https://autowarefoundation.github.io/autoware-safety-island/) for details.
