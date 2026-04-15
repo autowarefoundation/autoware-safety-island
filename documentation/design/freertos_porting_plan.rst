@@ -1,11 +1,18 @@
 ..
- # Copyright (c) 2026, Arm Limited.
+ # Copyright (c) 2025-2026, Arm Limited.
  #
  # SPDX-License-Identifier: Apache-2.0
 
 ###########################################
 Zephyr to FreeRTOS Porting Plan
 ###########################################
+
+.. note::
+
+   **Status: design proposal.** This page describes the planned approach
+   for adding a FreeRTOS backend alongside the existing Zephyr one. No
+   phases listed below have been implemented yet. The shipping firmware
+   is Zephyr-only.
 
 ********
 Overview

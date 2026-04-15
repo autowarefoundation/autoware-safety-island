@@ -1,30 +1,39 @@
 ..
- # Copyright (c) 2022-2024, Arm Limited.
+ # Copyright (c) 2021-2026, Arm Limited.
  #
  # SPDX-License-Identifier: Apache-2.0
 
 ..
   # Trailing whitespace on purpose
-.. |cspell:disable-line| replace:: \ 
+.. |cspell:disable-line| replace:: \
 
 #########################
 Changelog & Release Notes
 #########################
 
-***********************
-Refactoring and Porting
-***********************
+Releases are listed newest-first. Unreleased work lives under
+:ref:`Unreleased <unreleased>` until it is tagged.
 
-This version represents a major refactoring and porting of the original
-Actuation Demo. The project has been restructured to directly integrate Autoware
-components into the Zephyr application.
+.. _unreleased:
 
-New Features
+*************************
+Unreleased (since v2.0)
+*************************
+
+Major refactor: Autoware components are now vendored directly into the Zephyr
+application. The previous ``Actuation Service`` / ``Message Converter`` /
+``Actuation Player`` split has been retired, along with the separate Autoware
+workspace.
+
+New features
 ============
 
-- Direct integration of Autoware modules into the Zephyr application.
-- Simplified build system.
-- Updated documentation to reflect the new project structure.
+- Direct integration of Autoware modules (MPC lateral, PID longitudinal,
+  trajectory follower node) into the Zephyr application.
+- ``fvp_baser_aemv8r_smp`` target for Arm Fixed Virtual Platform simulation.
+- AVH deployment flow via ``avh.py``, using the
+  ``aem8r64-lan9c111`` instance flavor.
+- Simplified top-level ``build.sh`` replaces the previous multi-step build.
 
 Changed
 =======
@@ -32,25 +41,13 @@ Changed
 - Removed the dependency on a separate Autoware workspace and pre-compiled
   binaries. Autoware components are now compiled as part of the Zephyr
   application.
-- Replaced the ROS2-based "Message Converter" and "Actuation Player" with direct
-  DDS communication and integrated control logic.
-- The project is now structured as a standalone Zephyr application with Autoware
-  libraries.
-
-******
-latest
-******
-
-New Features
-============
-
-- New ``fvp_baser_aemv8r_smp`` Zephyr target for the Actuation Service.
-
-- New AVH platform deployment, leveraging the ``fvp_baser_aemv8r_smp`` Zephyr
-  target support.
+- Replaced the ROS 2-based *Message Converter* and *Actuation Player* with
+  direct DDS communication and integrated control logic.
+- The project is now a standalone Zephyr application with Autoware libraries
+  linked in.
 
 Third-party repositories
-------------------------
+========================
 
 .. code-block:: yaml
     :substitutions:
@@ -65,33 +62,59 @@ Third-party repositories
     branch: main
     commit: 339cd5a45fd2ebba064ef462b71c657336ca0dfe
 
-    name:   meta-ewaol
-    url:    https://gitlab.com/soafee/ewaol/meta-ewaol.git
-    branch: kirkstone-dev
-
-Changed
-=======
-
-- Removed Autoware submodule. The demo now relies on pre-compiled binaries.
-
 ****
 v2.0
 ****
 
-New Features
+New features
 ============
 
-- Added new components to the repository. They allow creating a lighter
-  deployment of the Safety Island Actuation Demo, without running the Autoware
-  pipeline on the Primary Compute and using a recording of the messages instead.
+- Lighter deployment mode that does not require the full Autoware pipeline on
+  the main compute:
 
-  - An Actuation Player component that reads back recorded messages and sends
-    them as DDS messages.
+  - *Actuation Player* component that replays recorded messages as DDS
+    traffic.
+  - *Packet Analyzer* that validates actuation commands against a reference
+    recording.
 
-  - A Packet Analyzer that validates actuation commands against reference ones.
+Changed
+=======
+
+- Simplified the user guide; new Dockerfile replaces the previous
+  multi-step reproduce instructions. Board flashing moved from the IDE to the
+  command line.
+- Autoware updated to the 2023.10 release, moving the underlying ROS 2
+  distribution from Galactic to Humble.
+- Zephyr updated to 3.5.0 (with an additional patch for S32Z support beyond
+  the release tag).
+- CycloneDDS updated for compatibility with the new Zephyr version.
+- Autoware pipeline (main compute) and Actuation Service (safety island) now
+  use distinct ROS domain IDs.
+
+Limitations
+===========
+
+- A devicetree overlay at
+  ``actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay`` is used as a
+  workaround to set a unique MAC address for the NXP S32Z270DC2_R52 board,
+  which otherwise reuses the same MAC on every build
+  (tracked in `Zephyr Project #61478
+  <https://github.com/zephyrproject-rtos/zephyr/issues/61478>`_).
+- The AVA Developer Platform and the S32Z need to share a sub-network.
+- RViz2 has been seen to crash on machines with `NVIDIA Optimus
+  <https://en.wikipedia.org/wiki/Nvidia_Optimus>`_ graphics
+  (``libGL error: failed to create drawable``). Run the visualizer on a
+  different machine when this occurs.
+
+Resolved issues
+===============
+
+- The S32Z no longer needs to be re-flashed between runs.
+- Official Zephyr support for the S32 Debug Probe has landed, so the IDE
+  workaround and manual register pokes are no longer required.
 
 Third-party repositories
-------------------------
+========================
 
 .. code-block:: yaml
     :substitutions:
@@ -111,80 +134,29 @@ Third-party repositories
     branch: main
     commit: 339cd5a45fd2ebba064ef462b71c657336ca0dfe
 
-    name:   meta-ewaol
-    url:    https://gitlab.com/soafee/ewaol/meta-ewaol.git
-    branch: kirkstone-dev
-
-Changed
-=======
-
-- Simplified and improved the steps of the user guide to reproduce the demo.
-
-  - New Dockerfile to simplify the reproduce steps for the user.
-
-  - Steps using the IDE to flash the development board replaced with using a
-    command line interface.
-
-- Updated the version of third party repositories.
-
-  - Autoware updated to the 2023.10 release, which updates the underlying ROS2
-    version from Galactic to Humble.
-
-  - Zephyr updated to the 3.5.0 release. The targeted commit is ahead of the
-    release in order to include patches providing better support for the S32Z
-    board.
-
-  - CycloneDDS updated to support the latest Zephyr version.
-
-- Started using distinct ROS domain IDs for the Autoware pipeline on the Primary
-  Compute and the Actuation Service on the Safety Island.
-
-Limitations
-===========
-
-- A devicetree overlay ``actuation_autoware/boards/s32z270dc2_rtu0_r52.overlay`` is used
-  to set the MAC address of the NXP S32Z270DC2_R52 board. This is done as a
-  workaround as the NXP S32Z270DC2_R52 platform uses the same MAC address for
-  every build (issue tracked in `Zephyr Project#61478
-  <https://github.com/zephyrproject-rtos/zephyr/issues/61478>`_).
-
-- The AVA Developer Platform and S32Z need to be on the same sub-network.
-
-- Rendering issues with the ``rviz2`` program used by the Autoware demo have
-  been observed on specific GPU and driver combinations. In particular, machines
-  with `NVIDIA Optimus <https://en.wikipedia.org/wiki/Nvidia_Optimus>`_
-  technology have been seen to error with ``libGL error: failed to create
-  drawable`` lines leading to a crash of the program. There are no known
-  workarounds apart from using a different machine to do the render.
-
-Known Issues
-============
-
-None
-
-Resolved Issues
-===============
-
-- The known issue of the 1.0 release requiring to re-flash the demo after each
-  run has been resolved.
-
-- Official support has been added to Zephyr for the S32 Debug Probe. The need
-  for launching the S32 Design Studio IDE and the workaround involving user
-  action to set system registers to the correct value have been removed.
-
 ****
 v1.0
 ****
 
-New Features
+Initial release: Pure Pursuit controller as the Zephyr application, with
+autoware.universe driving the main pipeline.
+
+Limitations
+===========
+
+- No official support for the NXP S32 Debug Probe (debugging the S32Z
+  required workarounds).
+- The AVA Developer Platform and the S32Z need to share a sub-network.
+
+Known issues
 ============
 
-- First release.
-
-  - Pure Pursuit as the Zephyr application, autoware.universe as the main pipeline.
+- The S32Z must be re-flashed before each run of the demo
+  (tracked in `CycloneDDS #1682
+  <https://github.com/eclipse-cyclonedds/cyclonedds/issues/1682>`_).
 
 Third-party repositories
-------------------------
+========================
 
 .. code-block:: yaml
     :substitutions:
@@ -203,26 +175,3 @@ Third-party repositories
     url:    https://github.com/zephyrproject-rtos/zephyr.git
     branch: main
     commit: 07c6af3b8c35c1e49186578ca61a25c76e2fb308
-
-    name:   meta-ewaol
-    url:    https://gitlab.com/soafee/ewaol/meta-ewaol.git
-    branch: kirkstone-dev
-
-Changed
-=======
-
-- Initial release.
-
-Limitations
-===========
-
-- No official support for the NXP S32 Debug Probe to debug the S32Z board.
-
-- The AVA Developer Platform and S32Z need to be on the same sub-network.
-
-Known Issues
-============
-
-- The S32Z board needs to be flashed before each run of the demo. Issue tracked
-  in `CycloneDDS#1682
-  <https://github.com/eclipse-cyclonedds/cyclonedds/issues/1682>`_.

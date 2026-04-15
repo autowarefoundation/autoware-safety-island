@@ -1,17 +1,21 @@
 ..
- # Copyright (c) 2024-2025, Arm Limited.
+ # Copyright (c) 2021-2026, Arm Limited.
  #
  # SPDX-License-Identifier: Apache-2.0
 
-############################################
-Autoware Actuation Module - ARM Safety Island
-############################################
-
-********
+##########
 Overview
-********
+##########
 
-This repository contains the Autoware Actuation Module for the ARM Safety Island.
+The Autoware Safety Island is a Zephyr RTOS application that runs Autoware's
+trajectory follower on an Arm safety-class processor. It consumes planning,
+localization, and vehicle-state topics from the Autoware main compute, runs
+MPC lateral and PID longitudinal control, and publishes control commands back
+out over DDS. No changes to the upstream Autoware codebase are required.
+
+The main compute and the safety island run on separate DDS domains. A
+domain bridge on the main compute forwards the relevant topics between them,
+which isolates the real-time controller from the rest of the Autoware graph.
 
 ********
 Workflow
@@ -29,7 +33,7 @@ Workflow
        end
 
        subgraph "Actuation Module"
-           ControllerNode["Controller Node<br/><br/>Lateral Controller: MPC or Pure Pursuit<br/>Longitudinal Controller: PID"]
+           ControllerNode["Controller Node<br/><br/>Lateral Controller: MPC<br/>Longitudinal Controller: PID"]
        end
 
        subgraph Outputs
@@ -44,9 +48,12 @@ Workflow
 
        ControllerNode --> ControlCommand
 
-*****************
+See :doc:`design/topics` for the full list of DDS topics with message types
+and domain IDs, and :doc:`design/architecture` for the runtime design.
+
+***************
 Main Components
-*****************
+***************
 
 .. list-table::
    :widths: 50 50
@@ -65,54 +72,59 @@ Main Components
    * - Autoware.msgs
      - `1.3.0 <https://github.com/autowarefoundation/autoware_msgs/tree/1.3.0>`_
 
-*********************
+*******************
 Autoware Components
-*********************
+*******************
+
+The following Autoware packages are vendored into ``actuation_module/src/autoware/``
+and compiled as part of the Zephyr application.
 
 .. list-table::
    :widths: 50 50
    :header-rows: 1
 
    * - Component
-     - Description
+     - Role
    * - autoware_msgs
-     - Autoware Messages
+     - Message definitions (IDL)
    * - autoware_osqp_interface
-     - OSQP Interface
+     - OSQP solver wrapper for MPC
    * - autoware_universe_utils
-     - Universe Utils
+     - General utilities
    * - autoware_motion_utils
-     - Motion Utils
+     - Motion primitives
    * - autoware_interpolation
-     - Interpolation Utils
+     - Trajectory interpolation
    * - autoware_vehicle_info_utils
-     - Vehicle Info Utils
+     - Vehicle model parameters
    * - autoware_trajectory_follower_base
-     - Trajectory Follower Base
+     - Controller base classes
    * - autoware_mpc_lateral_controller
-     - MPC Lateral Controller
+     - MPC lateral controller
    * - autoware_pid_longitudinal_controller
-     - PID Longitudinal Controller
+     - PID longitudinal controller
    * - autoware_trajectory_follower_node
-     - Trajectory Follower Node
+     - Controller node entry point
 
-***********************************
-ROS RCL Utils to Zephyr Migration
-***********************************
+*********************************
+ROS RCL to Zephyr mapping
+*********************************
+
+Autoware code is written against ROS 2's ``rcl`` layer. In this project the
+equivalents are built directly on Zephyr primitives, so no ROS 2 runtime is
+needed on the safety island.
 
 .. list-table::
    :widths: 50 50
    :header-rows: 1
 
-   * - RCL Component
-     - Zephyr Target
-   * - RCL Logging
-     - Custom Logger
-   * - RCL Node
-     - POSIX Threads
-   * - RCL Timers
-     - Software Timers
-   * - RCL Publisher
-     - CycloneDDS
-   * - RCL Subscriber
-     - CycloneDDS
+   * - ROS 2 (rcl)
+     - Zephyr equivalent
+   * - Logging
+     - Custom logger (``include/common/logger/logger.hpp``)
+   * - Node
+     - POSIX threads on Zephyr stacks (``include/common/node/node.hpp``)
+   * - Timers
+     - Zephyr software timers
+   * - Publisher / Subscriber
+     - CycloneDDS (``include/common/dds/``)

@@ -1,19 +1,17 @@
 <!--
-# Copyright (c) 2024-2025, Arm Limited.
+# Copyright (c) 2021-2026, Arm Limited.
 #
 # SPDX-License-Identifier: Apache-2.0
 -->
 
-# ARM Safety Island - Autoware Actuation Module
+# Autoware Safety Island
 
-   [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen)](https://autowarefoundation.github.io/autoware-safety-island/)
+[![Documentation](https://img.shields.io/badge/docs-latest-brightgreen)](https://autowarefoundation.github.io/autoware-safety-island/)
 
-    The ARM Safety Island is responsible for generating the control commands 
-    for the vehicle actuators in autoware-compatible format, and publishing 
-    them to the DDS bus. 
-    
-    The implementation does not require any changes to the Autoware codebase, 
-    and can be used as a standalone component.
+A standalone Zephyr RTOS application that runs Autoware's trajectory
+follower (MPC lateral, PID longitudinal) on an Arm safety-class processor
+and exchanges control commands with Autoware over DDS. No changes to the
+Autoware codebase are required.
 
 ### Workflow
 
@@ -71,4 +69,4 @@ graph TD
 
 ## Getting Started
 
-Go to the [documentation](https://autowarefoundation.github.io/autoware-safety-island/) for details.
+See the [documentation](https://autowarefoundation.github.io/autoware-safety-island/) — the [Quickstart](https://autowarefoundation.github.io/autoware-safety-island/user_guide/quickstart.html) builds and runs the FVP target in a few commands.

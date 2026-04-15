@@ -1,5 +1,5 @@
 ..
- # Copyright (c) 2022-2023, Arm Limited.
+ # Copyright (c) 2021-2026, Arm Limited.
  #
  # SPDX-License-Identifier: Apache-2.0
 

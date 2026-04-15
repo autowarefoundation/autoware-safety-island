@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2024, Arm Limited.
+# Copyright (c) 2021-2026, Arm Limited.
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -23,8 +23,8 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'Safety Island Actuation Demo'
-copyright = '2022-2024, Arm Limited'
+project = 'Autoware Safety Island'
+copyright = '2021-2026, Arm Limited'
 author = 'Arm Limited'
 
 
@@ -99,6 +99,7 @@ copybutton_only_copy_prompt_lines = True
 copybutton_copy_empty_lines = False
 copybutton_line_continuation_character = "\\"
 
+# Placeholder until the project cuts tagged releases.
 actuation_version = 'main'
 
 # LaTeX settings for pdf generation

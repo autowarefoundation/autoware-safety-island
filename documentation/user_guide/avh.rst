@@ -1,5 +1,5 @@
 ..
- # Copyright (c) 2024, Arm Limited.
+ # Copyright (c) 2021-2026, Arm Limited.
  #
  # SPDX-License-Identifier: Apache-2.0
 
@@ -9,175 +9,140 @@
 .. _Cortex(R)-R82:
   https://developer.arm.com/Processors/Cortex-R82
 
-###############################
+###################################
 Arm Virtual Hardware deployment
-###############################
+###################################
 
-************
-Introduction
-************
+Run the safety island firmware on a simulated Cortex-R82 board hosted by
+`Arm Virtual Hardware <https://www.arm.com/products/development-tools/simulation/virtual-hardware>`_
+(AVH), connected over a VPN to an Autoware main-compute stack running on
+`AWS EC2 <https://aws.amazon.com/ec2/>`_.
 
-This page documents the steps needed to run the Safety Island Actuation Module
-with a simulated Autoware environment on an `AWS EC2 <https://aws.amazon.com/ec2/>`_
-instance, connected over a Virtual Private Network (VPN) to the Safety
-Island on an `Arm Virtual Hardware
-<https://www.arm.com/products/development-tools/simulation/virtual-hardware>`_
-(AVH) |Cortex(R)-R82|_ based board.
+This guide assumes you have already built ``zephyr.elf`` per the
+:doc:`quickstart`. If you only want to run the firmware locally on the FVP,
+stop after the quickstart — you do not need this page.
 
 .. note::
 
-  All command examples on this page from the HTML document format can be copied
-  by clicking the copy button.
-  In the PDF document format, be aware that special characters are added when
-  lines get wrapped.
+  All command examples on this page can be copied with the copy button in
+  the HTML build. In the PDF build, wrapped lines include trailing line
+  continuation characters — copy with care.
 
-************************
-Zephyr application build
-************************
+**********************************
+1. Launch the AVH instance
+**********************************
 
-On a local machine (validated with Ubuntu 22.04), a suitable environment is
-needed to build the Zephyr application. Please follow the official
-`Zephyr documentation <https://docs.zephyrproject.org/latest/develop/getting_started/index.html>`__
-to set up the build environment and install the Zephyr SDK.
+You can bring up the simulated board through the Corellium web UI or via
+the ``avh.py`` helper script included in this repository. The script is
+the recommended path because it drives the same API that the web UI does
+and is scriptable.
 
-Clone the repository and its submodules:
+Configure credentials
+=====================
 
-.. code-block:: console
+Copy ``template.env`` to ``.env`` at the repository root and fill in:
 
-  $ git clone https://github.com/autowarefoundation/autoware-safety-island.git
-  $ cd autoware-safety-island
-  $ git submodule update --init --recursive
+- ``AVH_API_ENDPOINT`` — leave as-is for staging, or change to
+  ``https://app.avh.arm.com/api`` (or your production endpoint).
+- ``AVH_API_TOKEN`` — from the Corellium dashboard → *profile / api*.
+- ``AVH_PROJECT_NAME`` — the project name as it appears in the dashboard.
+- ``AVH_INSTANCE_NAME`` — any name; the script creates it if it does not
+  exist.
+- ``AVH_INSTANCE_FLAVOR`` — leave as ``aem8r64-lan9c111``. The firmware is
+  specifically built for this flavor.
 
-Launch the development container:
+Deploy with the script (recommended)
+====================================
 
-.. code-block:: console
-
-  $ ./launch-dev-container.sh
-
-Inside the development container, build the Zephyr application for the AVH target:
-
-.. code-block:: console
-
-  $ ./build.sh
-
-The resulting Zephyr binary is located at
-``build/actuation_module/zephyr/zephyr.elf``
-
-***********************
-Virtual machines launch
-***********************
-
-AVH launch (Safety Island)
-==========
-
-Deploy and connect to the Zephyr application on the AVH instance:
-
-.. note::
-
-  You can deploy and connect to the ARM instance on AVH both using WEB UI or the avh.py script.
-  The script is recommended and more convenient for automation and scripting. 
-  
-  In order to use the script, you need to have the ``.env`` file set up in the root directory of the repository.
-  You can use the ``template.env`` file as a template. 
-
-  - If you are using staging environment, you can leave ``AVH_API_ENDPOINT`` as it is or for production environment, you need to change the ``AVH_API_ENDPOINT`` to https://app.avh.arm.com/api or another production environment endpoint.
-  - You can find your ``AVH_API_TOKEN`` by going to Corellium dashboard then navigate to profile/api.
-  - You can find your ``AVH_PROJECT_NAME`` by going to Corellium dashboard then navigate to projects.
-  - You can choose any name for ``AVH_INSTANCE_NAME``.
-  - This application specifically designed for **aem8r64-lan9c111** flavor. So changing the ``AVH_INSTANCE_FLAVOR`` is not recommended.
-
-Option 1: Using the script
-=========================
+From inside the development container:
 
 .. code-block:: console
 
   $ ./avh.py --deploy --ssh
 
-Option 2: Using the WEB UI
-==========================
+This authenticates, creates or finds the instance, uploads
+``build/actuation_module/zephyr/zephyr.elf``, reboots the instance, and
+streams the console over SSH until you disconnect.
 
-Follow the instructions of the `Arm Virtual Hardware User Guide
+Deploy via the web UI
+=====================
+
+Follow the `Arm Virtual Hardware User Guide
 <https://developer.arm.com/documentation/107660/0600/Overview/Access-and-Costs?lang=en>`_
-in order to create an account.
-
-Create a Cortex\ :sup:`®`-R82 device with LAN91C111 networking, upload the
-previously compiled ``zephyr.elf`` file as the custom firmware and start the
-device. See the `Upload Firmware in Web UI
+to create an account, then create a |Cortex(R)-R82|_ device with LAN91C111
+networking. Upload ``zephyr.elf`` as the custom firmware and start the
+device. See `Upload Firmware in Web UI
 <https://developer.arm.com/documentation/107660/0600/Device-Firmware/Upload-Firmware-in-Web-UI?lang=en>`_
-page for details.
+for the detailed steps.
 
-Device boot logs
-==================
-
-You should see the logs when the device boots up in the console tab.
+Boot output looks like this:
 
 .. image:: ../images/run_scene.png
    :alt: Running scene on AVH
    :align: center
 
+************************************************
+2. Launch the Autoware main compute on EC2
+************************************************
 
-EC2 launch (Autoware Main Compute)
-==========
-
-If needed, follow the `Create Your AWS Account
+If you do not already have an AWS account, follow the
+`Create Your AWS Account
 <https://aws.amazon.com/getting-started/guides/setup-environment/module-one/>`_
-tutorial in order to create an AWS account.
-
-If needed, read the `Launch an instance using the new launch instance wizard
+tutorial. The
+`Launch an instance using the new launch instance wizard
 <https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-launch-instance-wizard.html?icmpid=docs_ec2_console>`_
-page in order to learn how to create and configure an AWS EC2 instance.
+page walks through creating the instance itself.
 
-Launch an instance:
+Launch an EC2 instance with:
 
-- running Ubuntu Server 22.04 on a 64-bit Arm architecture
+- Ubuntu Server 22.04 on 64-bit Arm (``m7g.2xlarge``, Graviton 3,
+  8 vCPU / 16 GiB RAM).
+- A key pair you can SSH with.
+- *Auto-assign public IP* enabled and SSH allowed from a sensible source
+  range.
+- 32 GiB of gp3 storage.
 
-- with 8 vCPUs and 16GB of RAM on Graviton3 (type "m7g.2xlarge")
+SSH into the instance (see `Connect to your Linux instance using an SSH client
+<https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html#connect-linux-inst-sshClient>`_)
+and install Docker Engine using the official
+`Install Docker Engine <https://docs.docker.com/engine/install/ubuntu/>`_
+instructions.
 
-- selecting or creating a key pair for login
+Copy the repository onto the EC2 instance (SCP or ``git clone``). The rest
+of this guide assumes it lives at ``~/autoware-safety-island``.
 
-- enabling "Auto-assign a public IP" and allowing SSH traffic from a sensible
-  range of IP addresses
+******************************
+3. Connect the VPN
+******************************
 
-- configuring 32GB of gp3 storage
+Autoware on EC2 and the safety island on AVH exchange DDS traffic over a
+VPN tunnel. Corellium provides an OpenVPN configuration file per device.
 
-**************
-Running the Demo
-**************
+Using the script
+================
 
-Read the `Connect to your Linux instance using an SSH client
-<https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html#connect-linux-inst-sshClient>`_
-paragraph in order to find the SSH command to connect to the instance.
-
-Inside the EC2 instance, install Docker engine. Follow the official
-`Install Docker Engine <https://docs.docker.com/engine/install/ubuntu/>`_ instructions.
-
-VPN connection
-==============
-
-Inside the devcontainer, you can use the script to directly connect to the Corellium VPN
-by running the following command:
+From inside the devcontainer on EC2:
 
 .. code-block:: console
 
   $ ./avh.py --vpn-connect
-  
-If you check with ``ip a`` command, you should see the ``tap0`` interface created.
 
-**Or Manually:**
-Inside the EC2 instance, you can connect to the Corellium VPN by following the steps below:
-On the AVH website, in the "Connect" tab of the previously created device, use
-the "Download OVPN File" button to download the VPN configuration file.
+Verify the tunnel came up:
 
-Copy the repository and the OVPN file to the EC2 instance using SCP. If needed,
-follow the `Transfer files to Linux instances using an SCP client
-<https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html#linux-file-transfer-scp>`_
-paragraph for instructions on how to do that. The following steps assume that
-the repository is in ``~/autoware-safety-island`` and ``~/avh.ovpn`` is the destination
-path for the configuration file.
+.. code-block:: console
 
-Install the OpenVPN package and use the VPN configuration
-file to connect to the local network of the Safety Island, leaving the VPN
-client running in the background:
+  $ ip a
+
+You should see a ``tap0`` interface.
+
+Manual setup
+============
+
+On the AVH website, open the *Connect* tab for your device and click
+*Download OVPN File*. SCP the file to the EC2 instance (see
+`Transfer files to Linux instances using an SCP client
+<https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html#linux-file-transfer-scp>`_).
+The snippet below assumes the file lives at ``~/avh.ovpn``:
 
 .. code-block:: console
 
@@ -185,7 +150,7 @@ client running in the background:
   $ sudo apt install --no-install-recommends openvpn
   $ sudo -b openvpn --config ~/avh.ovpn
 
-The expected output ends with:
+The tail of the output should read:
 
 .. code-block:: text
 
@@ -197,29 +162,50 @@ The expected output ends with:
 
 .. warning::
 
-  If the name of the interface created is not "tap0", update the CycloneDDS
-  configuration file at ``demo/cyclonedds.xml`` to reflect it.
+  If the interface name is not ``tap0``, update
+  ``demo/cyclonedds.xml`` to match. See :doc:`troubleshooting`.
 
-Launching Autoware
-===================
+*********************************
+4. Start Autoware
+*********************************
 
-Navigate to the `demo` directory and start the Autoware container using
-Docker Compose:
+From the EC2 instance:
 
 .. code-block:: console
 
   $ cd ~/autoware-safety-island/demo
   $ docker compose up
 
-This will start the **Autoware without actuation pipeline**, which will then connect to
-the **ARM Safety Island Actuation Module** running on the AVH instance through DDS over the VPN.
+This brings up three services:
 
-Launching the simulation
-========================
+- ``safety-island-autoware`` — Autoware Universe planning simulator
+  (ROS domain 1).
+- ``safety-island-bridge`` — domain bridge that forwards the topics
+  listed in :doc:`/design/topics` between domain 1 (Autoware) and
+  domain 2 (safety island).
+- ``safety-island-visualizer`` — noVNC-wrapped RViz instance exposed on
+  port 6080.
 
-1. After containers are running, you can open the visualizer from the link that is given in the logs OR with the link http://<ec2-instance-public-ip>:6080/vnc.html?resize=scale&password=openadkit&autoconnect=true
-2. Set the initial pose for the ego vehicle by clicking the "2D Pose Estimate" button in the visualizer.
-3. Set the goal pose for the ego vehicle by clicking the "2D Goal Pose" button in the visualizer.
-4. Click the "Auto" button on "Operation Mode" tab in the visualizer.
+Traffic now flows: Autoware (EC2, domain 1) ↔ bridge ↔ VPN ↔ safety
+island (AVH, domain 2).
 
-You can follow the simulation tutorial in the `Autoware documentation <https://autowarefoundation.github.io/autoware-documentation/main/tutorials/ad-hoc-simulation/planning-simulation/>`_.
+*********************************
+5. Drive the simulation
+*********************************
+
+1. Open the visualizer at
+   ``http://<ec2-instance-public-ip>:6080/vnc.html?resize=scale&password=openadkit&autoconnect=true``.
+   (The same URL is printed in the container logs at startup.)
+2. Click **2D Pose Estimate** to place the ego vehicle.
+3. Click **2D Goal Pose** to set a destination.
+4. In the *Operation Mode* tab, click **Auto**.
+
+The safety island receives the resulting trajectory, runs MPC + PID, and
+publishes control commands back to Autoware. The planning-simulator
+tutorial in the
+`Autoware documentation
+<https://autowarefoundation.github.io/autoware-documentation/main/tutorials/ad-hoc-simulation/planning-simulation/>`_
+covers more scenarios.
+
+If anything misbehaves — discovery stalls, DDS drops, VPN interface name —
+see :doc:`troubleshooting`.
