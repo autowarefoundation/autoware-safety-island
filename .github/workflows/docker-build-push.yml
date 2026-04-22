@@ -43,14 +43,14 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/devcontainer
+          images: ghcr.io/${{ github.repository }}
           flavor: |
             suffix=-${{ matrix.suffix }}
           tags: |
             type=sha
             type=ref,event=branch
             type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=devcontainer,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -83,12 +83,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/devcontainer
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=sha
             type=ref,event=branch
             type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=devcontainer,enable={{is_default_branch}}
 
       - name: Create multi-arch manifest lists
         run: |
