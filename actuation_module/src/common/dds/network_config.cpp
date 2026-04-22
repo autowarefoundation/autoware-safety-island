@@ -1,6 +1,12 @@
 // Copyright (c) 2022-2025, Arm Limited.
 // SPDX-License-Identifier: Apache-2.0
 
+// This file is Zephyr-only. For FreeRTOS, configure_network() is provided as a
+// static inline stub in include/platform/freertos/freertos_network.h.
+#if !defined(PLATFORM_ZEPHYR)
+#  error "network_config.cpp must only be compiled for the Zephyr platform"
+#endif
+
 #include <vector>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/ethernet.h>
