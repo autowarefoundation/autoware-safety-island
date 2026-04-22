@@ -1,0 +1,107 @@
+name: Build CI
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  build-zephyr:
+    name: Zephyr Build (FVP)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}:devcontainer
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Trust workspace (container runs as root)
+        run: git config --global --add safe.directory '*'
+
+      - name: Restore Zephyr workspace cache
+        id: zephyr-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .west
+            zephyr
+            actuation_module/zephyr_modules
+          key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
+          restore-keys: zephyr-workspace-
+
+      - name: Initialize Zephyr workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip3 install -q -r zephyr/scripts/requirements-base.txt
+          pip3 install -q -r zephyr/scripts/requirements-build-test.txt
+          [ -d .west ] || west init -l actuation_module
+          west update
+          west zephyr-export
+
+      - name: Build (FVP target)
+        shell: bash
+        run: ./build.sh -t fvp_baser_aemv8r_smp
+
+  build-freertos:
+    name: FreeRTOS POSIX Simulator Build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}:devcontainer
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Trust workspace (container runs as root)
+        run: git config --global --add safe.directory '*'
+
+      - name: Restore CycloneDDS build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build-freertos/cdds_host_out
+            build-freertos/cdds_target_out
+          key: cdds-${{ hashFiles('cyclonedds/CMakeLists.txt') }}
+
+      - name: Phase 1 — CycloneDDS host tools (idlc)
+        run: |
+          set -euo pipefail
+          [ -f build-freertos/cdds_host_out/bin/idlc ] && exit 0
+          cmake cyclonedds -B build-freertos/cyclonedds_host \
+            -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_DDSPERF=OFF -DENABLE_SECURITY=OFF \
+            -DENABLE_SSL=OFF -DENABLE_SHM=OFF \
+            -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
+          cmake --build build-freertos/cyclonedds_host --target install -j"$(nproc)"
+
+      - name: Phase 2 — CycloneDDS target library (static)
+        run: |
+          set -euo pipefail
+          [ -f build-freertos/cdds_target_out/lib/libddsc.a ] && exit 0
+          cmake cyclonedds -B build-freertos/cyclonedds_target \
+            -DBUILD_SHARED_LIBS=OFF -DENABLE_SECURITY=OFF \
+            -DENABLE_SSL=OFF -DENABLE_SHM=OFF -DENABLE_IPV6=OFF \
+            -DBUILD_IDLC=OFF -DBUILD_DDSPERF=OFF \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_target_out" \
+            -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-freertos/cyclonedds_target --target install -j"$(nproc)"
+
+      - name: Phase 3 — FreeRTOS simulator binary
+        run: |
+          set -euo pipefail
+          export PATH="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out/bin:${PATH}"
+          export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out/lib:${LD_LIBRARY_PATH:-}"
+          cmake actuation_module/freertos -B build-freertos/app \
+            -DCDDS_HOST_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out" \
+            -DCDDS_TARGET_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_target_out"
+          cmake --build build-freertos/app -j"$(nproc)"
