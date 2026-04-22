@@ -14,50 +14,74 @@ Changelog & Release Notes
 Releases are listed newest-first. Unreleased work lives under
 :ref:`Unreleased <unreleased>` until it is tagged.
 
+.. note::
+
+   Version numbering restarted at **v0.1.0** when the project was renamed
+   and restructured as *Autoware Safety Island*. Legacy releases (v1.0,
+   v2.0) from the previous project structure are preserved at the bottom of
+   this page for historical reference.
+
 .. _unreleased:
 
-*************************
-Unreleased (since v2.0)
-*************************
+**********
+Unreleased
+**********
 
-Major refactor: Autoware components are now vendored directly into the Zephyr
-application. The previous ``Actuation Service`` / ``Message Converter`` /
-``Actuation Player`` split has been retired, along with the separate Autoware
-workspace.
+Nothing yet.
+
+*****
+v0.1.0
+*****
+
+First release of *Autoware Safety Island*. Major restructuring from the
+previous project: Autoware components are now vendored directly into the
+application, the separate ``Actuation Service`` / ``Message Converter`` /
+``Actuation Player`` split has been retired, and a platform abstraction
+layer enables a FreeRTOS POSIX simulator alongside the Zephyr target.
 
 New features
 ============
 
 - Direct integration of Autoware modules (MPC lateral, PID longitudinal,
-  trajectory follower node) into the Zephyr application.
+  trajectory follower node) compiled as part of the application.
 - ``fvp_baser_aemv8r_smp`` target for Arm Fixed Virtual Platform simulation.
-- AVH deployment flow via ``avh.py``, using the
-  ``aem8r64-lan9c111`` instance flavor.
-- Simplified top-level ``build.sh`` replaces the previous multi-step build.
+- ``s32z270dc2_rtu0_r52@D`` target for NXP S32Z270 hardware.
+- AVH deployment flow via ``avh.py``, using the ``aem8r64-lan9c111``
+  instance flavor.
+- Simplified top-level ``build.sh`` replacing the previous multi-step build.
 - Platform abstraction layer (``actuation_module/include/platform/``) with
   Zephyr and FreeRTOS backends, keeping controller logic fully shared.
 - FreeRTOS POSIX simulator build (``actuation_module/freertos/``) using
   FreeRTOS-Kernel V11.1.0, buildable on any Linux host.
-- CI pipeline (``build-ci.yml``) verifying both Zephyr (FVP) and FreeRTOS
-  simulator builds on every pull request and daily.
-- Release workflow (``release.yml``) publishing ``zephyr-fvp.elf``,
-  ``zephyr-s32z.elf``, ``actuation_freertos``, and ``sha256sums.txt`` on
-  every ``v*.*.*`` tag.
+- CI pipeline verifying both Zephyr (FVP) and FreeRTOS simulator builds on
+  every pull request and daily.
+- Release workflow publishing ``zephyr-fvp.elf``, ``zephyr-s32z.elf``,
+  ``actuation_freertos``, and ``sha256sums.txt`` on every ``v*.*.*`` tag.
 
 Changed
 =======
 
-- Removed the dependency on a separate Autoware workspace and pre-compiled
-  binaries. Autoware components are now compiled as part of the Zephyr
-  application.
+- Removed dependency on a separate Autoware workspace and pre-compiled
+  binaries.
 - Replaced the ROS 2-based *Message Converter* and *Actuation Player* with
   direct DDS communication and integrated control logic.
-- ``network_config`` refactored from a header-only implementation to a
-  proper declaration (``include/common/dds/network_config.hpp``) and
-  Zephyr-only source file (``src/common/dds/network_config.cpp``), guarded
-  by a compile-time error if included in non-Zephyr builds.
-- Devcontainer image moved to
+- ``network_config`` refactored from header-only to a proper declaration
+  (``include/common/dds/network_config.hpp``) and Zephyr-specific source
+  (``src/common/dds/network_config.cpp``).
+- Devcontainer image published at
   ``ghcr.io/autowarefoundation/autoware-safety-island:devcontainer``.
+
+Limitations
+===========
+
+- A devicetree overlay at
+  ``actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay`` is used as a
+  workaround to set a unique MAC address for the NXP S32Z270DC2_R52 board,
+  which otherwise reuses the same MAC on every build
+  (tracked in `Zephyr Project #61478
+  <https://github.com/zephyrproject-rtos/zephyr/issues/61478>`_).
+- FreeRTOS support is currently POSIX simulator only; real hardware port
+  (Phases 5–6) is future work.
 
 Third-party repositories
 ========================
@@ -74,6 +98,21 @@ Third-party repositories
     url:    https://github.com/zephyrproject-rtos/zephyr.git
     branch: main
     commit: 339cd5a45fd2ebba064ef462b71c657336ca0dfe
+
+    name:   freertos-kernel
+    url:    https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+    tag:    V11.1.0
+    commit: dbf70559b27d39c1fdb68dfb9a32140b6a6777a0
+
+.. _legacy:
+
+*******************************
+Legacy releases (previous project structure)
+*******************************
+
+The releases below predate the rename and restructuring to *Autoware Safety
+Island*. They are preserved here for historical reference only and are not
+upgrade-compatible with v0.1.0.
 
 ****
 v2.0
