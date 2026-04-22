@@ -22,6 +22,8 @@
 #include "common/clock/clock.hpp"
 using namespace common::logger;
 
+#include "platform/platform_threading.h"
+
 #include <algorithm>
 #include <limits>
 #include <memory>

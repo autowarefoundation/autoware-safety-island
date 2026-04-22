@@ -8,6 +8,8 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 find_package(Eigen3 REQUIRED)
 project(actuation_module)
 include(GNUInstallDirs)
+set(PLATFORM_ZEPHYR ON)
+target_compile_definitions(app PRIVATE PLATFORM_ZEPHYR=1)
 
 ### BUILD CYCLONEDDS LIBRARY ###
 message("Building cyclonedds for ${ZEPHYR_TARGET}")

@@ -61,9 +61,14 @@ add_custom_command(
 #   LINKER_LANGUAGE CXX
 # )
 
-# --- NEW VERSION (Zephyr-friendly ABI build) ---
-zephyr_library_named(${PROJECT_NAME})
-target_sources(${PROJECT_NAME} PRIVATE ${SOURCES} ${HEADERS})
+# --- Platform-aware library build ---
+if(PLATFORM_ZEPHYR)
+  zephyr_library_named(${PROJECT_NAME})
+  target_sources(${PROJECT_NAME} PRIVATE ${SOURCES} ${HEADERS})
+else()
+  add_library(${PROJECT_NAME} STATIC ${SOURCES} ${HEADERS})
+  set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
+endif()
 
 get_target_property(CycloneDDS_INCLUDE_DIR CycloneDDS::ddsc INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(${PROJECT_NAME} SYSTEM BEFORE PUBLIC

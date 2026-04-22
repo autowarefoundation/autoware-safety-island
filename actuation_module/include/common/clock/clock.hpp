@@ -5,9 +5,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <ctime>
-#include <zephyr/posix/time.h>
-#include <zephyr/net/sntp.h>
 
+#include "platform/platform_clock.h"
 #include "common/logger/logger.hpp"
 using namespace common::logger;
 
@@ -25,27 +24,7 @@ public:
      * @return 0 on success, negative value on failure
      */
     static int init_clock_via_sntp(void) {
-        struct sntp_time ts;
-        struct timespec tspec;
-        int res = sntp_simple("time.nist.gov",
-                    10000, &ts);
-
-        if (res < 0) {
-            log_error("Cannot set time using SNTP\n");
-            return res;
-        }
-
-        tspec.tv_sec = ts.seconds;
-        tspec.tv_nsec = ((uint64_t)ts.fraction * (1000 * 1000 * 1000)) >> 32;
-        res = clock_settime(CLOCK_REALTIME, &tspec);
-        if (res < 0) {
-            log_error("Cannot set REALTIME time using SNTP\n");
-            return res;
-        }
-
-        sleep(1);
-        log_info("Time set using SNTP: %s\n", ctime(&tspec.tv_sec));
-        return 0;
+        return platform_init_clock_via_sntp();
     }
 
     /**
@@ -66,12 +45,12 @@ public:
         const auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::duration<double>(time));
         constexpr int64_t nano_per_sec = 1'000'000'000;
-        
+
         TimeMsg ros_time;
         const auto count = nanoseconds.count();
         ros_time.sec = static_cast<int32_t>(count / nano_per_sec);
         ros_time.nanosec = static_cast<uint32_t>(count % nano_per_sec);
-        
+
         return ros_time;
     }
 
@@ -84,12 +63,12 @@ public:
         const auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::duration<double>(time));
         constexpr int64_t nano_per_sec = 1'000'000'000;
-        
+
         DurationMsg ros_duration;
         const auto count = nanoseconds.count();
         ros_duration.sec = static_cast<int32_t>(count / nano_per_sec);
         ros_duration.nanosec = static_cast<uint32_t>(count % nano_per_sec);
-        
+
         return ros_duration;
     }
 
@@ -99,7 +78,7 @@ public:
      * @return time in seconds
      */
     static double toDouble(const TimeMsg& ros_time) {
-        const int64_t total_ns = static_cast<int64_t>(ros_time.sec) * 1'000'000'000LL 
+        const int64_t total_ns = static_cast<int64_t>(ros_time.sec) * 1'000'000'000LL
                                 + ros_time.nanosec;
         return std::chrono::duration_cast<std::chrono::duration<double>>(
             std::chrono::nanoseconds(total_ns)

@@ -3,6 +3,8 @@
 #include "common/logger/logger.hpp"
 using namespace common::logger;
 
+#include "platform/platform_threading.h"
+
 // Msgs
 #include "SteeringReport.h"
 #include "Trajectory.h"

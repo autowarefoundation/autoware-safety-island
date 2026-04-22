@@ -10,6 +10,8 @@
 #include "common/logger/logger.hpp"
 using namespace common::logger;
 
+#include "platform/platform_threading.h"
+
 // Msgs
 #include "PoseStamped.h"
 using PoseStampedMsg = geometry_msgs_msg_PoseStamped;

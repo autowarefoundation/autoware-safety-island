@@ -6,3 +6,6 @@
 	path = zephyr
 	url = https://github.com/zephyrproject-rtos/zephyr
 	branch = 339cd5a45fd2ebba064ef462b71c657336ca0dfe
+[submodule "freertos-kernel"]
+	path = freertos-kernel
+	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git

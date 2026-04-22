@@ -1,0 +1,174 @@
+# Copyright (c) 2025, Arm Limited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Top-level CMake for FreeRTOS POSIX simulator build.
+# Usage:
+#   mkdir build-freertos && cd build-freertos
+#   cmake ../actuation_module -C ../actuation_module/CMakeLists.freertos.txt
+#   make -j$(nproc)
+
+cmake_minimum_required(VERSION 3.22.1)
+project(actuation_module_freertos LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 11)
+
+# ---- Platform definition ----
+set(PLATFORM_FREERTOS ON)
+add_compile_definitions(PLATFORM_FREERTOS=1)
+
+# ---- Configurable values (same defaults as Zephyr Kconfig) ----
+set(CONFIG_LOG_LEVEL 1 CACHE STRING "Log level (0=off, 1=info, 2=debug)")
+set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
+set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
+set(CONFIG_DDS_NETWORK_INTERFACE "" CACHE STRING "DDS network interface name (empty=auto)")
+set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
+set(CONFIG_THREAD_STACK_SIZE 262144 CACHE STRING "Thread stack size in bytes")
+set(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX 0 CACHE STRING "DHCP delay (0 for simulator)")
+set(CONFIG_ENABLE_SNTP OFF CACHE BOOL "Enable SNTP time sync")
+
+# Generate platform config header
+configure_file(
+    include/platform/freertos/freertos_config_generated.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/freertos_config_generated.h
+    @ONLY
+)
+
+# ---- FreeRTOS Kernel ----
+set(FREERTOS_KERNEL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../freertos-kernel)
+
+if(NOT EXISTS ${FREERTOS_KERNEL_DIR}/include/FreeRTOS.h)
+    message(FATAL_ERROR
+        "FreeRTOS-Kernel not found at ${FREERTOS_KERNEL_DIR}. "
+        "Run: git submodule add https://github.com/FreeRTOS/FreeRTOS-Kernel.git freertos-kernel "
+        "&& cd freertos-kernel && git checkout V11.1.0")
+endif()
+
+add_library(freertos_kernel STATIC
+    ${FREERTOS_KERNEL_DIR}/croutine.c
+    ${FREERTOS_KERNEL_DIR}/event_groups.c
+    ${FREERTOS_KERNEL_DIR}/list.c
+    ${FREERTOS_KERNEL_DIR}/queue.c
+    ${FREERTOS_KERNEL_DIR}/stream_buffer.c
+    ${FREERTOS_KERNEL_DIR}/tasks.c
+    ${FREERTOS_KERNEL_DIR}/timers.c
+    ${FREERTOS_KERNEL_DIR}/portable/ThirdParty/GCC/Posix/port.c
+    ${FREERTOS_KERNEL_DIR}/portable/ThirdParty/GCC/Posix/utils/wait_for_event.c
+    ${FREERTOS_KERNEL_DIR}/portable/MemMang/heap_3.c
+)
+target_include_directories(freertos_kernel PUBLIC
+    ${FREERTOS_KERNEL_DIR}/include
+    ${FREERTOS_KERNEL_DIR}/portable/ThirdParty/GCC/Posix
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/platform/freertos  # FreeRTOSConfig.h
+)
+target_compile_options(freertos_kernel PRIVATE -Wno-cast-qual)
+target_link_libraries(freertos_kernel PUBLIC pthread)
+
+# ---- CycloneDDS (host/POSIX build, no Zephyr, no FreeRTOS flag) ----
+include(ExternalProject)
+
+set(CDDS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../cyclonedds)
+set(CDDS_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/cyclonedds-prefix)
+
+# Phase 1: Build host tools (idlc)
+ExternalProject_Add(cyclonedds_host
+    SOURCE_DIR ${CDDS_SRC}
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/cyclonedds_host
+    CMAKE_ARGS
+        -DBUILD_IDLC=ON
+        -DBUILD_SHARED_LIBS=ON
+        -DCMAKE_INSTALL_PREFIX=${CDDS_PREFIX}/host
+        -DCMAKE_BUILD_TYPE=Release
+    BUILD_COMMAND ${CMAKE_COMMAND} --build .
+    INSTALL_COMMAND ${CMAKE_COMMAND} --install .
+)
+
+# Phase 2: Build CycloneDDS library for the simulator (standard POSIX, no FreeRTOS)
+ExternalProject_Add(cyclonedds_target
+    SOURCE_DIR ${CDDS_SRC}
+    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/cyclonedds_target
+    CMAKE_ARGS
+        -DBUILD_SHARED_LIBS=OFF
+        -DENABLE_SECURITY=OFF
+        -DENABLE_SSL=OFF
+        -DENABLE_SHM=OFF
+        -DENABLE_IPV6=OFF
+        -DBUILD_IDLC=OFF
+        -DCMAKE_INSTALL_PREFIX=${CDDS_PREFIX}/target
+        -DCMAKE_BUILD_TYPE=Debug
+        -DCMAKE_C_FLAGS=-DDDSRT_HAVE_INET_PTON=1
+    BUILD_COMMAND ${CMAKE_COMMAND} --build .
+    INSTALL_COMMAND ${CMAKE_COMMAND} --install .
+)
+
+set(CYCLONEDDS_INCLUDE_DIR ${CDDS_PREFIX}/target/include)
+set(CYCLONEDDS_LIB_DIR ${CDDS_PREFIX}/target/lib)
+
+add_library(cdds STATIC IMPORTED GLOBAL)
+add_dependencies(cdds cyclonedds_target)
+set_target_properties(cdds PROPERTIES IMPORTED_LOCATION ${CYCLONEDDS_LIB_DIR}/libddsc.a)
+
+# ---- Eigen3 ----
+find_package(Eigen3 REQUIRED)
+
+# ---- Autoware Messages ----
+# Make idlc available in PATH for the messages build
+set(ENV{PATH} "${CDDS_PREFIX}/host/bin:$ENV{PATH}")
+set(ENV{LD_LIBRARY_PATH} "${CDDS_PREFIX}/host/lib:$ENV{LD_LIBRARY_PATH}")
+set(CycloneDDS_DIR ${CDDS_PREFIX}/host/lib/cmake/CycloneDDS)
+
+add_subdirectory(src/autoware/autoware_msgs)
+add_dependencies(autoware_msgs cyclonedds_host cyclonedds_target)
+
+# ---- Autoware Components (shared core) ----
+include(cmake/actuation_core.cmake)
+
+# ---- Rename main() in actuation src to actuation_main() ----
+# The FreeRTOS wrapper provides main() and calls actuation_main() as a task.
+add_compile_definitions(main=actuation_main)
+
+# ---- Build target selection ----
+if(BUILD_TEST STREQUAL "1")
+    set(ACTUATION_MAIN_SRC test/unit_test.cpp)
+elseif(BUILD_TEST STREQUAL "2")
+    set(ACTUATION_MAIN_SRC test/dds_pub.cpp)
+elseif(BUILD_TEST STREQUAL "3")
+    set(ACTUATION_MAIN_SRC test/dds_sub.cpp)
+else()
+    set(ACTUATION_MAIN_SRC src/main.cpp)
+endif()
+
+# ---- Executable ----
+add_executable(actuation_freertos
+    freertos/freertos_main.cpp
+    ${ACTUATION_MAIN_SRC}
+    ${APP_SOURCES}
+)
+
+# Undo the main rename for the FreeRTOS wrapper itself
+set_source_files_properties(freertos/freertos_main.cpp PROPERTIES
+    COMPILE_DEFINITIONS "main=main"
+)
+
+target_include_directories(actuation_freertos PRIVATE
+    include
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+    ${CYCLONEDDS_INCLUDE_DIR}
+    ${EIGEN3_INCLUDE_DIR}
+    ${APP_INCLUDE_DIRS}
+)
+
+target_link_libraries(actuation_freertos PRIVATE
+    freertos_kernel
+    cdds
+    autoware_msgs
+    pthread
+)
+
+target_compile_options(actuation_freertos PRIVATE
+    -Wall -Wextra -Wno-unused-parameter
+)
+
+# C++ exceptions and RTTI (matching Zephyr config)
+target_compile_options(actuation_freertos PRIVATE -fexceptions -frtti)

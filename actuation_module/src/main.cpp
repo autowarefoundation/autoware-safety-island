@@ -5,6 +5,9 @@
 #include "common/logger/logger.hpp"
 using namespace common::logger;
 
+#include "platform/platform_config.h"
+#include "platform/platform_network.h"
+
 #include "autoware/trajectory_follower_node/controller_node.hpp"
 
 int main(void)
@@ -16,6 +19,8 @@ int main(void)
     log_success("-----------------------------------------");
     log_info("Waiting for DHCP to get IP address...");
     sleep(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX);
+
+    configure_network();
 
     // TODO: Disable SNTP if no internet connection is available
 #ifdef CONFIG_ENABLE_SNTP
