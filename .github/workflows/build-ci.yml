@@ -73,7 +73,7 @@ jobs:
           path: |
             build-freertos/cdds_host_out
             build-freertos/cdds_target_out
-          key: cdds-${{ hashFiles('cyclonedds/CMakeLists.txt') }}
+          key: cdds-${{ hashFiles('.gitmodules') }}
 
       - name: Phase 1 — CycloneDDS host tools (idlc)
         shell: bash
