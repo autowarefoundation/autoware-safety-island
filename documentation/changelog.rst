@@ -34,6 +34,15 @@ New features
 - AVH deployment flow via ``avh.py``, using the
   ``aem8r64-lan9c111`` instance flavor.
 - Simplified top-level ``build.sh`` replaces the previous multi-step build.
+- Platform abstraction layer (``actuation_module/include/platform/``) with
+  Zephyr and FreeRTOS backends, keeping controller logic fully shared.
+- FreeRTOS POSIX simulator build (``actuation_module/freertos/``) using
+  FreeRTOS-Kernel V11.1.0, buildable on any Linux host.
+- CI pipeline (``build-ci.yml``) verifying both Zephyr (FVP) and FreeRTOS
+  simulator builds on every pull request and daily.
+- Release workflow (``release.yml``) publishing ``zephyr-fvp.elf``,
+  ``zephyr-s32z.elf``, ``actuation_freertos``, and ``sha256sums.txt`` on
+  every ``v*.*.*`` tag.
 
 Changed
 =======
@@ -43,8 +52,12 @@ Changed
   application.
 - Replaced the ROS 2-based *Message Converter* and *Actuation Player* with
   direct DDS communication and integrated control logic.
-- The project is now a standalone Zephyr application with Autoware libraries
-  linked in.
+- ``network_config`` refactored from a header-only implementation to a
+  proper declaration (``include/common/dds/network_config.hpp``) and
+  Zephyr-only source file (``src/common/dds/network_config.cpp``), guarded
+  by a compile-time error if included in non-Zephyr builds.
+- Devcontainer image moved to
+  ``ghcr.io/autowarefoundation/autoware-safety-island:devcontainer``.
 
 Third-party repositories
 ========================

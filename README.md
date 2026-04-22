@@ -8,10 +8,11 @@
 
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen)](https://autowarefoundation.github.io/autoware-safety-island/)
 
-A standalone Zephyr RTOS application that runs Autoware's trajectory
-follower (MPC lateral, PID longitudinal) on an Arm safety-class processor
-and exchanges control commands with Autoware over DDS. No changes to the
-Autoware codebase are required.
+A standalone application that runs Autoware's trajectory follower (MPC
+lateral, PID longitudinal) on an Arm safety-class processor and exchanges
+control commands with Autoware over DDS. The application runs on **Zephyr
+RTOS** (production target) or a **FreeRTOS POSIX simulator** (development
+and testing). No changes to the Autoware codebase are required.
 
 ### Workflow
 

@@ -7,9 +7,12 @@
 Architecture
 ##############
 
-The safety island runs a single Zephyr application that hosts the Autoware
-trajectory follower and talks to the main compute over DDS. This page
-describes how the pieces fit together at runtime.
+The safety island hosts the Autoware trajectory follower and talks to the
+main compute over DDS. This page describes how the pieces fit together at
+runtime on the Zephyr backend. The controller logic is shared across
+backends via a platform abstraction layer
+(``actuation_module/include/platform/``); a FreeRTOS POSIX simulator uses
+the same core with a different backend under ``include/platform/freertos/``.
 
 ************************
 Two-domain DDS topology
@@ -95,9 +98,9 @@ hides Zephyr specifics behind small interfaces:
 - ``clock/clock.hpp`` — monotonic clock, optional SNTP-backed wall clock.
 - ``logger/logger.hpp`` — throttled logging.
 
-This layering is what makes the forward-looking
-:doc:`freertos_porting_plan` feasible: replacing the RTOS backend is a
-question of swapping these four headers, not rewriting the controller.
+This layering means replacing the RTOS backend is a question of swapping
+these four headers, not rewriting the controller. The FreeRTOS backend
+under ``include/platform/freertos/`` demonstrates this in practice.
 
 ****************
 Build pipeline
