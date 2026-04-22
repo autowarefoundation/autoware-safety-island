@@ -9,6 +9,7 @@ zephyr_modules/
 
 # build artifacts
 build/
+build-freertos/
 install/
 .west/
 

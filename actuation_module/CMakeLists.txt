@@ -46,7 +46,7 @@ else()
     include(src/autoware/${component}/${component}.cmake)
   endforeach()
 
-  target_sources(app PRIVATE src/main.cpp ${APP_SOURCES})
+  target_sources(app PRIVATE src/main.cpp src/common/dds/network_config.cpp ${APP_SOURCES})
 endif()
 
 message("=== Build Summary ===")
