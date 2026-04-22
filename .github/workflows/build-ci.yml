@@ -41,8 +41,10 @@ jobs:
           set -euo pipefail
           pip3 install -q -r zephyr/scripts/requirements-base.txt
           pip3 install -q -r zephyr/scripts/requirements-build-test.txt
-          [ -d .west ] || west init -l actuation_module
-          west update
+          if [ "${{ steps.zephyr-cache.outputs.cache-hit }}" != "true" ]; then
+            [ -d .west ] || west init -l actuation_module
+            west update
+          fi
           west zephyr-export
 
       - name: Build (FVP target)

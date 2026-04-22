@@ -5,12 +5,43 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: read
+
 jobs:
-  build-zephyr-fvp:
-    name: Zephyr Build (FVP)
+  verify-tag:
+    name: Verify tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tag points to a commit on main
+        shell: bash
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Error: tag does not point to a commit reachable from main"
+            exit 1
+          fi
+
+  build-zephyr:
+    name: Zephyr Build (${{ matrix.name }})
+    needs: verify-tag
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
+    strategy:
+      matrix:
+        include:
+          - target: fvp_baser_aemv8r_smp
+            name: FVP
+            artifact: zephyr-fvp.elf
+          - target: s32z270dc2_rtu0_r52@D
+            name: S32Z
+            artifact: zephyr-s32z.elf
 
     steps:
       - name: Checkout repository
@@ -23,6 +54,7 @@ jobs:
         run: git config --global --add safe.directory '*'
 
       - name: Restore Zephyr workspace cache
+        id: zephyr-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -32,55 +64,11 @@ jobs:
           key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
           restore-keys: zephyr-workspace-
 
-      - name: Initialize Zephyr workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          pip3 install -q -r zephyr/scripts/requirements-base.txt
-          pip3 install -q -r zephyr/scripts/requirements-build-test.txt
-          [ -d .west ] || west init -l actuation_module
-          west update
-          west zephyr-export
-
-      - name: Build (FVP target)
-        shell: bash
-        run: ./build.sh -t fvp_baser_aemv8r_smp
-
-      - name: Collect artifact
-        shell: bash
-        run: cp build/actuation_module/zephyr/zephyr.elf zephyr-fvp.elf
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: zephyr-fvp
-          path: zephyr-fvp.elf
-
-  build-zephyr-s32z:
-    name: Zephyr Build (S32Z)
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Trust workspace (container runs as root)
-        shell: bash
-        run: git config --global --add safe.directory '*'
-
-      - name: Restore Zephyr workspace cache
+      - name: Restore CycloneDDS host tools cache
         uses: actions/cache@v4
         with:
-          path: |
-            .west
-            zephyr
-            actuation_module/zephyr_modules
-          key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
-          restore-keys: zephyr-workspace-
+          path: build/cyclonedds_host
+          key: zephyr-cdds-host-${{ hashFiles('.gitmodules') }}
 
       - name: Initialize Zephyr workspace
         shell: bash
@@ -88,26 +76,30 @@ jobs:
           set -euo pipefail
           pip3 install -q -r zephyr/scripts/requirements-base.txt
           pip3 install -q -r zephyr/scripts/requirements-build-test.txt
-          [ -d .west ] || west init -l actuation_module
-          west update
+          if [ "${{ steps.zephyr-cache.outputs.cache-hit }}" != "true" ]; then
+            [ -d .west ] || west init -l actuation_module
+            west update
+          fi
           west zephyr-export
 
-      - name: Build (S32Z target)
+      - name: Build (${{ matrix.name }} target)
         shell: bash
-        run: ./build.sh -t "s32z270dc2_rtu0_r52@D"
+        run: ./build.sh -t "${{ matrix.target }}"
 
       - name: Collect artifact
         shell: bash
-        run: cp build/actuation_module/zephyr/zephyr.elf zephyr-s32z.elf
+        run: cp build/actuation_module/zephyr/zephyr.elf "${{ matrix.artifact }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zephyr-s32z
-          path: zephyr-s32z.elf
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1
 
   build-freertos:
     name: FreeRTOS POSIX Simulator Build
+    needs: verify-tag
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
@@ -128,7 +120,7 @@ jobs:
           path: |
             build-freertos/cdds_host_out
             build-freertos/cdds_target_out
-          key: cdds-${{ hashFiles('cyclonedds/CMakeLists.txt') }}
+          key: cdds-${{ hashFiles('.gitmodules') }}
 
       - name: Phase 1 — CycloneDDS host tools (idlc)
         shell: bash
@@ -173,11 +165,12 @@ jobs:
         with:
           name: freertos-simulator
           path: build-freertos/app/actuation_freertos
+          retention-days: 1
 
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-zephyr-fvp, build-zephyr-s32z, build-freertos]
+    needs: [build-zephyr, build-freertos]
     permissions:
       contents: write
 
@@ -207,4 +200,5 @@ jobs:
             release/sha256sums.txt \
             --repo "${{ github.repository }}" \
             --title "Release ${{ github.ref_name }}" \
+            --verify-tag \
             --generate-notes
