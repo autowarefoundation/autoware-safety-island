@@ -1,18 +1,47 @@
-name: Build CI
+name: Release
 
 on:
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: '0 2 * * *'  # Daily at 02:00 UTC
-  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
 
 jobs:
+  verify-tag:
+    name: Verify tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tag points to a commit on main
+        shell: bash
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Error: tag does not point to a commit reachable from main"
+            exit 1
+          fi
+
   build-zephyr:
-    name: Zephyr Build (FVP)
+    name: Zephyr Build (${{ matrix.name }})
+    needs: verify-tag
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
+    strategy:
+      matrix:
+        include:
+          - target: fvp_baser_aemv8r_smp
+            name: FVP
+            artifact: zephyr-fvp.elf
+          - target: s32z270dc2_rtu0_r52@D
+            name: S32Z
+            artifact: zephyr-s32z.elf
 
     steps:
       - name: Checkout repository
@@ -35,6 +64,12 @@ jobs:
           key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
           restore-keys: zephyr-workspace-
 
+      - name: Restore CycloneDDS host tools cache
+        uses: actions/cache@v4
+        with:
+          path: build/cyclonedds_host
+          key: zephyr-cdds-host-${{ hashFiles('.gitmodules') }}
+
       - name: Initialize Zephyr workspace
         shell: bash
         run: |
@@ -47,12 +82,24 @@ jobs:
           fi
           west zephyr-export
 
-      - name: Build (FVP target)
+      - name: Build (${{ matrix.name }} target)
         shell: bash
-        run: ./build.sh -t fvp_baser_aemv8r_smp
+        run: ./build.sh -t "${{ matrix.target }}"
+
+      - name: Collect artifact
+        shell: bash
+        run: cp build/actuation_module/zephyr/zephyr.elf "${{ matrix.artifact }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1
 
   build-freertos:
     name: FreeRTOS POSIX Simulator Build
+    needs: verify-tag
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
@@ -112,3 +159,46 @@ jobs:
             -DCDDS_HOST_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out" \
             -DCDDS_TARGET_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_target_out"
           cmake --build build-freertos/app -j"$(nproc)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-simulator
+          path: build-freertos/app/actuation_freertos
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-zephyr, build-freertos]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: release/
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd release
+          sha256sum zephyr-fvp.elf zephyr-s32z.elf actuation_freertos > sha256sums.txt
+          cat sha256sums.txt
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            release/zephyr-fvp.elf \
+            release/zephyr-s32z.elf \
+            release/actuation_freertos \
+            release/sha256sums.txt \
+            --repo "${{ github.repository }}" \
+            --title "Release ${{ github.ref_name }}" \
+            --verify-tag \
+            --generate-notes
