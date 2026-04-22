@@ -1,10 +1,7 @@
 // Copyright (c) 2022-2025, Arm Limited.
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdio>
-#include <memory>
 #include <vector>
-#include <pthread.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/ethernet.h>
 
@@ -109,7 +106,7 @@ int configure_network(void)
   // Initialize network interfaces
   std::vector<struct net_if *> ifs {};
   net_if_foreach(net_if_cb, &ifs);
-  log_info("Network interfaces found: %d\n", ifs.size());
+  log_info("Network interfaces found: %zu\n", ifs.size());
 
   if (ifs.size() >= 1 && sizeof(CONFIG_NET_IFACE1_ADDR) > 1) {
     log_info("Configuring network interface 1\n");
