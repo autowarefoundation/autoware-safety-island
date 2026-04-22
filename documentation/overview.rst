@@ -7,11 +7,17 @@
 Overview
 ##########
 
-The Autoware Safety Island is a Zephyr RTOS application that runs Autoware's
+The Autoware Safety Island is an actuation module that runs Autoware's
 trajectory follower on an Arm safety-class processor. It consumes planning,
 localization, and vehicle-state topics from the Autoware main compute, runs
 MPC lateral and PID longitudinal control, and publishes control commands back
 out over DDS. No changes to the upstream Autoware codebase are required.
+
+The module runs on **Zephyr RTOS** for production hardware targets (FVP,
+NXP S32Z). A **FreeRTOS POSIX simulator** build is also available for
+development and integration testing on Linux. A platform abstraction layer
+(``actuation_module/include/platform/``) keeps the controller logic shared
+between both backends.
 
 The main compute and the safety island run on separate DDS domains. A
 domain bridge on the main compute forwards the relevant topics between them,
