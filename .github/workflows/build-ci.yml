@@ -12,7 +12,7 @@ jobs:
     name: Zephyr Build (FVP)
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/autowarefoundation/devcontainer:latest
+      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
 
     steps:
       - name: Checkout repository
@@ -53,7 +53,7 @@ jobs:
     name: FreeRTOS POSIX Simulator Build
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/autowarefoundation/devcontainer:latest
+      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
 
     steps:
       - name: Checkout repository
