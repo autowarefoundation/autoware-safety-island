@@ -160,6 +160,50 @@ jobs:
             -DCDDS_TARGET_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_target_out"
           cmake --build build-freertos/app -j"$(nproc)"
 
+      - name: Phase 4 — FreeRTOS runtime smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          log_file=build-freertos/app/freertos-smoke.log
+          binary=build-freertos/app/actuation_freertos
+
+          dump_log() {
+            if [ -f "$log_file" ]; then
+              cat "$log_file"
+            fi
+          }
+
+          fail() {
+            printf '%s\n' "$1" >&2
+            dump_log >&2
+            exit 1
+          }
+
+          require_marker() {
+            marker=$1
+            if ! grep -Fq -- "$marker" "$log_file"; then
+              fail "Missing marker: $marker"
+            fi
+          }
+
+          [ -e "$binary" ] || fail "Smoke binary missing: $binary"
+          [ -x "$binary" ] || fail "Smoke binary is not executable: $binary"
+
+          set +e
+          timeout 20s "$binary" >"$log_file" 2>&1
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+            fail "Smoke binary exited with unexpected status: $status"
+          fi
+
+          require_marker 'FreeRTOS POSIX simulator starting...'
+          require_marker 'Starting Controller Node...'
+
+          printf '%s\n' 'Smoke OK: startup markers observed'
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
