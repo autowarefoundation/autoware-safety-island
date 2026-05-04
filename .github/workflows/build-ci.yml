@@ -120,7 +120,14 @@ jobs:
           binary="build-freertos/app/actuation_freertos"
           log="build-freertos/app/freertos-smoke.log"
 
+          dump_log() {
+            if [ -f "$log" ]; then
+              cat "$log"
+            fi
+          }
+
           if [ ! -x "$binary" ]; then
+            dump_log
             echo "Missing simulator binary: $binary"
             exit 1
           fi
@@ -141,8 +148,8 @@ jobs:
 
           require_marker() {
             local marker="$1"
-            if ! grep -q "$marker" "$log"; then
-              cat "$log"
+            if ! grep -Fq "$marker" "$log"; then
+              dump_log
               echo "Missing startup marker: $marker"
               exit 1
             fi
