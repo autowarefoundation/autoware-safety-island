@@ -139,6 +139,15 @@ jobs:
             exit "$rc"
           fi
 
-          grep -q "FreeRTOS POSIX simulator starting..." "$log"
-          grep -q "Starting Controller Node..." "$log"
+          require_marker() {
+            local marker="$1"
+            if ! grep -q "$marker" "$log"; then
+              cat "$log"
+              echo "Missing startup marker: $marker"
+              exit 1
+            fi
+          }
+
+          require_marker "FreeRTOS POSIX simulator starting..."
+          require_marker "Starting Controller Node..."
           echo "Smoke OK: startup markers observed"
