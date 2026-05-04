@@ -50,6 +50,39 @@ config DDS_LOG_LEVEL
 	  2: Debug
 	  It is used to limit the rate of messages being published to the console.
 
+choice CONTROL_CMD_OUTPUT_MODE
+	prompt "Control command output mode"
+	default CONTROL_CMD_OUTPUT_DDS_ONLY
+	help
+	  Select where final actuation control commands are sent.
+
+config CONTROL_CMD_OUTPUT_DDS_ONLY
+	bool "DDS only"
+	help
+	  Publish final control commands only through DDS.
+
+config CONTROL_CMD_OUTPUT_CAN_ONLY
+	bool "CAN only"
+	select CAN
+	help
+	  Send final control commands only through CAN.
+
+config CONTROL_CMD_OUTPUT_DDS_AND_CAN
+	bool "DDS and CAN"
+	select CAN
+	help
+	  Publish final control commands through DDS and send placeholder CAN frames.
+
+endchoice
+
+config CONTROL_CMD_CAN_OUTPUT
+	bool
+	default y if CONTROL_CMD_OUTPUT_CAN_ONLY || CONTROL_CMD_OUTPUT_DDS_AND_CAN
+
+config CONTROL_CMD_DDS_OUTPUT
+	bool
+	default y if CONTROL_CMD_OUTPUT_DDS_ONLY || CONTROL_CMD_OUTPUT_DDS_AND_CAN
+
 # TODO: Fine tune this if things go wrong with the stack size
 config THREAD_STACK_SIZE
 	int "Stack size for threads"

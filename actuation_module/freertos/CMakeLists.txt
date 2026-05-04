@@ -47,7 +47,8 @@ set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/../cdds_target_out CACHE PATH
 set(PLATFORM_FREERTOS ON)
 add_compile_definitions(PLATFORM_FREERTOS=1)
 
-# ---- Configurable values (same defaults as Zephyr Kconfig) ----
+# ---- Configurable values ----
+# These defaults mirror Zephyr Kconfig unless noted otherwise.
 set(CONFIG_LOG_LEVEL 1 CACHE STRING "Log level (0=off, 1=info, 2=debug)")
 set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
 set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
@@ -56,6 +57,30 @@ set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)"
 set(CONFIG_THREAD_STACK_SIZE 262144 CACHE STRING "Thread stack size in bytes")
 set(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX 0 CACHE STRING "DHCP delay (0 for simulator)")
 set(CONFIG_ENABLE_SNTP OFF CACHE BOOL "Enable SNTP time sync")
+
+# FreeRTOS POSIX defaults to DDS_AND_CAN so CI exercises the mock CAN path.
+set(CONFIG_CONTROL_CMD_OUTPUT_MODE "DDS_AND_CAN" CACHE STRING "Control command output mode: DDS_ONLY, CAN_ONLY, DDS_AND_CAN")
+set_property(CACHE CONFIG_CONTROL_CMD_OUTPUT_MODE PROPERTY STRINGS "DDS_ONLY" "CAN_ONLY" "DDS_AND_CAN")
+
+set(CONFIG_CONTROL_CMD_OUTPUT_DDS_ONLY 0)
+set(CONFIG_CONTROL_CMD_OUTPUT_CAN_ONLY 0)
+set(CONFIG_CONTROL_CMD_OUTPUT_DDS_AND_CAN 0)
+set(CONFIG_CONTROL_CMD_CAN_OUTPUT 0)
+set(CONFIG_CONTROL_CMD_DDS_OUTPUT 0)
+
+if(CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "DDS_ONLY")
+    set(CONFIG_CONTROL_CMD_OUTPUT_DDS_ONLY 1)
+    set(CONFIG_CONTROL_CMD_DDS_OUTPUT 1)
+elseif(CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "CAN_ONLY")
+    set(CONFIG_CONTROL_CMD_OUTPUT_CAN_ONLY 1)
+    set(CONFIG_CONTROL_CMD_CAN_OUTPUT 1)
+elseif(CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "DDS_AND_CAN")
+    set(CONFIG_CONTROL_CMD_OUTPUT_DDS_AND_CAN 1)
+    set(CONFIG_CONTROL_CMD_CAN_OUTPUT 1)
+    set(CONFIG_CONTROL_CMD_DDS_OUTPUT 1)
+else()
+    message(FATAL_ERROR "Unsupported CONFIG_CONTROL_CMD_OUTPUT_MODE=${CONFIG_CONTROL_CMD_OUTPUT_MODE}. Use DDS_ONLY, CAN_ONLY, or DDS_AND_CAN.")
+endif()
 
 # Generate platform config header
 configure_file(
@@ -115,13 +140,22 @@ set(ENV{LD_LIBRARY_PATH} "${CDDS_HOST_PREFIX}/lib:$ENV{LD_LIBRARY_PATH}")
 set(CycloneDDS_DIR ${CDDS_HOST_PREFIX}/lib/cmake/CycloneDDS)
 
 # ---- Eigen3 ----
-find_package(Eigen3 REQUIRED)
+if(NOT BUILD_TEST STREQUAL "4")
+    find_package(Eigen3 REQUIRED)
+else()
+    set(EIGEN3_INCLUDE_DIR "")
+endif()
 
 # ---- Autoware Messages ----
 add_subdirectory(${ACTUATION_DIR}/src/autoware/autoware_msgs ${CMAKE_CURRENT_BINARY_DIR}/autoware_msgs)
 
 # ---- Autoware Components (shared core) ----
-include(${ACTUATION_DIR}/cmake/actuation_core.cmake)
+if(NOT BUILD_TEST STREQUAL "4")
+    include(${ACTUATION_DIR}/cmake/actuation_core.cmake)
+else()
+    set(APP_SOURCES "")
+    set(APP_INCLUDE_DIRS "")
+endif()
 
 # ---- Rename main() in actuation src to actuation_main() ----
 # The FreeRTOS wrapper provides main() and calls actuation_main() as a task.
@@ -134,6 +168,8 @@ elseif(BUILD_TEST STREQUAL "2")
     set(ACTUATION_MAIN_SRC ${ACTUATION_DIR}/test/dds_pub.cpp)
 elseif(BUILD_TEST STREQUAL "3")
     set(ACTUATION_MAIN_SRC ${ACTUATION_DIR}/test/dds_sub.cpp)
+elseif(BUILD_TEST STREQUAL "4")
+    set(ACTUATION_MAIN_SRC ${ACTUATION_DIR}/test/can_output_test.cpp)
 else()
     set(ACTUATION_MAIN_SRC ${ACTUATION_DIR}/src/main.cpp)
 endif()

@@ -13,6 +13,7 @@
 	chosen {
 		zephyr,console = &uart9;
 		zephyr,shell-uart = &uart9;
+		zephyr,canbus = &can0;
 	};
 };
 

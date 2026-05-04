@@ -112,3 +112,18 @@ jobs:
             -DCDDS_HOST_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out" \
             -DCDDS_TARGET_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_target_out"
           cmake --build build-freertos/app -j"$(nproc)"
+
+      - name: Phase 4 — FreeRTOS CAN output tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out/bin:${PATH}"
+          export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out/lib:${LD_LIBRARY_PATH:-}"
+          cmake actuation_module/freertos -B build-freertos/can_output_test \
+            -DCDDS_HOST_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_host_out" \
+            -DCDDS_TARGET_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_target_out" \
+            -DBUILD_TEST=4 \
+            -DCONFIG_CONTROL_CMD_OUTPUT_MODE=DDS_AND_CAN
+          cmake --build build-freertos/can_output_test -j"$(nproc)"
+          timeout 20s build-freertos/can_output_test/actuation_freertos 2>&1 | tee build-freertos/can_output_test.log
+          grep -Fq "CAN output tests passed" build-freertos/can_output_test.log
