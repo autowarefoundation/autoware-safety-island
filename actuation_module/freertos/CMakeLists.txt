@@ -52,7 +52,9 @@ add_compile_definitions(PLATFORM_FREERTOS=1)
 set(CONFIG_LOG_LEVEL 1 CACHE STRING "Log level (0=off, 1=info, 2=debug)")
 set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
 set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
-set(CONFIG_DDS_NETWORK_INTERFACE "" CACHE STRING "DDS network interface name (empty=auto)")
+# The POSIX simulator runs on a Linux host. Default to loopback so CI and
+# local smoke runs work without extra configuration; override if needed.
+set(CONFIG_DDS_NETWORK_INTERFACE "lo" CACHE STRING "DDS network interface name")
 set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
 set(CONFIG_THREAD_STACK_SIZE 262144 CACHE STRING "Thread stack size in bytes")
 set(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX 0 CACHE STRING "DHCP delay (0 for simulator)")

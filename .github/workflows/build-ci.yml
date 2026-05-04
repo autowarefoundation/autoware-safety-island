@@ -113,7 +113,53 @@ jobs:
             -DCDDS_TARGET_PREFIX="${GITHUB_WORKSPACE}/build-freertos/cdds_target_out"
           cmake --build build-freertos/app -j"$(nproc)"
 
-      - name: Phase 4 — FreeRTOS CAN output tests
+      - name: Phase 4 — FreeRTOS runtime smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="build-freertos/app/actuation_freertos"
+          log="build-freertos/app/freertos-smoke.log"
+
+          dump_log() {
+            if [ -f "$log" ]; then
+              cat "$log"
+            fi
+          }
+
+          if [ ! -x "$binary" ]; then
+            dump_log
+            echo "Missing simulator binary: $binary"
+            exit 1
+          fi
+
+          rm -f "$log"
+
+          if timeout 20s "$binary" >"$log" 2>&1; then
+            rc=0
+          else
+            rc=$?
+          fi
+
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+            cat "$log"
+            echo "Unexpected simulator exit code: $rc"
+            exit "$rc"
+          fi
+
+          require_marker() {
+            local marker="$1"
+            if ! grep -Fq "$marker" "$log"; then
+              dump_log
+              echo "Missing startup marker: $marker"
+              exit 1
+            fi
+          }
+
+          require_marker "FreeRTOS POSIX simulator starting..."
+          require_marker "Starting Controller Node..."
+          echo "Smoke OK: startup markers observed"
+
+      - name: Phase 5 — FreeRTOS CAN output tests
         shell: bash
         run: |
           set -euo pipefail
