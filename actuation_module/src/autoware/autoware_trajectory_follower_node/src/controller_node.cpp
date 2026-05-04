@@ -95,9 +95,27 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
                                                               &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
                                                               callbackOperationModeState, this);
     
+  output_mode_ = common::can::configured_control_command_output_mode();
+  log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));
+
   // Publishers
-  control_cmd_pub_ = create_publisher<ControlMsg>(
-    "/control/trajectory_follower/control_cmd", &autoware_control_msgs_msg_Control_desc);
+  if (common::can::output_mode_uses_dds(output_mode_)) {
+    control_cmd_pub_ = create_publisher<ControlMsg>(
+      "/control/trajectory_follower/control_cmd", &autoware_control_msgs_msg_Control_desc);
+  }
+
+  if (common::can::output_mode_uses_can(output_mode_)) {
+    can_output_ = std::make_shared<common::can::ControlCommandCanOutput>();
+    if (!can_output_->init()) {
+      if (output_mode_ == common::can::ControlCommandOutputMode::CAN_ONLY) {
+        log_error("CAN output initialization failed in CAN_ONLY mode");
+        std::exit(1);
+      }
+      log_error("CAN output initialization failed; DDS output remains active in DDS_AND_CAN mode");
+      can_output_.reset();
+    }
+  }
+
   pub_processing_time_lat_ms_ =
     create_publisher<Float64StampedMsg>("/control/trajectory_follower/lateral/debug/processing_time_ms", &tier4_debug_msgs_msg_Float64Stamped_desc);
   pub_processing_time_lon_ms_ =
@@ -324,17 +342,36 @@ void Controller::callbackTimerControl()
   // reset_data_flags();
 }
 
-void Controller::publishControlCommand(const trajectory_follower::LongitudinalOutput & lon_out, const trajectory_follower::LateralOutput & lat_out) {
+void Controller::publishControlCommand(
+  const trajectory_follower::LongitudinalOutput & lon_out,
+  const trajectory_follower::LateralOutput & lat_out)
+{
   ControlMsg out{0};
   out.stamp = Clock::toRosTime(Clock::now());
   out.lateral.steering_tire_angle = lat_out.control_cmd.steering_tire_angle;
   out.lateral.steering_tire_rotation_rate = lat_out.control_cmd.steering_tire_rotation_rate;
+  out.lateral.is_defined_steering_tire_rotation_rate = lat_out.control_cmd.is_defined_steering_tire_rotation_rate;
   out.lateral.stamp = out.stamp;
   out.longitudinal = lon_out.control_cmd;
-  if (control_cmd_pub_->publish(out)) {
-    log_debug("Control command published");
-  } else {
-    log_error("Control command not published");
+
+  if (common::can::output_mode_uses_dds(output_mode_)) {
+    if (control_cmd_pub_ && control_cmd_pub_->publish(out)) {
+      log_debug("Control command published over DDS");
+    } else {
+      log_error("Control command not published over DDS");
+    }
+  }
+
+  if (common::can::output_mode_uses_can(output_mode_)) {
+    if (!can_output_ || !can_output_->send(out, output_mode_)) {
+      if (output_mode_ == common::can::ControlCommandOutputMode::CAN_ONLY) {
+        log_error("Control command not sent over CAN in CAN_ONLY mode");
+      } else {
+        log_warn_throttle("Control command not sent over CAN; DDS output remains active");
+      }
+    } else {
+      log_debug("Control command sent over CAN");
+    }
   }
 }
 

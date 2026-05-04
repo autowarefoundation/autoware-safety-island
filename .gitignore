@@ -12,6 +12,7 @@ build/
 build-freertos/
 install/
 .west/
+.worktrees/
 
 # avh
 .env

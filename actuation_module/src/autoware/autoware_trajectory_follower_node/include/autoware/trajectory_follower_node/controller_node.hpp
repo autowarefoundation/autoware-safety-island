@@ -21,6 +21,8 @@
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
 #include "autoware_vehicle_info_utils/vehicle_info_utils.hpp"
+#include "common/can/control_command_can_output.hpp"
+#include "common/can/control_command_output_mode.hpp"
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -99,6 +101,8 @@ private:
 
   // Publishers
   std::shared_ptr<Publisher<ControlMsg>> control_cmd_pub_;
+  common::can::ControlCommandOutputMode output_mode_{common::can::configured_control_command_output_mode()};
+  std::shared_ptr<common::can::ControlCommandCanOutput> can_output_;
   std::shared_ptr<Publisher<Float64StampedMsg>> pub_processing_time_lat_ms_;
   std::shared_ptr<Publisher<Float64StampedMsg>> pub_processing_time_lon_ms_;
   
