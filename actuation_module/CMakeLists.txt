@@ -15,7 +15,7 @@ include(cyclonedds_config.cmake)
 create_cdds_lib(${CMAKE_CURRENT_SOURCE_DIR}/../cyclonedds)
 
 ### BUILD AUTOWARE MESSAGES ###
-add_subdirectory(src/autoware/autoware_msgs)
+add_subdirectory(core/autoware/autoware_msgs)
 
 ### BUILD ACTUATION MODULE ###
 set(APP_SOURCES "" CACHE INTERNAL "Global source files list")
@@ -41,7 +41,7 @@ else()
   )
 
   foreach(component IN LISTS AUTOWARE_COMPONENTS)
-    include(src/autoware/${component}/${component}.cmake)
+    include(core/autoware/${component}/${component}.cmake)
   endforeach()
 
   target_sources(app PRIVATE app/main.cpp ${APP_SOURCES})
