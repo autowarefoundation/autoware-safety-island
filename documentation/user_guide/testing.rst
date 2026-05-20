@@ -25,7 +25,7 @@ Unit test (node + DDS round-trip)
 Builds ``actuation_module/test/unit_test.cpp``. The test creates a DDS
 publisher and subscriber on the same topic, drives a node timer, and checks
 that messages arrive and callbacks fire as expected. Useful as a smoke test
-after changes to ``include/common/node/`` or ``include/common/dds/``.
+after changes to ``core/common/node/`` or ``core/common/dds/``.
 
 **********************
 DDS publisher only

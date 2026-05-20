@@ -58,10 +58,10 @@ tunables are shared across the two domains:
 Controller node
 **********************
 
-The entry point is ``actuation_module/src/main.cpp``. It brings up DHCP,
+The entry point is ``actuation_module/app/main.cpp``. It brings up DHCP,
 optionally syncs time via SNTP (``CONFIG_ENABLE_SNTP``), and instantiates
 a single ``Controller`` node. The controller is defined in
-``actuation_module/src/autoware/autoware_trajectory_follower_node/src/controller_node.cpp``.
+``actuation_module/core/autoware/autoware_trajectory_follower_node/src/controller_node.cpp``.
 
 At construction the controller:
 
@@ -84,7 +84,7 @@ At construction the controller:
 RTOS primitives
 ****************
 
-The ``common`` abstraction layer under ``actuation_module/include/common/``
+The ``common`` abstraction layer under ``actuation_module/core/common/``
 hides Zephyr specifics behind small interfaces:
 
 - ``node/node.hpp`` — thread and timer wrappers. Uses the pthread API
@@ -111,7 +111,7 @@ Build pipeline
 3. Produces ``build/actuation_module/zephyr/zephyr.elf``.
 
 IDL messages under
-``actuation_module/src/autoware/autoware_msgs/`` are compiled to C by
+``actuation_module/core/autoware/autoware_msgs/`` are compiled to C by
 IDLC and linked into the firmware. The Autoware C++ packages
 (``autoware_mpc_lateral_controller``, etc.) are compiled directly against
 Zephyr; there is no ROS 2 runtime on the safety island.

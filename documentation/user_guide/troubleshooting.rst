@@ -59,7 +59,7 @@ messages will be silently dropped.
 Firmware appears hung for ~10 s at boot
 ********************************************
 
-This is intentional. ``actuation_module/src/main.cpp`` blocks for
+This is intentional. ``actuation_module/app/main.cpp`` blocks for
 ``CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX`` seconds (10 by default) before
 starting the Controller Node, giving DHCP time to acquire a lease and —
 if ``CONFIG_ENABLE_SNTP`` is on — SNTP time to sync. Only assume a

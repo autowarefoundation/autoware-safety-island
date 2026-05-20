@@ -76,7 +76,7 @@ Main Components
 Autoware Components
 *******************
 
-The following Autoware packages are vendored into ``actuation_module/src/autoware/``
+The following Autoware packages are vendored into ``actuation_module/core/autoware/``
 and compiled as part of the Zephyr application.
 
 .. list-table::
@@ -121,10 +121,10 @@ needed on the safety island.
    * - ROS 2 (rcl)
      - Zephyr equivalent
    * - Logging
-     - Custom logger (``include/common/logger/logger.hpp``)
+     - Custom logger (``core/common/logger/logger.hpp``)
    * - Node
-     - POSIX threads on Zephyr stacks (``include/common/node/node.hpp``)
+     - POSIX threads on Zephyr stacks (``core/common/node/node.hpp``)
    * - Timers
      - Zephyr software timers
    * - Publisher / Subscriber
-     - CycloneDDS (``include/common/dds/``)
+     - CycloneDDS (``core/common/dds/``)

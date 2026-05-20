@@ -9,7 +9,7 @@ DDS topics
 
 Ground-truth contract between Autoware and the safety island. All values
 are read directly from
-``actuation_module/src/autoware/autoware_trajectory_follower_node/src/controller_node.cpp``
+``actuation_module/core/autoware/autoware_trajectory_follower_node/src/controller_node.cpp``
 and ``demo/bridge/bridge-config.yaml``.
 
 Both sides of the bridge use DDS type names derived from the ROS 2
