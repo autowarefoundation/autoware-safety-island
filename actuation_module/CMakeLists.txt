@@ -68,7 +68,7 @@ target_compile_options(app PRIVATE
 endif()
 
 target_include_directories(app PRIVATE
-  include
+  core
   ${CMAKE_CURRENT_BINARY_DIR}/install/include
   ${CycloneDDS_INCLUDE_DIR}
   ${EIGEN3_INCLUDE_DIR}
