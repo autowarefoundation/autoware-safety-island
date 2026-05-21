@@ -25,3 +25,9 @@ add_test(NAME clock_time COMMAND test_clock_time)
 add_executable(test_qos test_qos.cpp)
 target_link_libraries(test_qos PRIVATE rclcpp::rclcpp Catch2::Catch2WithMain)
 add_test(NAME qos COMMAND test_qos)
+
+# Compile-only: tries to build autoware_universe_utils with vendored
+# sources untouched. Expected to surface missing facade pieces.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../cmake")
+include(AddAutowarePackage)
+add_autoware_package(autoware_universe_utils SUBDIR common/autoware_universe_utils)
