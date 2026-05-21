@@ -6,8 +6,9 @@
 // Minimal rclcpp facade. Headers are added as the API surface grows.
 #include "rclcpp/logger.hpp"
 #include "rclcpp/logging.hpp"
-#include "rclcpp/time.hpp"
-#include "rclcpp/duration.hpp"
-#include "rclcpp/clock.hpp"
+// Added in Task 3.4:
+// #include "rclcpp/time.hpp"
+// #include "rclcpp/duration.hpp"
+// #include "rclcpp/clock.hpp"
 
 #endif  // RCLCPP__RCLCPP_HPP_
