@@ -19,3 +19,31 @@
 	path = external/rosidl
 	url = https://github.com/ros2/rosidl.git
 	branch = humble
+[submodule "external/micro_ros/rcutils"]
+	path = external/micro_ros/rcutils
+	url = https://github.com/ros2/rcutils.git
+	branch = humble
+[submodule "external/micro_ros/rcl"]
+	path = external/micro_ros/rcl
+	url = https://github.com/ros2/rcl.git
+	branch = humble
+[submodule "external/micro_ros/rmw"]
+	path = external/micro_ros/rmw
+	url = https://github.com/ros2/rmw.git
+	branch = humble
+[submodule "external/micro_ros/rmw_microxrcedds"]
+	path = external/micro_ros/rmw_microxrcedds
+	url = https://github.com/micro-ROS/rmw_microxrcedds.git
+	branch = humble
+[submodule "external/micro_ros/micro-CDR"]
+	path = external/micro_ros/micro-CDR
+	url = https://github.com/eProsima/micro-CDR.git
+	branch = master
+[submodule "external/micro_ros/Micro-XRCE-DDS-Client"]
+	path = external/micro_ros/Micro-XRCE-DDS-Client
+	url = https://github.com/eProsima/Micro-XRCE-DDS-Client.git
+	branch = master
+[submodule "external/micro_ros/rclc"]
+	path = external/micro_ros/rclc
+	url = https://github.com/ros2/rclc.git
+	branch = humble
