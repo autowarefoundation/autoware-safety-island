@@ -12,3 +12,6 @@
 [submodule "external/autoware_universe"]
 	path = external/autoware_universe
 	url = https://github.com/autowarefoundation/autoware.universe.git
+[submodule "external/autoware_msgs"]
+	path = external/autoware_msgs
+	url = https://github.com/autowarefoundation/autoware_msgs.git
