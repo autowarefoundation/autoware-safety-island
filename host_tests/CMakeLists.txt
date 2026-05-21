@@ -21,3 +21,7 @@ add_test(NAME logger COMMAND test_logger)
 add_executable(test_clock_time test_clock_time.cpp)
 target_link_libraries(test_clock_time PRIVATE rclcpp::rclcpp Catch2::Catch2WithMain)
 add_test(NAME clock_time COMMAND test_clock_time)
+
+add_executable(test_qos test_qos.cpp)
+target_link_libraries(test_qos PRIVATE rclcpp::rclcpp Catch2::Catch2WithMain)
+add_test(NAME qos COMMAND test_qos)

@@ -9,5 +9,7 @@
 #include "rclcpp/time.hpp"
 #include "rclcpp/duration.hpp"
 #include "rclcpp/clock.hpp"
+#include "rclcpp/qos.hpp"
+#include "rclcpp/node_options.hpp"
 
 #endif  // RCLCPP__RCLCPP_HPP_
