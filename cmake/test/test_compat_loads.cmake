@@ -1,0 +1,5 @@
+include(${CMAKE_CURRENT_LIST_DIR}/../AutowarePackageCompat.cmake)
+if(NOT AUTOWARE_PACKAGE_COMPAT)
+  message(FATAL_ERROR "AutowarePackageCompat marker not set")
+endif()
+message(STATUS "OK")

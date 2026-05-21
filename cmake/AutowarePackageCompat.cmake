@@ -47,19 +47,44 @@ function(ament_target_dependencies target)
 endfunction()
 
 # ament_export_* — no-ops; we do not produce ament install artifacts.
-function(ament_export_targets)        endfunction()
-function(ament_export_dependencies)   endfunction()
-function(ament_export_include_directories) endfunction()
-function(ament_export_libraries)      endfunction()
-function(ament_export_definitions)    endfunction()
+function(ament_export_targets)
+endfunction()
+function(ament_export_dependencies)
+endfunction()
+function(ament_export_include_directories)
+endfunction()
+function(ament_export_libraries)
+endfunction()
+function(ament_export_definitions)
+endfunction()
 
 # ament_lint_auto_find_test_dependencies — no-ops (we do not run ament tests).
-function(ament_lint_auto_find_test_dependencies) endfunction()
+function(ament_lint_auto_find_test_dependencies)
+endfunction()
 
 # Install rules from upstream: redirect to ${CMAKE_BINARY_DIR}/install for inspection only.
 # Upstream uses install(DIRECTORY include/ DESTINATION include) etc.; the
 # default CMake install() works for our needs.
-EOF_GUARD_AGAINST_DOUBLE_INCLUDE_NOTE: this file is meant to be include()d
-# at the *top* of autoware.universe-built packages before they call
-# find_package(ament_cmake REQUIRED). The next stage wires it in via
-# AddAutowarePackage.cmake which does include() before add_subdirectory().
+# This file is meant to be include()d at the *top* of autoware.universe-built
+# packages before they call find_package(ament_cmake REQUIRED). The
+# AddAutowarePackage.cmake helper does that include() before add_subdirectory().
+
+# --- find_package() interception ---------------------------------------
+#
+# Upstream packages call find_package(<X> REQUIRED) for ament_cmake,
+# rclcpp, rosidl_default_runtime, etc. We can't easily intercept the
+# find_package() built-in, so we instead provide Config files on the
+# CMAKE_MODULE_PATH for each.
+#
+# These are added under cmake/compat/ — one <Name>Config.cmake per
+# faked package — and the parent CMakeLists.txt is responsible for
+# prepending cmake/compat/ to CMAKE_PREFIX_PATH before doing
+# add_subdirectory() on an upstream package.
+
+set(AUTOWARE_PACKAGE_COMPAT_DIR "${CMAKE_CURRENT_LIST_DIR}/compat" CACHE PATH "")
+
+# Convenience helper. Call from the top-level CMakeLists.txt once.
+function(autoware_package_compat_setup)
+  list(PREPEND CMAKE_PREFIX_PATH "${AUTOWARE_PACKAGE_COMPAT_DIR}")
+  set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" PARENT_SCOPE)
+endfunction()
