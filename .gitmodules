@@ -15,3 +15,7 @@
 [submodule "external/autoware_msgs"]
 	path = external/autoware_msgs
 	url = https://github.com/autowarefoundation/autoware_msgs.git
+[submodule "external/rosidl"]
+	path = external/rosidl
+	url = https://github.com/ros2/rosidl.git
+	branch = humble
