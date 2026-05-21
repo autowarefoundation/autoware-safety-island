@@ -11,6 +11,9 @@
 #include "rclcpp/clock.hpp"
 #include "rclcpp/qos.hpp"
 #include "rclcpp/node_options.hpp"
+#include "rclcpp/publisher.hpp"
+#include "rclcpp/subscription.hpp"
+#include "rclcpp/timer.hpp"
 #include "rclcpp/node.hpp"
 
 #endif  // RCLCPP__RCLCPP_HPP_
