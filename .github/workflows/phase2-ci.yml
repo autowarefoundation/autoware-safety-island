@@ -1,0 +1,113 @@
+# Copyright (c) 2026, Arm Limited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# CI for the Phase 2 vendored-upstream + FreeRTOS POSIX stack
+# (issue #14). Triggers on phase2/* branches and on PRs targeting
+# main from any branch that touches the Phase 2 tree.
+
+name: phase2-ci
+
+on:
+  push:
+    branches: [ "phase2/**" ]
+  pull_request:
+    branches: [ "main", "master", "phase2/**" ]
+    paths:
+      - 'freertos/**'
+      - 'shim/**'
+      - 'host_tests/**'
+      - 'cmake/**'
+      - 'scripts/**'
+      - 'external/**'
+      - '.github/workflows/phase2-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: host_tests (rclcpp facade)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build python3-venv \
+            libeigen3-dev libboost-dev libfmt-dev
+      - name: Install host rosidl tooling
+        run: ./scripts/install-rosidl-host.sh
+      - name: Smoke-test the rosidl pipeline
+        run: ./cmake/test/test_message_gen.sh
+      - name: Configure host_tests
+        run: cmake -S host_tests -B build/host_tests -G Ninja
+      - name: Build host_tests
+        run: cmake --build build/host_tests --target test_logger test_clock_time test_qos test_publisher_compile
+      - name: Run host_tests
+        run: ctest --test-dir build/host_tests --output-on-failure -E autoware_universe_utils
+
+  freertos-posix:
+    name: FreeRTOS POSIX scaffold + micro-CDR
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build
+      - name: Configure freertos build
+        run: cmake -S freertos -B build/freertos -G Ninja
+      - name: Build hello_freertos
+        run: cmake --build build/freertos --target hello_freertos
+      - name: Run hello_freertos (timeout 5s)
+        run: |
+          set +e
+          timeout 5s ./build/freertos/hello_freertos > out.log
+          code=$?
+          cat out.log
+          # exit 124 = SIGTERM from timeout (expected — the scheduler keeps running)
+          if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
+            echo "unexpected exit code: $code"
+            exit 1
+          fi
+          grep -q '^hello freertos$' out.log || { echo "missing greeting"; exit 1; }
+      - name: Build microcdr (Layer 1 of micro-ROS)
+        run: cmake --build build/freertos --target microcdr
+
+  vendored-sources-untouched:
+    name: vendored sources clean
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Verify zero diff inside vendored sources
+        run: |
+          set -e
+          for d in external/autoware_universe external/autoware_msgs external/rosidl \
+                   external/FreeRTOS-Kernel \
+                   external/micro_ros/rcl external/micro_ros/rcutils \
+                   external/micro_ros/rmw external/micro_ros/rclc \
+                   external/micro_ros/rmw_microxrcedds \
+                   external/micro_ros/micro-CDR \
+                   external/micro_ros/Micro-XRCE-DDS-Client; do
+            if [ ! -d "$d" ]; then
+              echo "missing submodule: $d"; exit 1
+            fi
+            if [ -n "$(git -C "$d" status --porcelain)" ]; then
+              echo "DIRTY submodule: $d"
+              git -C "$d" status --short
+              exit 1
+            fi
+            echo "CLEAN: $d"
+          done
