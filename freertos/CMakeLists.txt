@@ -42,3 +42,7 @@ add_executable(hello_freertos
   hello_task.c
 )
 target_link_libraries(hello_freertos PRIVATE freertos_kernel)
+
+# --- micro-ROS layers (Stage 4) ----------------------------------------
+list(PREPEND CMAKE_MODULE_PATH "${REPO_ROOT}/cmake")
+include(MicroRos)
