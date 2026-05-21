@@ -17,3 +17,7 @@ target_link_libraries(test_logger PRIVATE rclcpp::rclcpp Catch2::Catch2WithMain)
 
 enable_testing()
 add_test(NAME logger COMMAND test_logger)
+
+add_executable(test_clock_time test_clock_time.cpp)
+target_link_libraries(test_clock_time PRIVATE rclcpp::rclcpp Catch2::Catch2WithMain)
+add_test(NAME clock_time COMMAND test_clock_time)
