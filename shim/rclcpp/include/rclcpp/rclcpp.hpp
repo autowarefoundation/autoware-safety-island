@@ -11,5 +11,6 @@
 #include "rclcpp/clock.hpp"
 #include "rclcpp/qos.hpp"
 #include "rclcpp/node_options.hpp"
+#include "rclcpp/node.hpp"
 
 #endif  // RCLCPP__RCLCPP_HPP_

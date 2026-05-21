@@ -1,5 +1,6 @@
 add_library(rclcpp_facade STATIC
   src/clock.cpp
+  src/node.cpp
 )
 target_include_directories(rclcpp_facade PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
