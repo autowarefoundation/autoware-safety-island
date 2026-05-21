@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Shared helpers for FreeRTOS POSIX runtime CI phases.
+# Each runtime workflow step sources this file once at the top.
+#
+# Usage:
+#   source .github/scripts/ci-helpers.sh
+#   run_with_timeout <binary> <log_path> <timeout_seconds>
+#   require_marker   <log_path> <fixed-string marker>
+#   kill_with_timeout <pid> [grace_seconds]
+
+set -euo pipefail
+
+# SIGTERM grace period before timeout(1) / kill_with_timeout escalate to SIGKILL.
+# Bounds every CI step's worst-case wall time so a blocked-on-SIGTERM binary
+# cannot hang the runner.
+CI_KILL_AFTER_SECONDS="${CI_KILL_AFTER_SECONDS:-5}"
+
+dump_log() {
+  local log="$1"
+  if [ -f "$log" ]; then
+    echo "----- log: $log -----"
+    cat "$log"
+    echo "----- end log -----"
+  fi
+}
+
+# Run a binary with a wall-clock timeout. Exit 0 (clean) and 124 (SIGTERM on
+# timeout) are both considered success. timeout(1) escalates to SIGKILL after
+# CI_KILL_AFTER_SECONDS so a binary that ignores SIGTERM still terminates.
+# Any other exit dumps the log and fails.
+run_with_timeout() {
+  local bin="$1"
+  local log="$2"
+  local secs="$3"
+
+  if [ ! -x "$bin" ]; then
+    echo "Missing or non-executable binary: $bin" >&2
+    exit 1
+  fi
+
+  rm -f "$log"
+  set +e
+  timeout --kill-after="${CI_KILL_AFTER_SECONDS}s" "${secs}s" "$bin" >"$log" 2>&1
+  local rc=$?
+  set -e
+
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+    dump_log "$log"
+    echo "Unexpected exit status $rc from $bin" >&2
+    exit "$rc"
+  fi
+}
+
+# Send SIGTERM to a backgrounded pid and wait up to `grace_seconds` (default
+# CI_KILL_AFTER_SECONDS) for it to exit. If still alive after the grace window,
+# escalate to SIGKILL. Always reaps the pid via `wait` so the step cannot hang
+# on an unbounded `wait $pid`.
+kill_with_timeout() {
+  local pid="$1"
+  local grace="${2:-$CI_KILL_AFTER_SECONDS}"
+
+  kill -TERM "$pid" 2>/dev/null || true
+  local i=0
+  while [ "$i" -lt "$grace" ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+# Fail if the fixed-string marker is missing from the log.
+require_marker() {
+  local log="$1"
+  local marker="$2"
+  if ! grep -Fq -- "$marker" "$log"; then
+    dump_log "$log"
+    echo "Missing marker in $log: $marker" >&2
+    exit 1
+  fi
+}

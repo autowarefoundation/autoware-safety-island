@@ -53,7 +53,8 @@ set(CONFIG_LOG_LEVEL 1 CACHE STRING "Log level (0=off, 1=info, 2=debug)")
 set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
 set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
 # The POSIX simulator runs on a Linux host. Default to loopback so CI and
-# local smoke runs work without extra configuration; override if needed.
+# local smoke runs work without extra configuration; override with
+# -DCONFIG_DDS_NETWORK_INTERFACE=<iface> when running against an external peer.
 set(CONFIG_DDS_NETWORK_INTERFACE "lo" CACHE STRING "DDS network interface name")
 set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
 set(CONFIG_THREAD_STACK_SIZE 262144 CACHE STRING "Thread stack size in bytes")
