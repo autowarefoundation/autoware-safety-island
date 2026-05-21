@@ -56,11 +56,18 @@ int main(void) {
     log_info("DDS publisher started\n");
     log_info("--------------------------------\n");
 
+    // idlc generates frame_id as char* (not const char*). Hold the strings
+    // in writable storage so we never assign a string-literal pointer through
+    // a const_cast — the standard treats writes to a string literal as UB,
+    // and a future CycloneDDS change that mutated the buffer would crash.
+    static char odom_frame_id[]      = "odom";
+    static char base_link_frame_id[] = "base_link";
+
     while(true) {
         auto current_time = Clock::toRosTime(Clock::now());
         
         // Publish SteeringReport message
-        SteeringReportMsg steering_msg;
+        SteeringReportMsg steering_msg = {};
         steering_msg.stamp = current_time;
         steering_msg.steering_tire_angle = 0.5; // radians
         steering_publisher->publish(steering_msg);
@@ -87,9 +94,9 @@ int main(void) {
         // delete[] trajectory_msg.points._buffer;
 
         // Publish Odometry message
-        OdometryMsg odometry_msg;
+        OdometryMsg odometry_msg = {};
         odometry_msg.header.stamp = current_time;
-        odometry_msg.header.frame_id = "odom";
+        odometry_msg.header.frame_id = odom_frame_id;
         odometry_msg.pose.pose.position.x = 10.0;
         odometry_msg.pose.pose.position.y = 20.0;
         odometry_msg.pose.pose.position.z = 0.0;
@@ -102,9 +109,9 @@ int main(void) {
                  odometry_msg.twist.twist.linear.x, odometry_msg.twist.twist.linear.y, odometry_msg.twist.twist.linear.z);
 
         // Publish Acceleration message
-        AccelerationMsg acceleration_msg;
+        AccelerationMsg acceleration_msg = {};
         acceleration_msg.header.stamp = current_time;
-        acceleration_msg.header.frame_id = "base_link";
+        acceleration_msg.header.frame_id = base_link_frame_id;
         acceleration_msg.accel.accel.linear.x = 2.0;
         acceleration_msg.accel.accel.linear.y = 0.0;
         acceleration_msg.accel.accel.linear.z = 0.0;
@@ -117,7 +124,7 @@ int main(void) {
                  acceleration_msg.accel.accel.angular.x, acceleration_msg.accel.accel.angular.y, acceleration_msg.accel.accel.angular.z);
 
         // Publish OperationModeState message
-        OperationModeStateMsg operation_mode_msg;
+        OperationModeStateMsg operation_mode_msg = {};
         operation_mode_msg.stamp = current_time;
         operation_mode_msg.mode = 1; // Some mode value
         operation_mode_msg.is_autoware_control_enabled = true;
