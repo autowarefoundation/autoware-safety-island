@@ -70,3 +70,58 @@ graph TD
 ## Getting Started
 
 See the [documentation](https://autowarefoundation.github.io/autoware-safety-island/) — the [Quickstart](https://autowarefoundation.github.io/autoware-safety-island/user_guide/quickstart.html) builds and runs the FVP target in a few commands.
+
+## Verification target: FreeRTOS POSIX simulator (Phase 2)
+
+The Phase 2 vendored-upstream architecture (issue #14) targets a FreeRTOS POSIX
+simulator (FreeRTOS-Kernel V11.1.0, POSIX port, 64-bit native Linux) on top of
+which the actuation controller runs against vendored, untouched copies of
+`autoware.universe` 0.40.0 and `autoware_msgs` 1.3.0. The existing Zephyr/FVP
+target above remains and evolves separately under issue #1.
+
+Layout introduced for Phase 2:
+
+```
+external/
+  FreeRTOS-Kernel/        @ V11.1.0 (POSIX port)
+  autoware_universe/      @ 0.40.0  (untouched)
+  autoware_msgs/          @ 1.3.0   (untouched)
+  rosidl/                 @ humble  (standalone message generator)
+  micro_ros/              (rcl/rclc/rmw_microxrcedds/rcutils/rmw/micro-CDR/Micro-XRCE-DDS-Client)
+
+freertos/                 FreeRTOS POSIX entry + CMake build root
+shim/rclcpp/              Minimal rclcpp:: facade over rcl/rclc
+shim/stubs/               Header stubs for pruned upstream-isms (tf2, diagnostic_updater, …)
+cmake/                    AutowarePackageCompat, MicroRosMessages, MicroRos, AddAutowarePackage
+host_tests/               Catch2 host tests covering the rclcpp facade
+scripts/                  install-rosidl-host.sh, run_rosidl_generator.py
+```
+
+Quickstart (host tooling — runs the rclcpp facade test suite):
+
+```bash
+git submodule update --init --recursive
+./scripts/install-rosidl-host.sh
+cmake -S host_tests -B build/host_tests
+cmake --build build/host_tests
+ctest --test-dir build/host_tests --output-on-failure
+```
+
+FreeRTOS POSIX scaffold + micro-CDR transport layer:
+
+```bash
+cmake -S freertos -B build/freertos
+cmake --build build/freertos --target hello_freertos microcdr
+./build/freertos/hello_freertos   # prints "hello freertos" from a FreeRTOS task
+```
+
+Standalone message generation smoke test (verifies the rosidl pipeline):
+
+```bash
+./cmake/test/test_message_gen.sh   # generates autoware_common_msgs/{.h,.hpp}
+```
+
+> All `external/autoware_universe` and `external/autoware_msgs` packages above
+> are consumed untouched (git diff inside vendored sources is zero lines). The
+> Zephyr build still uses the in-tree copies under `actuation_module/src/autoware/`
+> until issue #1's PAL work migrates it to the same path.
