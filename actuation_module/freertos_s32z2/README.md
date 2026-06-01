@@ -209,8 +209,7 @@ the static `libddsc.a` consumed by the main target:
 The NXP `nxp_s32dbg` west runner supports **debug**, not `flash`. Use
 `west debug` with the `--batch` GDB option to load + run the ELF non-
 interactively. This matches the CES 2026 demo's `west_debug.sh` workflow
-(authoritative copy at `~/youtalk/autoware-safety-island/MRM_repo/` on
-the AMD dev host).
+(kept in an out-of-tree `MRM_repo/` working directory on the dev host).
 
 ```bash
 # s32dbg is a GUI tool; it needs an X display even in batch mode.

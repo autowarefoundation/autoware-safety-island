@@ -36,7 +36,8 @@ under ``actuation_module/include/platform/freertos/s32z2/``.
 
 The single dispatcher edit is ``actuation_module/include/platform/platform_network.h``,
 which gains a ``#elif defined(PLATFORM_FREERTOS_S32Z2)`` branch selecting the
-new variant network header.
+new variant network header. That dispatcher edit lands with the networking
+stage of the stack (alongside ``freertos_network.h``), not the build-system PR.
 
 Boot bring-up (B-1)
 -------------------
@@ -72,14 +73,14 @@ Workflow:
 2. Open the project's ``.mex`` in the S32 Configuration Tools editor and
    configure clock ≥ 240 MHz, UART9 at 115200 8N1, PIT channel 0 as the
    tick, and Ethernet 0 enabled.
-3. Use the *Update Code* action to expand the templates into
-   ``generate_PB/src/*_PBcfg.c`` and ``generate_PC/include/*_Cfg.h``.
-4. Copy the generated artefacts into
-   ``actuation_module/freertos_s32z2/generated/<driver>/`` and extend
-   ``CMakeLists.txt`` with the corresponding ``target_sources``. The
-   generated files are board-specific and *not* covered by the NXP
-   confidential clause, so they may be committed alongside the rest of
-   the freertos_s32z2/ target.
+3. Use the *Update Code* action to expand the templates into the project's
+   ``generate/src/*.c``, ``generate/include/*.h`` and ``board/`` directories.
+4. Point ``S32CT_GENERATED_DIR`` at that project root; the build consumes
+   ``generate/src``, ``generate/include`` and ``board``. The generated files
+   inherit the NXP **Confidential and Proprietary** header from the RTD
+   templates, so they are *not* committed to this public repository: they are
+   bundled as the private ``s32ct_config`` submodule, or regenerated locally by
+   developers without submodule access (see the README).
 
 Networking and DDS (B-2)
 ------------------------
@@ -130,9 +131,8 @@ Flash workflow
 
 The kit is flashed via the NXP ``s32dbg`` debugger through ``west debug``
 (the ``nxp_s32dbg`` runner does not implement the ``flash`` command). The
-authoritative driver scripts live in ``~/youtalk/autoware-safety-island/MRM_repo/``
-on the AMD dev host (this is the copy that ran on the 7StarLake AV400
-production rig; the ``~/oz/`` copy is supporting). ``MRM_repo/run_before.sh``
+driver scripts live in an out-of-tree ``MRM_repo/`` working directory on the
+dev host (the copy used for the production demo rig). ``MRM_repo/run_before.sh``
 STEP 4 starts an Xvfb on ``DISPLAY=:99`` before STEP 5 invokes
 ``west_debug.sh`` — ``s32dbg`` is a GUI tool that aborts at SoC connect
 with ``CCS: connection to server refused`` when no X display is
