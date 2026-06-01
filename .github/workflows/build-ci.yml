@@ -18,11 +18,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
 
       - name: Trust workspace (container runs as root)
         shell: bash
         run: git config --global --add safe.directory '*'
+
+      # Initialise only the public submodules. s32ct_config is a PRIVATE
+      # submodule (NXP Confidential generated configs) that the repo-scoped CI
+      # token cannot clone, and the Zephyr/FreeRTOS-POSIX builds do not need it.
+      - name: Initialize build submodules (private s32ct_config excluded)
+        shell: bash
+        run: git submodule update --init --recursive cyclonedds zephyr freertos-kernel
 
       - name: Restore Zephyr workspace cache
         id: zephyr-cache
@@ -61,11 +68,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
 
       - name: Trust workspace (container runs as root)
         shell: bash
         run: git config --global --add safe.directory '*'
+
+      # Initialise only the public submodules. s32ct_config is a PRIVATE
+      # submodule (NXP Confidential generated configs) that the repo-scoped CI
+      # token cannot clone, and the Zephyr/FreeRTOS-POSIX builds do not need it.
+      - name: Initialize build submodules (private s32ct_config excluded)
+        shell: bash
+        run: git submodule update --init --recursive cyclonedds zephyr freertos-kernel
 
       - name: Restore CycloneDDS build cache
         uses: actions/cache@v4
