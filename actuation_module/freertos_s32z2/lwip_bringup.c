@@ -91,8 +91,13 @@ int lwip_bring_up_blocking(void) {
     tcpip_init(tcpip_init_done, &tcpip_done);
     if (xSemaphoreTake(tcpip_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
         printf("lwip: tcpip_init timed out\n");
+        // Don't delete tcpip_done on this path: the tcpip thread's init-done
+        // callback may still hold and give it. This path is fatal anyway.
         return -2;
     }
+    // The init-done callback has fired (the take succeeded), so it is safe to
+    // release the one-shot semaphore.
+    vSemaphoreDelete(tcpip_done);
 
     // Initialise the NETC controller BEFORE netif_add() (netif_add ->
     // ethif_ethernetif_init -> ethif_low_level_init, which only sets the
@@ -107,9 +112,14 @@ int lwip_bring_up_blocking(void) {
     s32z2_enable_eth0_rx_clock();
 
     ip4_addr_t ipaddr, netmask, gw;
-    ip4addr_aton(LWIP_STATIC_IP, &ipaddr);
-    ip4addr_aton(LWIP_STATIC_NETMASK, &netmask);
-    ip4addr_aton(LWIP_STATIC_GW, &gw);
+    // ip4addr_aton returns 0 on a malformed string; without the check an
+    // invalid LWIP_STATIC_* build override would silently configure 0.0.0.0.
+    if (!ip4addr_aton(LWIP_STATIC_IP, &ipaddr) ||
+        !ip4addr_aton(LWIP_STATIC_NETMASK, &netmask) ||
+        !ip4addr_aton(LWIP_STATIC_GW, &gw)) {
+        printf("lwip: invalid static IP configuration\n");
+        return -4;
+    }
     if (netif_add(&s_netif, &ipaddr, &netmask, &gw, NULL,
                   ethif_ethernetif_init, tcpip_input) == NULL) {
         printf("lwip: netif_add failed\n");

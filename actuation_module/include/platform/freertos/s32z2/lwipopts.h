@@ -55,7 +55,7 @@
 #define MEMP_NUM_PBUF                   16
 #define PBUF_POOL_SIZE                  16
 
-#define LWIP_DHCP                       1
+#define LWIP_DHCP                       0   /* static IP bring-up; DHCP unused */
 #define LWIP_IGMP                       1   /* SPDP multicast */
 #define LWIP_UDP                        1
 #define LWIP_TCP                        1
@@ -65,8 +65,9 @@
 #define LWIP_SO_RCVBUF                  1
 #define SO_REUSE                        1
 
-// lwip_bringup.c calls netif_set_status_callback after dhcp_start so the
-// blocking bring-up returns as soon as DHCP hands us a lease.
+// Compiled in for completeness; the static-IP bring-up in lwip_bringup.c does
+// not register a status callback (it blocks only on tcpip_init, not on a DHCP
+// lease).
 #define LWIP_NETIF_STATUS_CALLBACK      1
 
 // NXP's NETC <-> lwIP glue (code/ports/netif/ethif/rtd/generic/eth_port.c)
