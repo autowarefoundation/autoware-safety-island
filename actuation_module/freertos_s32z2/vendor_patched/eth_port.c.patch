@@ -1,0 +1,198 @@
+--- a/eth_port.c
++++ b/eth_port.c
+@@ -190,7 +190,6 @@
+ 
+ struct netif * g_netif[ETH_INSTANCE_COUNT] = { NULL };
+ 
+-
+ #if !NO_SYS
+ struct pbuf dummy_char2;
+ #endif /* !NO_SYS */
+@@ -352,6 +351,23 @@
+     /* If p was a pbuf chain instead, p's ref was decreased and we got another q pbuf with ref 1
+     Either way, q has a +1 ref that we need to free in case we're not keeping the buffer - ie in case of errors*/
+ 
++#if (STD_OFF == ETH_43_NETC_RX_IRQ_ENABLED)
++    /* [actuation patch #5] Take our own reference on the outgoing pbuf BEFORE
++       pbuf_coalesce(). pbuf_coalesce() FREES its input when the pbuf is a chain
++       (it clones into one RAM pbuf and frees the original); but the caller
++       (udp_sendto_if_src) still owns that chain and frees it again once
++       ip_output returns. Without this ref a chained send -- e.g. CycloneDDS
++       scatter-gather SPDP -- double-freed the header pbuf and span forever in
++       lwIP's "pbuf_free: p->ref > 0" assert (a b . self-loop), starving the RX
++       poll thread. The upstream STD_ON path pbuf_ref()s for the same reason; the
++       STD_OFF (poll) path did not. For a single pbuf q == p and this up-front
++       ref is the in-flight reference; for a coalesced chain it is consumed by
++       pbuf_coalesce()'s free (keeping the caller's free balanced) and the fresh
++       q's birth ref becomes the in-flight reference. Either way ethif_poll_thread
++       releases exactly one reference via its deferred pbuf_free() on TX done. */
++    pbuf_ref(p);
++#endif /* STD_OFF == ETH_43_NETC_RX_IRQ_ENABLED */
++
+     q = pbuf_coalesce(p, PBUF_RAW);
+ #if (STD_ON == ETH_43_NETC_RX_IRQ_ENABLED)
+ 	pbuf_status = ERR_BUF;
+@@ -401,22 +417,48 @@
+         }
+     }
+ #else
++        /* [actuation patch #8] Non-blocking poll-mode linkoutput -- supersedes
++           patch #7. lwIP calls linkoutput with the TCPIP core lock held
++           (LWIP_TCPIP_CORE_LOCKING=1). The old unbounded do{...OsIf_TimeDelay(1)}
++           while() retry AND the blocking sys_mbox_post() (which loops on
++           xQueueSend(...,10000), see sys_arch.c) both SLEEP while holding that lock
++           whenever the SI TX ring is full and not draining (HW TX completion /
++           TBCIR consumer index stalled). That parks the sender (CycloneDDS tev) on
++           the core mutex, so tcpip_thread can never reacquire it to drain RX -- the
++           whole RX datapath deadlocks (gdb-confirmed: tev blocked in
++           xQueueGenericSend under tcpip_send_msg_wait_sem). A netif linkoutput must
++           never block; UDP is lossy and DDS retransmits, so on a persistently full
++           ring we bound the retry and DROP the frame. */
++        uint8_t tx_attempts = 0U;
+         do
+         {
+-        	sys_arch_protect();
++            sys_arch_protect();
+             status = Eth_43_NETC_SendFrame(netif_cfg[netif->num]->num, 0, q->payload, &q->tot_len, &bufferIndex, TRUE);
+             sys_arch_unprotect(0);
++            if (BUFREQ_OK != status)
++            {
++                ++tx_attempts;
++            }
+         }
+-        while (BUFREQ_OK != status);
++        while ((BUFREQ_OK != status) && (tx_attempts < 8U));  /* bounded; never sleep under the core lock */
+ 
+         if (BUFREQ_OK == status)
+         {
+-            /* Post the pbuf to mbox, so that it will be checked for completion in ethif_poll_thread*/
+-            sys_mbox_post((sys_mbox_t *)&in_flight_tx_pbufs, (void *)q);
++            /* [actuation patch #5/#8] in-flight ref = up-front pbuf_ref(p) consumed
++               into q; ethif_poll_thread frees it via Tcpip_TxConfirmation after HW
++               confirms. Enqueue NON-blocking -- sys_mbox_post()/sys_mbox_trypost()
++               both block on xQueueSend(...,10000), the very block that deadlocked RX,
++               so use sys_mbox_trypost_fromisr(). q is already in HW DMA (zero-copy);
++               if the mbox is momentarily full we neither free q (use-after-free) nor
++               block: q stays owned by HW, its TX BD is still reclaimed by
++               Eth_TxConfirmation, only its deferred pbuf_free is forfeited (a bounded
++               leak seen only while TX is HW-stalled, self-healing once TX recovers). */
++            (void)sys_mbox_trypost_fromisr((sys_mbox_t *)&in_flight_tx_pbufs, (void *)q);
+         }
+         else
+         {
+-            /* Decrement the ref (either p's ref in case it was a single pbuf, or the coalesed q's ref) */
++            /* Ring still full after the bounded retry: frame NOT accepted by HW
++               (BUFREQ busy) -- q is ours, free it and drop the frame. */
+             (void)pbuf_free(q);
+         }
+ 
+@@ -474,6 +516,17 @@
+ 
+         struct pbuf* p = pbuf_alloced_custom(PBUF_RAW, size, PBUF_REF, ethif_pbuf, data, size);
+ 
++        /* [actuation patch #6] Poll mode (STD_OFF) must set if_idx + rx_buf, just
++           like the STD_ON branch above: ethif_pbuf_free_custom() reads exactly
++           these (pc->pbuf.if_idx, pc->pbuf.rx_buf) to hand the RX buffer back to
++           the driver via Eth_43_NETC_ProvideRxBuffer when the pbuf is freed.
++           Upstream left them unset here, so freed RX pbufs returned a garbage
++           buffer pointer -> the RX ring was never replenished and stalled after
++           the initial ETH_RXBD_NUM buffers were consumed (RBPIR stuck, RBDCR
++           climbing, RX dead after ~16 frames). */
++        p->if_idx = netif_get_index(netif);
++        p->rx_buf = data;
++
+         if (ERR_OK != netif->input(p, netif))
+         {
+             LWIP_DEBUGF(NETIF_DEBUG, ("ethif_input: IP input error\n"));
+@@ -519,7 +572,6 @@
+         	Eth_Receive(instance, ETH_QUEUE, &Status);
+ 
+ 			Eth_TxConfirmation(instance);
+-
+         } while (ETH_NOT_RECEIVED != Status);
+ 
+         OsIf_TimeDelay(1);
+@@ -643,7 +695,6 @@
+         do
+         {
+             status = Eth_43_NETC_SendFrame(netif_cfg[netif->num]->num, 0, q->payload, &q->tot_len, &bufferIndex, TRUE);
+-
+         }
+         while (BUFREQ_OK != status);
+ 
+@@ -752,13 +803,16 @@
+     NETIF_SET_CHECKSUM_CTRL(netif, NETIF_CHECKSUM_SETTING);
+ 
+     g_netif[netif->num] = netif;
+-#if (STD_ON == ETH_43_NETC_RX_IRQ_ENABLED)
++    /* [actuation patch #1] Seed the RX BD ring in poll mode (STD_OFF) too.
++       Upstream gated this on STD_ON (IRQ mode) only, so in poll mode the ring
++       was left without buffers and the NETC had nowhere to DMA received frames
++       -> Eth_Receive always returned ETH_NOT_RECEIVED. The ring needs buffers
++       regardless of how RX completion is signalled. */
+     /* fill in all descriptors in the Ring*/
+     for(uint8_t i = 0; i < ETH_RXBD_NUM; i++)
+     {
+         Eth_ProvideRxBuffer(netif_cfg[netif->num]->num, ETH_QUEUE, &ethif_DataBuffer[i * ETH_43_ETH_MAX_RXBUFFLEN_SUPPORTED]);
+     }
+-#endif /* ETH_43_NETC_RX_IRQ_ENABLED */
+     Eth_SetControllerMode(netif->num, ETH_MODE_ACTIVE);
+ #if STD_ON == ETH_UPDATE_PHYS_ADDR_FILTER_API
+     Eth_UpdatePhysAddrFilter(netif->num, netif->hwaddr, ETH_ADD_TO_FILTER);
+@@ -883,10 +937,16 @@
+     /* initialize the hardware */
+     ethif_low_level_init(netif);
+ 
+-#if !defined (NO_SYS) && !defined (ETH_43_NETC_RX_IRQ_ENABLED)
++    /* [actuation patch #2/#3] Upstream guard was
++       `#if !defined(NO_SYS) && !defined(ETH_43_NETC_RX_IRQ_ENABLED)`. Both halves
++       are wrong for this build: NO_SYS is *defined* (to 0), so !defined(NO_SYS)
++       is false; and ETH_43_NETC_RX_IRQ_ENABLED is always *defined* (to STD_ON or
++       STD_OFF), so !defined(...) is false too. The poll thread was therefore
++       never created. Use value checks instead. */
++#if !NO_SYS && (STD_OFF == ETH_43_NETC_RX_IRQ_ENABLED)
+     /* Start the polling thread */
+     poll_thread = sys_thread_new("ethif_poll_thread", ethif_poll_thread, (void*)((uint32_t)netif->num), DEFAULT_THREAD_STACKSIZE, DEFAULT_THREAD_PRIO);
+-#endif /* !NO_SYS */
++#endif /* !NO_SYS && poll mode */
+ 
+     return ret;
+ }
+@@ -1104,8 +1164,6 @@
+ *                                       Ethif stub
+ ==================================================================================================*/
+ 
+-volatile uint32 Tcpip_RxIndications[10]    = {0};
+-volatile uint32 Tcpip_TxConfirmations[10]  = {0};
+ /**
+ * @brief          This function handles the received Ethernet frame.
+ * @details        Function should parse the received frame and pass the gathered
+@@ -1133,9 +1191,6 @@
+                         const uint8_t* DataPtr,\
+                         uint16_t LenByte)
+ {
+-
+-    ++Tcpip_RxIndications[CtrlIdx];
+-
+     DataPtr -= ETHIF_FRAME_PAYLOAD_OFFSET;
+     LenByte += ETHIF_FRAME_HEADER_LENGTH;
+ 
+@@ -1163,7 +1218,6 @@
+                           Eth_BufIdxType BufIdx, \
+                           Std_ReturnType Result)
+ {
+-    ++Tcpip_TxConfirmations[CtrlIdx];
+     uint8_t i;
+ #if(STD_OFF == ETH_43_NETC_RX_IRQ_ENABLED)
+     struct pbuf *p;
+@@ -1175,7 +1229,9 @@
+         (void)pbuf_free_callback(p);
+     }
+ #endif /* !NO_SYS */
+-    }
++    /* [actuation patch #4] removed a stray '}' here: in the STD_OFF branch it
++       closed the function body early, orphaning the real closing brace and
++       breaking compilation of the poll-mode path. */
+ #else
+ for( i =0; i < ETH_TXBD_NUM; i++)
+ {
