@@ -228,7 +228,10 @@ trajectory_follower::LateralOutput MpcLateralController::run(
     m_current_steering.steering_tire_angle -= steering_offset_->getOffset();
   }
 
-  LateralMsg ctrl_cmd;
+  // Value-initialize: calculateMPC() fills the steering fields but never the
+  // is_defined_steering_tire_rotation_rate boolean, so without {} that POD flag
+  // carries stack garbage and CycloneDDS rejects the Control sample at dds_write.
+  LateralMsg ctrl_cmd{};
   TrajectoryMsg predicted_traj;
   Float32MultiArrayStampedMsg debug_values;
 
@@ -398,7 +401,11 @@ void MpcLateralController::setTrajectory(
 
 LateralMsg MpcLateralController::getStopControlCommand() const
 {
-  LateralMsg cmd;
+  // Value-initialize: LateralMsg is a C IDL POD with no default member init, so a
+  // bare `LateralMsg cmd;` leaves is_defined_steering_tire_rotation_rate (and the
+  // Time members) as stack garbage. A boolean byte that is not 0/1 makes
+  // CycloneDDS reject the published Control sample at dds_write (BAD_PARAMETER).
+  LateralMsg cmd{};
   cmd.steering_tire_angle = static_cast<decltype(cmd.steering_tire_angle)>(m_steer_cmd_prev);
   cmd.steering_tire_rotation_rate = 0.0;
   return cmd;
@@ -406,7 +413,7 @@ LateralMsg MpcLateralController::getStopControlCommand() const
 
 LateralMsg MpcLateralController::getInitialControlCommand() const
 {
-  LateralMsg cmd;
+  LateralMsg cmd{};
   cmd.steering_tire_angle = m_current_steering.steering_tire_angle;
   cmd.steering_tire_rotation_rate = 0.0;
   return cmd;

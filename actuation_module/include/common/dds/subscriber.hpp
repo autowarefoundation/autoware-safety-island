@@ -62,33 +62,43 @@ public:
     }
 
     void process_next_message() override {
-        // TODO: Check if this is required
-        // Disable preemption for this critical section
-        // k_sched_lock();
-
-        int count = 0;
-        static void* msg_ptr = nullptr;
+        // Loan-mode take: pass a NULL buffer pointer so CycloneDDS lends us a
+        // pointer into its own internal sample storage, then hand that storage
+        // back with dds_return_loan() once we are done with it.
+        //
+        // The buffer pointer MUST be re-initialised to NULL on every call. If it
+        // is non-NULL, dds_take() treats it as a caller-owned buffer and
+        // deserialises the sample into it instead of lending one; for message
+        // types with heap sequences (e.g. Trajectory.points) that writes the
+        // sequence through a stale/aliased pointer and corrupts the heap. The
+        // previous implementation used a `static void* msg_ptr` that was never
+        // returned, so the first take loaned a buffer and every subsequent take
+        // reused that stale loaned pointer -> silent heap corruption that only
+        // manifested once a variable-length topic (trajectory) was received.
+        void* msg_ptr = nullptr;
         dds_sample_info_t info;
 
-        count = dds_take(m_reader_entity, &msg_ptr, &info, 1, 1);
+        int count = dds_take(m_reader_entity, &msg_ptr, &info, 1, 1);
+        if (count < 0) {
+            if (count != DDS_RETCODE_NO_DATA && count != DDS_RETCODE_TRY_AGAIN) {
+                 log_debug("Error: %s -> dds_take failed for topic %s: %s\n",
+                        node_name_.c_str(), topic_name_.c_str(), dds_strretcode(-count));
+            }
+            return;
+        }
         if (count == 0) {
             return;
         }
-        if (count < 0) {
-            if (count != DDS_RETCODE_NO_DATA && count != DDS_RETCODE_TRY_AGAIN) {
-                 log_debug("Error: %s -> dds_take failed for topic %s: %s\n", 
-                        node_name_.c_str(), topic_name_.c_str(), dds_strretcode(-count));
-            }
-        }
 
         if (info.valid_data) {
+            // The callback deep-copies anything it needs (e.g. callbackTrajectory
+            // builds a std::vector from points._buffer) before we return the loan.
             T msg = *static_cast<T*>(msg_ptr);
             callback_(&msg, callback_arg_);
         }
 
-        // Re-enable preemption
-        // TODO: finetuning threads for maximum network performance
-        // k_sched_unlock();
+        // Return the loaned sample storage to CycloneDDS, matched 1:1 with the take.
+        dds_return_loan(m_reader_entity, &msg_ptr, count);
     }
 
 private:
