@@ -1,0 +1,31 @@
+--- a/port.c
++++ b/port.c
+@@ -1,4 +1,19 @@
+ /*
++ * VENDORED + PATCHED copy of the NXP FreeRTOS Cortex-R52 port:
++ *   $FREERTOS_PATH/Source/portable/GCC/ARM_CR52_GIC/port.c
++ *
++ * youtalk patch (search "PATCH(youtalk)"): the IRQ dispatcher's ARM (#else,
++ * non-__thumb__) solicited-resume path (osInt) did "moveqs pc, lr", restoring
++ * CPSR from SPSR_irq -- the CPSR of whatever context the IRQ interrupted.
++ * Because the image contains Thumb libm (sin/atan2/...) that the controllers
++ * call, an IRQ could interrupt a task mid-Thumb (SPSR_irq.T=1); resuming a
++ * *solicited* ARM task then inherited T=1 -> ARM code executed as Thumb ->
++ * undef/data-abort (non-deterministic). The vendor's __thumb__ path already set
++ * a known-good CPSR (movw 0x13f; msr spsr_irq) before "movs pc, lr"; the ARM
++ * path did not. Fix: set 0x11f (= 0x13f with the Thumb bit cleared) before the
++ * solicited "moveqs pc, lr". Keep in sync if the SDK port.c is updated.
++ * Original header follows.
++ *
+  * FreeRTOS Kernel V11.1.0
+  * Copyright (C) 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+  *
+@@ -1466,6 +1481,8 @@
+     OSASM(" 2:                                              \t\n");
+ #else
+     OSASM(" msreq SP_usr, r0                                \t\n"); /* solicited, update user stack */
++    OSASM(" movweq r2, #0x11f                               \t\n"); /* PATCH(youtalk): known-good CPSR for a solicited resume (System mode, ARM/T=0, IRQ+FIQ enabled, A=1) -- mirror of the __thumb__ path's 0x13f with the Thumb bit cleared. */
++    OSASM(" msreq spsr_irq, r2                              \t\n"); /* PATCH(youtalk): do NOT inherit SPSR_irq; it holds the interrupted context's CPSR, which can be T=1 when the IRQ hit Thumb libm (sin/atan2/...) -> ARM task resumed in Thumb state -> undef/data-abort. */
+     OSASM(" moveqs pc, lr                                   \t\n"); /* exit from interrupt, solicited return, no need to subs */
+ #endif
+     OSASM(" msr spsr_irq, r2                                \t\n"); /* save spsr, unsolicited */
