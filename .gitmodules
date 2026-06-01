@@ -9,3 +9,7 @@
 [submodule "freertos-kernel"]
 	path = freertos-kernel
 	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+[submodule "actuation_module/freertos_s32z2/s32ct_config"]
+	path = actuation_module/freertos_s32z2/s32ct_config
+	url = git@github.com:autowarefoundation/autoware-safety-island-s32z2-config.git
+	branch = main
