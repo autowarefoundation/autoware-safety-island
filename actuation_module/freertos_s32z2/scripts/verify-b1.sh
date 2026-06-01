@@ -59,10 +59,16 @@ done
 # Let UART capture finish (the timeout above bounds it).
 wait "${UART_PID}" 2>/dev/null || true
 
-grep -F "FreeRTOS on S32Z2 starting" "${LOG}"
-count=$(grep -cF "actuation alive ticks=" "${LOG}")
-if [ "${count}" -lt 5 ]; then
-    echo "B-1 verification FAILED: only ${count} heartbeats (need >= 5)"
+# Boot success markers actually emitted by this firmware: freertos_main.cpp
+# prints the startup banner, and the controller reaches the "Live" marker once
+# the scheduler and board bring-up succeed. (There is no separate heartbeat
+# build; the S32Z2 target boots straight into the full controller.)
+if ! grep -Fq "FreeRTOS S32Z2 actuation starting..." "${LOG}"; then
+    echo "B-1 verification FAILED: startup banner not seen on ${UART_DEV}"
     exit 1
 fi
-echo "B-1 verification OK (${count} heartbeats)"
+if ! grep -Fq "Actuation Safety Island is Live" "${LOG}"; then
+    echo "B-1 verification FAILED: booted but never reached the controller Live marker"
+    exit 1
+fi
+echo "B-1 verification OK (startup banner + Live marker seen)"

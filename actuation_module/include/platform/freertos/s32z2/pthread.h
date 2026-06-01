@@ -160,6 +160,12 @@ static inline int pthread_create(pthread_t *thread,
                 (StackType_t *)attr->stackaddr,
                 tcb);
             ok = (info->task != NULL) ? pdPASS : pdFAIL;
+            if (ok != pdPASS) {
+                /* Task creation failed; the TCB is unowned, so free it here —
+                 * the shared cleanup below only frees info->done and info. On
+                 * success the task owns the static TCB for its lifetime. */
+                vPortFree(tcb);
+            }
         }
     } else {
         configSTACK_DEPTH_TYPE depth = (configSTACK_DEPTH_TYPE)configMINIMAL_STACK_SIZE;
