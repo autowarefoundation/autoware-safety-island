@@ -92,6 +92,42 @@ message(STATUS "S32Z2 FreeRTOS port directory: ${S32Z2_FREERTOS_PORT_DIR}")
 message(STATUS "S32Z2 FreeRTOS kernel headers: ${S32Z2_FREERTOS_KERNEL_DIR}")
 message(STATUS "S32Z2 FreeRTOS example:        ${S32Z2_FREERTOS_EXAMPLE}")
 
+# ---- Build-time patching of NXP vendor sources ----
+# The FreeRTOS port.c and the lwIP NETC glue eth_port.c need small fixes, but
+# both carry the NXP Confidential and Proprietary header and must not be
+# committed to this public repository. We commit only our diffs
+# (vendor_patched/*.patch) and apply them to the pristine originals from the NXP
+# packages into the build tree at configure time. configure_file(COPYONLY)
+# refreshes the copy from the original on every configure, so the subsequent
+# single-pass `patch` stays idempotent.
+find_program(PATCH_EXECUTABLE patch REQUIRED)
+set(_s32z2_vendor_patched_dir ${CMAKE_CURRENT_BINARY_DIR}/vendor_patched)
+file(MAKE_DIRECTORY ${_s32z2_vendor_patched_dir})
+function(s32z2_apply_vendor_patch orig patch out_var)
+    get_filename_component(_name "${orig}" NAME)
+    set(_out "${_s32z2_vendor_patched_dir}/${_name}")
+    if(NOT EXISTS "${orig}")
+        message(FATAL_ERROR "NXP vendor source not found: ${orig}")
+    endif()
+    configure_file("${orig}" "${_out}" COPYONLY)
+    execute_process(
+        COMMAND "${PATCH_EXECUTABLE}" "${_out}" "${patch}"
+        RESULT_VARIABLE _rc OUTPUT_VARIABLE _log ERROR_VARIABLE _log)
+    if(NOT _rc EQUAL 0)
+        message(FATAL_ERROR "Failed to apply ${patch} to ${orig}:\n${_log}")
+    endif()
+    set(${out_var} "${_out}" PARENT_SCOPE)
+endfunction()
+
+s32z2_apply_vendor_patch(
+    "${S32Z2_FREERTOS_PORT_DIR}/port.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor_patched/port.c.patch"
+    _s32z2_port_c)
+s32z2_apply_vendor_patch(
+    "${LWIP_PATH}/code/ports/netif/ethif/rtd/generic/eth_port.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor_patched/eth_port.c.patch"
+    _s32z2_eth_port_c)
+
 # ---- Configurable values ----
 # Mirror the POSIX FreeRTOS build's Zephyr-Kconfig-equivalent knobs so the
 # shared platform_config.h works unchanged.
@@ -393,11 +429,11 @@ file(GLOB _freertos_core
 )
 target_sources(actuation_freertos_s32z2 PRIVATE
     ${_freertos_core}
-    # VENDORED+PATCHED port.c (NOT ${S32Z2_FREERTOS_PORT_DIR}/port.c): fixes the
-    # ARM solicited-resume CPSR bug (moveqs pc,lr inheriting SPSR_irq with a
-    # stray Thumb T-bit). See the header of vendor_patched/port.c. portmacro.h
+    # port.c patched at configure time (NOT the pristine ${S32Z2_FREERTOS_PORT_DIR}/port.c):
+    # vendor_patched/port.c.patch fixes the ARM solicited-resume CPSR bug
+    # (moveqs pc,lr inheriting SPSR_irq with a stray Thumb T-bit). portmacro.h
     # and the rest of the port still come from the SDK include dir.
-    ${CMAKE_CURRENT_SOURCE_DIR}/vendor_patched/port.c
+    ${_s32z2_port_c}
     # ARM generic-timer-driven tick source: provides the weak
     # prvSetupTimerInterrupt() that port.c calls from vTaskStartScheduler.
     ${S32Z2_FREERTOS_SOURCE_DIR}/generic_timer.c
@@ -432,7 +468,7 @@ set_source_files_properties(${S32Z2_FREERTOS_SOURCE_DIR}/generic_timer.c
 # port.c on the S32DS branch so the dispatcher uses R52VtabeRefArray and finds
 # xPortSysTickHandler. (This also places its handlers in .systeminit, which the
 # linker script maps, instead of an orphan .handlers section.)
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/vendor_patched/port.c
+set_source_files_properties(${_s32z2_port_c}
     PROPERTIES COMPILE_DEFINITIONS "_S32DS_FREERTOS_=1")
 
 # common/'s `#include <pthread.h>` is resolved by the hand-rolled shim at
@@ -472,11 +508,12 @@ target_sources(actuation_freertos_s32z2 PRIVATE
 
 # ---- NXP NETC <-> lwIP glue (eth_port.c) and RTD NETC driver ----
 target_sources(actuation_freertos_s32z2 PRIVATE
-    # VENDORED+PATCHED eth_port.c (NOT the LWIP_PATH copy): the upstream STD_OFF
-    # (poll) path was never exercised and had 3 bugs (RX ring seeded only in
-    # STD_ON; a poll-thread spawn guard that can never be true; a stray brace in
-    # the STD_OFF Tcpip_TxConfirmation). See the [actuation patch #N] markers.
-    ${CMAKE_CURRENT_SOURCE_DIR}/vendor_patched/eth_port.c
+    # eth_port.c patched at configure time (NOT the pristine LWIP_PATH copy):
+    # vendor_patched/eth_port.c.patch fixes the upstream STD_OFF (poll) path,
+    # which was never exercised (seed the RX ring in STD_OFF; fix a poll-thread
+    # spawn guard; fix a stray brace in the STD_OFF Tcpip_TxConfirmation; recycle
+    # RX pbufs; non-blocking linkoutput). See the [actuation patch #N] markers.
+    ${_s32z2_eth_port_c}
     # Bridges the driver's AUTOSAR EthIf upper-layer callbacks
     # (EthIf_RxIndication/EthIf_TxConfirmation) to eth_port.c's Tcpip_*
     # functions, and supplies OsIf_TimeDelay for the poll thread. We build no
