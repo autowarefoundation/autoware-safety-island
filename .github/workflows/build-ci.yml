@@ -177,7 +177,7 @@ jobs:
             build-freertos/app-pub/actuation_freertos >"$pub_log" 2>&1
           pub_rc=$?
           set -e
-          if [ "$pub_rc" -ne 0 ] && [ "$pub_rc" -ne 124 ]; then
+          if ! is_success_or_timeout "$pub_rc"; then
             dump_log "$pub_log"
             dump_log "$sub_log"
             kill_with_timeout "$sub_pid"

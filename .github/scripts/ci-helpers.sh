@@ -25,9 +25,16 @@ dump_log() {
 }
 
 # Run a binary with a wall-clock timeout. Exit 0 (clean) and 124 (SIGTERM on
-# timeout) are both considered success. timeout(1) escalates to SIGKILL after
+# timeout) are both considered success. GNU timeout may return 137 after
+# --kill-after escalates to SIGKILL, so treat that as a bounded timeout too.
+is_success_or_timeout() {
+  local rc="$1"
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]
+}
+
+# Run a binary with a wall-clock timeout. timeout(1) escalates to SIGKILL after
 # CI_KILL_AFTER_SECONDS so a binary that ignores SIGTERM still terminates.
-# Any other exit dumps the log and fails.
+# Non-timeout exits dump the log and fail.
 run_with_timeout() {
   local bin="$1"
   local log="$2"
@@ -44,7 +51,7 @@ run_with_timeout() {
   local rc=$?
   set -e
 
-  if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+  if ! is_success_or_timeout "$rc"; then
     dump_log "$log"
     echo "Unexpected exit status $rc from $bin" >&2
     exit "$rc"
