@@ -308,6 +308,11 @@ target_link_options(actuation_freertos_s32z2 PRIVATE
     # nearly-full int_sram_dram into int_sram too — the MPC/Eigen control cycle
     # overflowed 256 KiB there. Another INSERT fragment (augments the default).
     -T${CMAKE_CURRENT_SOURCE_DIR}/node_stack_in_sram.ld
+    # Discard the orphan .ARM.exidx/.ARM.extab unwind sections. Unwinding is
+    # already disabled (__exidx_start/_end defsym'd 0 below), and at -O1+ the
+    # dangling orphan exidx makes ld segfault during the final link. Another
+    # INSERT fragment so it augments the default script.
+    -T${CMAKE_CURRENT_SOURCE_DIR}/discard_unwind.ld
     # main.cpp is C++, so -Dmain=actuation_main produces the mangled symbol
     # _Z14actuation_mainv. NXP's startup.s and freertos_main.cpp both call
     # `actuation_main` unmangled; expose it as an alias so both reach the
