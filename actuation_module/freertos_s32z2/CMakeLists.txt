@@ -643,6 +643,40 @@ target_sources(actuation_freertos_s32z2 PRIVATE
     ${APP_SOURCES}
 )
 
+# ---- Optimisation policy: C++ at -O2, C at -O0, never -g ----
+# The control cycle is dominated by a dense-Cholesky Eigen QP solve
+# (QPSolverEigenLeastSquareLLT -- this port does NOT use OSQP) plus the MPC matrix
+# generation. At -O0 the first solve takes ~86 s because Eigen is pathologically
+# slow unoptimised (it depends on aggressive inlining of its expression
+# templates). Compiling the C++ at -O2 cuts the control cycle ~25x (to ~3.5 s) and
+# the full host->board->control_cmd round-trip works with identical output.
+#
+# Optimisation is applied to C++ ONLY -- the C sources stay at -O0 -- and it is
+# applied UNIFORMLY across all C++ (a single target-wide option, not a per-TU
+# mix). Both constraints are load-bearing and were established on hardware:
+#   * The custom C platform/network port (lwIP + NETC + vendor glue + FreeRTOS)
+#     is tuned for -O0 codegen. At -O1 it silently drops controller input RX; at
+#     -O2 it hard-hangs the board right after DDS setup (no UART, no ping). So C
+#     stays -O0.
+#   * Mixing -O0 and -O2 *within* C++ (e.g. only the autoware math at -O2, the DDS
+#     glue at -O0) makes dds_create_domain_with_rawconfig fail at boot -- an
+#     ODR/ABI mismatch on inline code shared between the -O0 and -O2 translation
+#     units. Uniform C++ optimisation (all -O2) avoids it; consistent -O0 or -O2
+#     both boot DDS fine, only the mix breaks it.
+#
+# -g must stay OFF: GNU ld 2.42 (BFD) segfaults during the final link when -O2's
+# inlining orphans the per-function DWARF sections and --gc-sections then walks
+# the dangling .debug_* list (in lang_size_sections). -O2 itself links fine
+# without -g. If you need debug info use -gsplit-dwarf (keeps .debug_* out of the
+# link); address-level gdb (arm-none-eabi-nm) works without -g regardless.
+#
+# Not yet hard-real-time: the ~3.5 s cycle is scalar Eigen (NEON is disabled via
+# EIGEN_DONT_VECTORIZE, see above). Closing the gap to the 150 ms control period
+# needs NEON and/or an algorithmic change -- a separate effort.
+target_compile_options(actuation_freertos_s32z2 PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-O2>
+)
+
 # Rename main() to actuation_main() only inside the Autoware app's main.cpp;
 # freertos_main.cpp keeps its own main(), and startup.s `bl main` must reach
 # that wrapper to bring up the FreeRTOS scheduler. A global -Dmain= would
