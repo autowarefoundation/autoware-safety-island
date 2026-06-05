@@ -72,9 +72,22 @@ wait "${UART_PID}" 2>/dev/null || true
 errors=0
 grep -F "Controller Node Started"         "${UART_LOG}" || errors=$((errors+1))
 grep -F "Actuation Safety Island is Live"  "${UART_LOG}" || errors=$((errors+1))
-count=$(grep -cF "STEERING REPORT" "${EDGE_SUB_LOG}")
+# The round-trip success signal is the BOARD's controller output coming back to
+# the host, not the host echoing its own inputs. dds_sub.cpp logs "CONTROL CMD
+# ... (from board)" only on a received autoware_control_msgs/Control sample, so
+# (unlike "STEERING REPORT", which the host publisher emits and the host
+# subscriber receives without the board doing anything) it cannot be satisfied
+# without the board publishing. grep -c exits non-zero on zero matches, which
+# under `set -e` would abort before the diagnostic below, so guard with `|| true`.
+count=$(grep -cF "CONTROL CMD" "${EDGE_SUB_LOG}" || true)
 if [ "${count}" -lt 2 ]; then
-    echo "STEERING REPORT count is ${count} (need >= 2)"
+    echo "CONTROL CMD (from board) count is ${count} (need >= 2)"
+    errors=$((errors+1))
+fi
+# Validate the controller emitted a sane steering field (a finite number, not
+# nan/inf) so a garbage-but-present sample does not pass as a good round trip.
+if ! grep -Eq "steering_tire_angle: -?[0-9]+(\.[0-9]+)? rad" "${EDGE_SUB_LOG}"; then
+    echo "no sane steering_tire_angle field in CONTROL CMD output"
     errors=$((errors+1))
 fi
 if grep -qF "actuation_main returned" "${UART_LOG}"; then
