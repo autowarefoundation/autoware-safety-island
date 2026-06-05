@@ -61,6 +61,11 @@ typedef struct pthread_internal_s {
     void *arg;
     TaskHandle_t task;
     SemaphoreHandle_t done;
+    // Non-NULL only for static-stack tasks (xTaskCreateStaticFpu). A static
+    // task's TCB is application-owned -- the kernel never frees it -- so we
+    // record it here and release it in pthread_join after vTaskDelete. NULL for
+    // dynamic-stack tasks, where the kernel owns and frees the TCB.
+    StaticTask_t *tcb;
 } pthread_internal_t;
 
 static inline int pthread_mutex_lock(pthread_mutex_t *mutex)
@@ -142,6 +147,7 @@ static inline int pthread_create(pthread_t *thread,
     }
     info->entry = start_routine;
     info->arg = arg;
+    info->tcb = NULL;
     info->done = xSemaphoreCreateBinary();
     if (info->done == NULL) {
         vPortFree(info);
@@ -160,10 +166,14 @@ static inline int pthread_create(pthread_t *thread,
                 (StackType_t *)attr->stackaddr,
                 tcb);
             ok = (info->task != NULL) ? pdPASS : pdFAIL;
-            if (ok != pdPASS) {
+            if (ok == pdPASS) {
+                /* The task owns this static TCB for its lifetime; record it so
+                 * pthread_join can release it after vTaskDelete (the kernel
+                 * never frees an application-provided TCB). */
+                info->tcb = tcb;
+            } else {
                 /* Task creation failed; the TCB is unowned, so free it here —
-                 * the shared cleanup below only frees info->done and info. On
-                 * success the task owns the static TCB for its lifetime. */
+                 * the shared cleanup below only frees info->done and info. */
                 vPortFree(tcb);
             }
         }
@@ -197,6 +207,12 @@ static inline int pthread_join(pthread_t thread, void **retval)
     if (info->task != NULL) {
         vTaskDelete(info->task);
     }
+    /* Release the application-owned static TCB the kernel does not free.
+     * vPortFree(NULL) is a no-op, so this is safe for dynamic-stack tasks too.
+     * The TCB is freed here (alongside info) rather than in pthread_cancel,
+     * which defers teardown to the matching join — freeing it in both would
+     * double-free. */
+    vPortFree(info->tcb);
     vSemaphoreDelete(info->done);
     vPortFree(info);
     return 0;
