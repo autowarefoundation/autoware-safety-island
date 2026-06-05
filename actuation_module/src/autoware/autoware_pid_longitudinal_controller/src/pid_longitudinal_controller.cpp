@@ -750,6 +750,9 @@ LongitudinalMsg PidLongitudinalController::createCtrlCmdMsg(
   cmd.stamp = Clock::toRosTime(Clock::now());
   cmd.velocity = static_cast<decltype(cmd.velocity)>(ctrl_cmd.vel);
   cmd.acceleration = static_cast<decltype(cmd.acceleration)>(ctrl_cmd.acc);
+  // The acceleration is populated, so mark it defined; the CAN encoder gates the
+  // longitudinal acceleration on is_defined_acceleration.
+  cmd.is_defined_acceleration = true;
 
   // store current velocity history
   m_vel_hist.push_back({Clock::now(), current_vel});
@@ -828,9 +831,10 @@ void PidLongitudinalController::storeAccelCmd(const double accel)
 {
   if (m_control_state == ControlState::DRIVE) {
     // convert format
-    LongitudinalMsg cmd;
+    LongitudinalMsg cmd{};
     cmd.stamp = Clock::toRosTime(Clock::now());
     cmd.acceleration = static_cast<decltype(cmd.acceleration)>(accel);
+    cmd.is_defined_acceleration = true;
 
     // store published ctrl cmd
     m_ctrl_cmd_vec.emplace_back(cmd);
