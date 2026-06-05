@@ -20,7 +20,14 @@ int main(void)
     log_info("Waiting for DHCP to get IP address...");
     sleep(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX);
 
-    configure_network();
+    // Bring up the network before anything that depends on it. Every platform's
+    // configure_network() returns 0 on success and nonzero on failure; fail fast
+    // here so we never construct the DDS/controller stack -- or report "Live" --
+    // on top of a network that did not come up.
+    if (configure_network() != 0) {
+        log_error("Network bring-up failed; aborting");
+        std::exit(1);
+    }
 
     // TODO: Disable SNTP if no internet connection is available
 #ifdef CONFIG_ENABLE_SNTP
