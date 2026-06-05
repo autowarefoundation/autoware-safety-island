@@ -6,7 +6,6 @@ SHELL ["/bin/bash", "-c"]
 ARG TARGETARCH
 ARG ZSDK_VERSION=0.16.3
 ENV ZEPHYR_SDK_INSTALL_DIR=/opt/zephyr-sdk-${ZSDK_VERSION}
-ENV ARMFVP_BIN_PATH=/usr/local/bin
 
 # Fix expired ROS GPG key issue comprehensively
 # See: https://github.com/osrf/docker_images/issues/535
@@ -24,6 +23,7 @@ RUN apt-get update && \
     ninja-build ccache dfu-util device-tree-compiler wget vim inetutils-ping \
     python3-dev python3-pip python3-setuptools python3-tk screen openvpn unzip \ 
     python3-wheel xz-utils file make gcc libsdl2-dev libmagic1 pixz ros-$ROS_DISTRO-domain-bridge \
+    meson \
     && pip3 install avh-api avh-api-async websockets python-dateutil aiohttp six urllib3 dotenv \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -48,35 +48,32 @@ RUN SDK_ARCH_SUFFIX="unknown" && \
     ${ZEPHYR_SDK_INSTALL_DIR}/setup.sh -c -t aarch64-zephyr-elf && \
     rm "zephyr-sdk-${ZSDK_VERSION}_linux-${SDK_ARCH_SUFFIX}.tar.xz"
 
-# Armv8-R AEM FVP is required by Zephyr runtime CI. The official Arm download
-# may require registration, so CI images should be built with an accessible
-# archive URL supplied as a BuildKit secret by the image build environment.
-RUN --mount=type=secret,id=arm_fvp_archive_url \
-    --mount=type=secret,id=arm_fvp_archive_sha256 \
-    if [ -s /run/secrets/arm_fvp_archive_url ] && [ "${TARGETARCH}" = "amd64" ]; then \
-      arm_fvp_archive_url=$(cat /run/secrets/arm_fvp_archive_url) && \
-      arm_fvp_archive_sha256=$(cat /run/secrets/arm_fvp_archive_sha256) && \
-      mkdir -p /opt/arm-fvp /tmp/arm-fvp && \
-      wget -q --show-progress --progress=bar:force:noscroll -O /tmp/arm-fvp/fvp.archive "${arm_fvp_archive_url}" && \
-      echo "${arm_fvp_archive_sha256}  /tmp/arm-fvp/fvp.archive" | sha256sum -c - && \
-      if unzip -tq /tmp/arm-fvp/fvp.archive >/dev/null 2>&1; then \
-        unzip -q /tmp/arm-fvp/fvp.archive -d /opt/arm-fvp; \
-      else \
-        tar -xf /tmp/arm-fvp/fvp.archive -C /opt/arm-fvp; \
-      fi && \
-      fvp_bin=$(find /opt/arm-fvp -type f -name FVP_BaseR_AEMv8R -perm /111 | head -n 1) && \
-      if [ -z "${fvp_bin}" ]; then \
-        echo "FVP_BaseR_AEMv8R not found in ARM_FVP_ARCHIVE_URL archive" >&2; \
-        exit 1; \
-      fi && \
-      printf '%s\n' '#!/usr/bin/env bash' "exec \"${fvp_bin}\" \"\$@\"" > /usr/local/bin/FVP_BaseR_AEMv8R && \
-      chmod +x /usr/local/bin/FVP_BaseR_AEMv8R && \
-      rm -rf /tmp/arm-fvp; \
-    elif [ -s /run/secrets/arm_fvp_archive_url ]; then \
-      echo "Skipping Arm FVP install for TARGETARCH=${TARGETARCH}; Zephyr FVP CI runs on amd64."; \
-    else \
-      echo "arm_fvp_archive_url secret not set; image will not include FVP_BaseR_AEMv8R."; \
-    fi
+# Install ARM Fixed Virtual Platform (FVP) for Zephyr runtime testing
+# FVP_BaseR_AEMv8R emulates Cortex-R52 (Armv8-R) for FVP builds
+RUN FVP_URL="https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz" && \
+    wget -q --show-progress --progress=bar:force:noscroll "${FVP_URL}" -O /tmp/fvp.tar.gz && \
+    mkdir -p /opt/fvp && \
+    tar -xzf /tmp/fvp.tar.gz -C /opt/fvp --strip-components=1 && \
+    ln -s /opt/fvp/bin/FVP_BaseR_AEMv8R /usr/local/bin/FVP_BaseR_AEMv8R && \
+    rm /tmp/fvp.tar.gz
+
+# Build and install picolibc for x86_64 host (needed by Zephyr native_sim runtime CI)
+# The Zephyr SDK 0.16.3 does not provide x86_64 host picolibc specs.
+# We build picolibc from the exact revision in Zephyr's west manifest, then
+# overlay the SDK's picolibc headers which include macros (FDEV_SETUP_STREAM
+# etc.) that were removed from the open-source 1.8.x releases.
+RUN PICOLIBC_SHA=d07c38ff051386f8e09a143ea0a6c1d6d66dd1d8 && \
+    curl -sSL "https://github.com/picolibc/picolibc/archive/${PICOLIBC_SHA}.tar.gz" | \
+      tar xz -C /tmp && \
+    cd /tmp/picolibc-* && \
+    mkdir build && cd build && \
+    meson setup . .. \
+      --prefix=/opt/picolibc \
+      -Dmultilib=false \
+      -Dtinystdio=false && \
+    ninja && ninja install && \
+    cp -a /opt/zephyr-sdk-0.16.3/arm-zephyr-eabi/picolibc/include/. /opt/picolibc/include/ && \
+    rm -rf /tmp/picolibc-*
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

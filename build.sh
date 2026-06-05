@@ -23,14 +23,14 @@ set -u
 # Build options
 BUILD_TEST_FLAG=0
 BUILD_DIR="build/actuation_module"
-ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
-ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is FVP
+ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "native_sim_64" "s32z270dc2_rtu0_r52@D")
+ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
 
 function usage() {
   echo -e "${GREEN}Usage: $0 [OPTIONS]${NC}"
   echo -e "------------------------------------------------"
   echo -e "${GREEN}    -t                 ${NC}Zephyr target board: ${ZEPHYR_TARGET_LIST[*]}"
-  echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]} (FVP).${NC}"
+  echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]}.${NC}"
   echo -e "${GREEN}    -d                 ${NC}Build directory. Default: ${BUILD_DIR}."
   echo -e "${GREEN}    -c                 ${NC}Clean all builds and exit."
   echo -e "${GREEN}    -h                 ${NC}Display the usage and exit."
@@ -156,9 +156,15 @@ function build_actuation_module() {
     build_args+=(-DEXTRA_DTC_OVERLAY_FILE="${ROOT_DIR}"/actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay)
   fi
 
-  if [ "${ZEPHYR_TARGET}" = "fvp_baser_aemv8r_smp" ] && [ "${BUILD_TEST_FLAG}" = "4" ]; then
-    extra_conf_files+=("${ROOT_DIR}/actuation_module/boards/fvp_baser_aemv8r_smp_can_loopback.conf")
-    build_args+=(-DEXTRA_DTC_OVERLAY_FILE="${ROOT_DIR}"/actuation_module/boards/fvp_baser_aemv8r_smp_can_loopback.overlay)
+  local can_loopback_conf="${ROOT_DIR}/actuation_module/boards/${target_base}_can_loopback.conf"
+  local can_loopback_overlay="${ROOT_DIR}/actuation_module/boards/${target_base}_can_loopback.overlay"
+  if [ "${BUILD_TEST_FLAG}" = "4" ]; then
+    if [ -f "${can_loopback_conf}" ]; then
+      extra_conf_files+=("${can_loopback_conf}")
+    fi
+    if [ -f "${can_loopback_overlay}" ]; then
+      build_args+=(-DEXTRA_DTC_OVERLAY_FILE="${can_loopback_overlay}")
+    fi
   fi
 
   if [ "${#extra_conf_files[@]}" -gt 0 ]; then
