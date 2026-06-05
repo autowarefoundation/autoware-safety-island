@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Shared helpers for FreeRTOS POSIX runtime CI phases.
+# Shared helpers for runtime CI phases.
 # Each runtime workflow step sources this file once at the top.
 #
 # Usage:
 #   source .github/scripts/ci-helpers.sh
 #   run_with_timeout <binary> <log_path> <timeout_seconds>
+#   run_command_with_timeout <log_path> <timeout_seconds> <command> [args...]
 #   require_marker   <log_path> <fixed-string marker>
 #   kill_with_timeout <pid> [grace_seconds]
 
@@ -24,7 +25,7 @@ dump_log() {
   fi
 }
 
-# Run a binary with a wall-clock timeout. Exit 0 (clean) and 124 (SIGTERM on
+# Run a command with a wall-clock timeout. Exit 0 (clean) and 124 (SIGTERM on
 # timeout) are both considered success. GNU timeout may return 137 after
 # --kill-after escalates to SIGKILL, so treat that as a bounded timeout too.
 is_success_or_timeout() {
@@ -32,9 +33,28 @@ is_success_or_timeout() {
   [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]
 }
 
-# Run a binary with a wall-clock timeout. timeout(1) escalates to SIGKILL after
-# CI_KILL_AFTER_SECONDS so a binary that ignores SIGTERM still terminates.
+# Run a command with a wall-clock timeout. timeout(1) escalates to SIGKILL after
+# CI_KILL_AFTER_SECONDS so a command that ignores SIGTERM still terminates.
 # Non-timeout exits dump the log and fail.
+run_command_with_timeout() {
+  local log="$1"
+  local secs="$2"
+  shift 2
+
+  rm -f "$log"
+  set +e
+  timeout --kill-after="${CI_KILL_AFTER_SECONDS}s" "${secs}s" "$@" >"$log" 2>&1
+  local rc=$?
+  set -e
+
+  if ! is_success_or_timeout "$rc"; then
+    dump_log "$log"
+    echo "Unexpected exit status $rc from command: $*" >&2
+    exit "$rc"
+  fi
+}
+
+# Run a binary with a wall-clock timeout. Non-timeout exits dump the log and fail.
 run_with_timeout() {
   local bin="$1"
   local log="$2"
@@ -45,17 +65,7 @@ run_with_timeout() {
     exit 1
   fi
 
-  rm -f "$log"
-  set +e
-  timeout --kill-after="${CI_KILL_AFTER_SECONDS}s" "${secs}s" "$bin" >"$log" 2>&1
-  local rc=$?
-  set -e
-
-  if ! is_success_or_timeout "$rc"; then
-    dump_log "$log"
-    echo "Unexpected exit status $rc from $bin" >&2
-    exit "$rc"
-  fi
+  run_command_with_timeout "$log" "$secs" "$bin"
 }
 
 # Send SIGTERM to a backgrounded pid and wait up to `grace_seconds` (default

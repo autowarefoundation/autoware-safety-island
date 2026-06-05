@@ -33,7 +33,7 @@ int main(void) {
     log_info("Waiting for DHCP to get IP address...\n");
     sleep(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX);
 
-#ifdef CONFIG_ENABLE_SNTP
+#if defined(CONFIG_ENABLE_SNTP) && CONFIG_ENABLE_SNTP
     if (Clock::init_clock_via_sntp() < 0) {
         log_error("Failed to set time using SNTP\n");
     }

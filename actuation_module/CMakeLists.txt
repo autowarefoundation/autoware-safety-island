@@ -36,6 +36,8 @@ elseif(BUILD_TEST STREQUAL "3")
   target_sources(app PRIVATE test/dds_sub.cpp)
 elseif(BUILD_TEST STREQUAL "4")
   target_sources(app PRIVATE test/can_output_test.cpp)
+elseif(BUILD_TEST STREQUAL "5")
+  target_sources(app PRIVATE test/dds_loopback_test.cpp)
 else()
   set(AUTOWARE_COMPONENTS
     autoware_universe_utils

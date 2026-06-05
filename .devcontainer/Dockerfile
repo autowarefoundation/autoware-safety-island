@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Copyright (c) 2024-2025, Arm Limited.
 # SPDX-License-Identifier: Apache-2.0
 FROM ghcr.io/autowarefoundation/autoware:universe-devel-20250207 AS devcontainer
@@ -5,6 +6,7 @@ SHELL ["/bin/bash", "-c"]
 ARG TARGETARCH
 ARG ZSDK_VERSION=0.16.3
 ENV ZEPHYR_SDK_INSTALL_DIR=/opt/zephyr-sdk-${ZSDK_VERSION}
+ENV ARMFVP_BIN_PATH=/usr/local/bin
 
 # Fix expired ROS GPG key issue comprehensively
 # See: https://github.com/osrf/docker_images/issues/535
@@ -45,6 +47,36 @@ RUN SDK_ARCH_SUFFIX="unknown" && \
     ${ZEPHYR_SDK_INSTALL_DIR}/setup.sh -c -t arm-zephyr-eabi && \
     ${ZEPHYR_SDK_INSTALL_DIR}/setup.sh -c -t aarch64-zephyr-elf && \
     rm "zephyr-sdk-${ZSDK_VERSION}_linux-${SDK_ARCH_SUFFIX}.tar.xz"
+
+# Armv8-R AEM FVP is required by Zephyr runtime CI. The official Arm download
+# may require registration, so CI images should be built with an accessible
+# archive URL supplied as a BuildKit secret by the image build environment.
+RUN --mount=type=secret,id=arm_fvp_archive_url \
+    --mount=type=secret,id=arm_fvp_archive_sha256 \
+    if [ -s /run/secrets/arm_fvp_archive_url ] && [ "${TARGETARCH}" = "amd64" ]; then \
+      arm_fvp_archive_url=$(cat /run/secrets/arm_fvp_archive_url) && \
+      arm_fvp_archive_sha256=$(cat /run/secrets/arm_fvp_archive_sha256) && \
+      mkdir -p /opt/arm-fvp /tmp/arm-fvp && \
+      wget -q --show-progress --progress=bar:force:noscroll -O /tmp/arm-fvp/fvp.archive "${arm_fvp_archive_url}" && \
+      echo "${arm_fvp_archive_sha256}  /tmp/arm-fvp/fvp.archive" | sha256sum -c - && \
+      if unzip -tq /tmp/arm-fvp/fvp.archive >/dev/null 2>&1; then \
+        unzip -q /tmp/arm-fvp/fvp.archive -d /opt/arm-fvp; \
+      else \
+        tar -xf /tmp/arm-fvp/fvp.archive -C /opt/arm-fvp; \
+      fi && \
+      fvp_bin=$(find /opt/arm-fvp -type f -name FVP_BaseR_AEMv8R -perm /111 | head -n 1) && \
+      if [ -z "${fvp_bin}" ]; then \
+        echo "FVP_BaseR_AEMv8R not found in ARM_FVP_ARCHIVE_URL archive" >&2; \
+        exit 1; \
+      fi && \
+      printf '%s\n' '#!/usr/bin/env bash' "exec \"${fvp_bin}\" \"\$@\"" > /usr/local/bin/FVP_BaseR_AEMv8R && \
+      chmod +x /usr/local/bin/FVP_BaseR_AEMv8R && \
+      rm -rf /tmp/arm-fvp; \
+    elif [ -s /run/secrets/arm_fvp_archive_url ]; then \
+      echo "Skipping Arm FVP install for TARGETARCH=${TARGETARCH}; Zephyr FVP CI runs on amd64."; \
+    else \
+      echo "arm_fvp_archive_url secret not set; image will not include FVP_BaseR_AEMv8R."; \
+    fi
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

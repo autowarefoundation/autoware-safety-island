@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2026, Arm Limited.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	chosen {
+		zephyr,canbus = &can_loopback0;
+	};
+
+	can_loopback0: can-loopback0 {
+		compatible = "zephyr,can-loopback";
+		bus-speed = <125000>;
+		sample-point = <875>;
+		status = "okay";
+	};
+};

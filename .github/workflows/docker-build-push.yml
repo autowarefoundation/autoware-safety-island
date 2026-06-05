@@ -52,6 +52,19 @@ jobs:
             type=ref,event=pr
             type=raw,value=devcontainer,enable={{is_default_branch}}
 
+      - name: Validate Arm FVP archive inputs
+        if: matrix.suffix == 'amd64'
+        shell: bash
+        env:
+          ARM_FVP_ARCHIVE_URL: ${{ secrets.ARM_FVP_ARCHIVE_URL }}
+          ARM_FVP_ARCHIVE_SHA256: ${{ secrets.ARM_FVP_ARCHIVE_SHA256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ARM_FVP_ARCHIVE_URL}" ] || [ -z "${ARM_FVP_ARCHIVE_SHA256}" ]; then
+            echo "Missing ARM_FVP_ARCHIVE_URL or ARM_FVP_ARCHIVE_SHA256 secret for amd64 devcontainer image." >&2
+            exit 1
+          fi
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -60,6 +73,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            arm_fvp_archive_url=${{ secrets.ARM_FVP_ARCHIVE_URL }}
+            arm_fvp_archive_sha256=${{ secrets.ARM_FVP_ARCHIVE_SHA256 }}
           cache-from: type=gha,scope=devcontainer-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=devcontainer-${{ matrix.suffix }}
 
