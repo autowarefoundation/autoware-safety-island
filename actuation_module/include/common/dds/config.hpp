@@ -63,23 +63,32 @@ inline static void init_config(struct ddsi_config & cfg)
 {
   log_debug("Initializing DDS configuration\n");
 
-  if (sizeof(CONFIG_DDS_NETWORK_INTERFACE) <= 1) {
-    log_error("DDS network interface not set, please set CONFIG_DDS_NETWORK_INTERFACE\n");
-    std::exit(1);
-  }
+  // CONFIG_DDS_NETWORK_INTERFACE is a compile-time string literal. An empty
+  // value is the documented "empty = auto" default (CMake) used by the host
+  // edge-ECU peer: leave cfg.network_interfaces at the ddsi_config_init_default()
+  // default so CycloneDDS auto-selects a suitable interface, rather than treating
+  // it as a fatal misconfiguration.
+  constexpr bool iface_configured = (sizeof(CONFIG_DDS_NETWORK_INTERFACE) > 1);
 
-  if (dds_selector_is_ipv4(CONFIG_DDS_NETWORK_INTERFACE)) {
-    cfg_iface.cfg.address = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
-    log_info("Network interface (by IP address): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+  if (iface_configured) {
+    if (dds_selector_is_ipv4(CONFIG_DDS_NETWORK_INTERFACE)) {
+      cfg_iface.cfg.address = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
+      log_info("Network interface (by IP address): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+    } else {
+      cfg_iface.cfg.name = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
+      log_info("Network interface (by name): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+    }
   } else {
-    cfg_iface.cfg.name = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
-    log_info("Network interface (by name): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+    log_info("Network interface: auto (CONFIG_DDS_NETWORK_INTERFACE empty)\n");
   }
 
   ddsi_config_init_default(&cfg);
 
-  // Network interface
-  cfg.network_interfaces = &cfg_iface;
+  // Network interface — pin our descriptor only when one was configured;
+  // otherwise leave the auto-selected default in place.
+  if (iface_configured) {
+    cfg.network_interfaces = &cfg_iface;
+  }
 
   // cfg.enable_topic_discovery_endpoints = DDSI_BOOLDEF_FALSE;
 

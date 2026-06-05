@@ -15,6 +15,7 @@
 // suspends the scheduler / takes a critical section internally).
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <new>
 
@@ -95,6 +96,9 @@ extern "C" {
 
 void *malloc(std::size_t size)
 {
+    if (size > SIZE_MAX - kMallocHeader) {
+        return nullptr;  // size + kMallocHeader would wrap; reject rather than under-allocate
+    }
     void *raw = pvPortMalloc(size + kMallocHeader);
     if (raw == nullptr) {
         return nullptr;

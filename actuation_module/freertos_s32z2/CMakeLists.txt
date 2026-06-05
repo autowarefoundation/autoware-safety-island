@@ -667,14 +667,21 @@ target_sources(actuation_freertos_s32z2 PRIVATE
 # -g must stay OFF: GNU ld 2.42 (BFD) segfaults during the final link when -O2's
 # inlining orphans the per-function DWARF sections and --gc-sections then walks
 # the dangling .debug_* list (in lang_size_sections). -O2 itself links fine
-# without -g. If you need debug info use -gsplit-dwarf (keeps .debug_* out of the
-# link); address-level gdb (arm-none-eabi-nm) works without -g regardless.
+# without -g. The explicit -g0 below ENFORCES this so the constraint is not just
+# documentation: it overrides a -g pulled in by CMAKE_BUILD_TYPE=Debug or a
+# custom CMAKE_CXX_FLAGS, which would otherwise reintroduce the link crash. If
+# you genuinely need debug info, drop the -g0 and use -gsplit-dwarf (keeps
+# .debug_* out of the link); address-level gdb (arm-none-eabi-nm) works without
+# -g regardless.
 #
 # Not yet hard-real-time: the ~3.5 s cycle is scalar Eigen (NEON is disabled via
 # EIGEN_DONT_VECTORIZE, see above). Closing the gap to the 150 ms control period
 # needs NEON and/or an algorithmic change -- a separate effort.
 target_compile_options(actuation_freertos_s32z2 PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-O2>
+    # Enforce "never -g" for C++ (scoped to match -O2, the combination that
+    # crashes ld 2.42). Last on the command line, so it wins over any earlier -g.
+    $<$<COMPILE_LANGUAGE:CXX>:-g0>
 )
 
 # Rename main() to actuation_main() only inside the Autoware app's main.cpp;

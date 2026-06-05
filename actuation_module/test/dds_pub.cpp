@@ -20,7 +20,7 @@ using OperationModeStateMsg = autoware_adapi_v1_msgs_msg_OperationModeState;
 static K_THREAD_STACK_DEFINE(node_stack, CONFIG_THREAD_STACK_SIZE);
 #define STACK_SIZE (K_THREAD_STACK_SIZEOF(node_stack))
 
-#include <ctime>
+#include <time.h>   // POSIX nanosleep / struct timespec (not guaranteed by <ctime>)
 #include <cerrno>
 
 #define PUBLISH_PERIOD_MS (100)  // 10 Hz — realistic input cadence for the controller
