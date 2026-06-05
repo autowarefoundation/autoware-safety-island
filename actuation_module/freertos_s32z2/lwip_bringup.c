@@ -55,8 +55,12 @@ extern err_t ethif_ethernetif_init(struct netif *netif);
 static struct netif s_netif;
 
 static void tcpip_init_done(void *arg) {
-    SemaphoreHandle_t *done = (SemaphoreHandle_t *)arg;
-    xSemaphoreGive(*done);
+    // arg is the SemaphoreHandle_t value itself (it is a pointer typedef), NOT a
+    // pointer to our stack variable: if xSemaphoreTake() below times out,
+    // lwip_bring_up_blocking() returns and its stack frame dies while the tcpip
+    // thread may still run this callback. Passing the handle by value keeps it
+    // valid regardless of our stack lifetime.
+    xSemaphoreGive((SemaphoreHandle_t)arg);
 }
 
 #define NETC_REG32(a) (*(volatile uint32_t *)(uintptr_t)(a))
@@ -88,7 +92,7 @@ int lwip_bring_up_blocking(void) {
         return -1;
     }
 
-    tcpip_init(tcpip_init_done, &tcpip_done);
+    tcpip_init(tcpip_init_done, tcpip_done);
     if (xSemaphoreTake(tcpip_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
         printf("lwip: tcpip_init timed out\n");
         // Don't delete tcpip_done on this path: the tcpip thread's init-done
