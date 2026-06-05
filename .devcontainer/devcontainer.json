@@ -1,6 +1,10 @@
 {
-    "name": "zephyr",
+    "name": "Autoware Safety Island",
     "build": {
       "dockerfile": "./Dockerfile"
-    }
-  }
+    },
+    "containerEnv": {
+      "ARMFVP_BIN_PATH": "/usr/local/bin"
+    },
+    "postCreateCommand": "echo 'FVP ready: $(which FVP_BaseR_AEMv8R && FVP_BaseR_AEMv8R --version | head -1)'"
+}

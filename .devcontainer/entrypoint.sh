@@ -31,6 +31,14 @@ west update > /dev/null 2>&1
 echo -e "${COLOR_BLUE}Exporting Zephyr SDK...${COLOR_RESET}"
 west zephyr-export > /dev/null 2>&1
 
+# Verify FVP is available
+if [ -x "/usr/local/bin/FVP_BaseR_AEMv8R" ]; then
+    echo -e "${COLOR_BLUE}FVP (Fixed Virtual Platform) available: ${COLOR_RESET}"
+    /usr/local/bin/FVP_BaseR_AEMv8R --version | head -1
+    echo -e "${COLOR_BLUE}Usage: west build -b fvp_baser_aemv8r_smp . -- -DZEPHYR_TARGET=fvp_baser_aemv8r_smp${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}       west build --target run${COLOR_RESET}"
+fi
+
 # Ready to go!
 echo -e "${COLOR_GREEN}Dev container ready!${COLOR_RESET}"
 exec "/bin/bash"
