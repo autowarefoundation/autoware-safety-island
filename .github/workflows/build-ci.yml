@@ -11,8 +11,8 @@ jobs:
   build-zephyr:
     name: Zephyr FVP
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    container:
+      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
 
     steps:
       - name: Checkout repository
@@ -20,36 +20,17 @@ jobs:
         with:
           submodules: false
 
-      - name: Validate Arm FVP archive inputs
+      - name: Trust workspace (container runs as root)
         shell: bash
-        env:
-          ARM_FVP_ARCHIVE_URL: ${{ secrets.ARM_FVP_ARCHIVE_URL }}
-          ARM_FVP_ARCHIVE_SHA256: ${{ secrets.ARM_FVP_ARCHIVE_SHA256 }}
-        run: |
-          set -euo pipefail
-          if [ -z "${ARM_FVP_ARCHIVE_URL}" ] || [ -z "${ARM_FVP_ARCHIVE_SHA256}" ]; then
-            echo "Missing ARM_FVP_ARCHIVE_URL or ARM_FVP_ARCHIVE_SHA256 secret for Zephyr FVP CI image." >&2
-            exit 1
-          fi
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Zephyr CI container
-        uses: docker/build-push-action@v5
-        with:
-          context: ./.devcontainer
-          load: true
-          tags: autoware-safety-island-zephyr-ci:${{ github.sha }}
-          secrets: |
-            arm_fvp_archive_url=${{ secrets.ARM_FVP_ARCHIVE_URL }}
-            arm_fvp_archive_sha256=${{ secrets.ARM_FVP_ARCHIVE_SHA256 }}
-          cache-from: type=gha,scope=zephyr-ci-devcontainer
-          cache-to: type=gha,mode=max,scope=zephyr-ci-devcontainer
+        run: git config --global --add safe.directory '*'
 
       # Initialise only the public submodules. s32ct_config is a PRIVATE
       # submodule (NXP Confidential generated configs) that the repo-scoped CI
       # token cannot clone, and the Zephyr/FreeRTOS-POSIX builds do not need it.
+      - name: Initialize build submodules (private s32ct_config excluded)
+        shell: bash
+        run: git submodule update --init --recursive cyclonedds zephyr freertos-kernel
+
       - name: Restore Zephyr workspace cache
         id: zephyr-cache
         uses: actions/cache@v4
@@ -61,32 +42,21 @@ jobs:
           key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
           restore-keys: zephyr-workspace-
 
-      - name: Run Zephyr FVP validation
+      - name: Initialize Zephyr workspace
         shell: bash
-        env:
-          ZEPHYR_CACHE_HIT: ${{ steps.zephyr-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          docker run --rm \
-            --entrypoint bash \
-            -e GITHUB_WORKSPACE="${GITHUB_WORKSPACE}" \
-            -e ZEPHYR_CACHE_HIT="${ZEPHYR_CACHE_HIT}" \
-            -v "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
-            -w "${GITHUB_WORKSPACE}" \
-            autoware-safety-island-zephyr-ci:${{ github.sha }} \
-            -lc '
-              set -euo pipefail
-              git config --global --add safe.directory "*"
-              git submodule update --init --recursive cyclonedds zephyr freertos-kernel
-              pip3 install -q -r zephyr/scripts/requirements-base.txt
-              pip3 install -q -r zephyr/scripts/requirements-build-test.txt
-              if [ "${ZEPHYR_CACHE_HIT}" != "true" ]; then
-                [ -d .west ] || west init -l actuation_module
-                west update
-              fi
-              west zephyr-export
-              .github/scripts/run-zephyr-fvp-ci.sh
-            '
+          pip3 install -q -r zephyr/scripts/requirements-base.txt
+          pip3 install -q -r zephyr/scripts/requirements-build-test.txt
+          if [ "${{ steps.zephyr-cache.outputs.cache-hit }}" != "true" ]; then
+            [ -d .west ] || west init -l actuation_module
+            west update
+          fi
+          west zephyr-export
+
+      - name: Run Zephyr FVP validation
+        shell: bash
+        run: .github/scripts/run-zephyr-fvp-ci.sh
 
       - name: Upload Zephyr FVP logs
         if: always()
