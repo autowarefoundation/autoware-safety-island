@@ -3,6 +3,9 @@
 #
 # FreeRTOS POSIX simulator build entry point.
 #
+# Preferred path from the repository root:
+#   ./build.sh --platform freertos-posix -d build/freertos-posix
+#
 # Prerequisites: build CycloneDDS host tools and target library first.
 #
 # Phase 1 -- CycloneDDS host tools (provides idlc):
