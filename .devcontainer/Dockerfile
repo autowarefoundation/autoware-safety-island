@@ -48,14 +48,20 @@ RUN SDK_ARCH_SUFFIX="unknown" && \
     ${ZEPHYR_SDK_INSTALL_DIR}/setup.sh -c -t aarch64-zephyr-elf && \
     rm "zephyr-sdk-${ZSDK_VERSION}_linux-${SDK_ARCH_SUFFIX}.tar.xz"
 
-# Install ARM Fixed Virtual Platform (FVP) for Zephyr runtime testing
-# FVP_BaseR_AEMv8R emulates Cortex-R52 (Armv8-R) for FVP builds
-RUN FVP_URL="https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz" && \
-    wget -q --show-progress --progress=bar:force:noscroll "${FVP_URL}" -O /tmp/fvp.tar.gz && \
-    mkdir -p /opt/fvp && \
-    tar -xzf /tmp/fvp.tar.gz -C /opt/fvp --strip-components=1 && \
-    ln -s /opt/fvp/bin/FVP_BaseR_AEMv8R /usr/local/bin/FVP_BaseR_AEMv8R && \
-    rm /tmp/fvp.tar.gz
+# Install ARM Fixed Virtual Platform (FVP) for Zephyr runtime testing.
+# Arm publishes this FVP package as an x86 Linux host binary, so only install it
+# in amd64 devcontainer images. The arm64 image can still build Zephyr, but FVP
+# runtime validation must run on an amd64 host/container.
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+        FVP_URL="https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz" && \
+        wget -q --show-progress --progress=bar:force:noscroll "${FVP_URL}" -O /tmp/fvp.tar.gz && \
+        mkdir -p /opt/fvp && \
+        tar -xzf /tmp/fvp.tar.gz -C /opt/fvp --strip-components=1 && \
+        ln -s /opt/fvp/bin/FVP_BaseR_AEMv8R /usr/local/bin/FVP_BaseR_AEMv8R && \
+        rm /tmp/fvp.tar.gz; \
+    else \
+        echo "Skipping FVP install for TARGETARCH=${TARGETARCH}; FVP_BaseR_AEMv8R is available as Linux x86 host binary only."; \
+    fi
 
 # Build and install picolibc for x86_64 host (needed by Zephyr native_sim runtime CI)
 # The Zephyr SDK 0.16.3 does not provide x86_64 host picolibc specs.

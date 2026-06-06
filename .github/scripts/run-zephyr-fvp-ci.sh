@@ -26,6 +26,12 @@ ensure_fvp_available()
     return
   fi
 
+  if [ "$(uname -m)" != "x86_64" ]; then
+    echo "${FVP_BIN_NAME} is available from Arm as a Linux x86 host binary only." >&2
+    echo "Run Zephyr FVP validation on an amd64/x86_64 runner or devcontainer image." >&2
+    exit 1
+  fi
+
   echo "${FVP_BIN_NAME} not found; installing FVP from public ARM CDN..."
   mkdir -p "${FVP_INSTALL_DIR}"
   wget -q --show-progress --progress=bar:force:noscroll \

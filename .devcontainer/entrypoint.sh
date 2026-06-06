@@ -37,6 +37,9 @@ if [ -x "/usr/local/bin/FVP_BaseR_AEMv8R" ]; then
     /usr/local/bin/FVP_BaseR_AEMv8R --version | head -1
     echo -e "${COLOR_BLUE}Usage: west build -b fvp_baser_aemv8r_smp . -- -DZEPHYR_TARGET=fvp_baser_aemv8r_smp${COLOR_RESET}"
     echo -e "${COLOR_BLUE}       west build --target run${COLOR_RESET}"
+else
+    echo -e "${COLOR_YELLOW}FVP runtime is unavailable in this container architecture.${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}FVP_BaseR_AEMv8R is installed only in the amd64 devcontainer image.${COLOR_RESET}"
 fi
 
 # Ready to go!
