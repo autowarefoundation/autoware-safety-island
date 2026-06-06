@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zephyr FVP runtime CI phases (FVP binary is pre-installed in devcontainer)
+# Zephyr FVP runtime CI phases.
 
 set -euo pipefail
 
@@ -48,9 +48,6 @@ ensure_fvp_available()
 }
 
 ensure_fvp_available
-
-# FVP terminal output port (default is 5000)
-FVP_TERM_PORT="${FVP_TERM_PORT:-5000}"
 
 # FVP run timeout
 FVP_TIMEOUT_SECONDS="${FVP_TIMEOUT_SECONDS:-90}"

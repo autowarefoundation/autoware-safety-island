@@ -23,7 +23,7 @@ set -u
 # Build options
 BUILD_TEST_FLAG=0
 BUILD_DIR="build/actuation_module"
-ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "native_sim_64" "s32z270dc2_rtu0_r52@D")
+ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
 ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
 
 function usage() {
