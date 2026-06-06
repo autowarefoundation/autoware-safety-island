@@ -7,12 +7,41 @@ ROOT_DIR="${GITHUB_WORKSPACE:-$(pwd)}"
 ZEPHYR_TARGET="fvp_baser_aemv8r_smp"
 BUILD_ROOT="${ROOT_DIR}/build/zephyr-fvp"
 LOG_DIR="${BUILD_ROOT}/logs"
+FVP_BIN_NAME="FVP_BaseR_AEMv8R"
+FVP_URL="https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz"
+FVP_INSTALL_DIR="${BUILD_ROOT}/tools/fvp"
 
 source "${ROOT_DIR}/.github/scripts/ci-helpers.sh"
 
 mkdir -p "${LOG_DIR}"
 
-export ARMFVP_BIN_PATH="/usr/local/bin"
+ensure_fvp_available()
+{
+  local fvp_bin
+
+  fvp_bin="$(command -v "${FVP_BIN_NAME}" || true)"
+  if [ -n "${fvp_bin}" ]; then
+    ARMFVP_BIN_PATH="$(dirname "${fvp_bin}")"
+    export ARMFVP_BIN_PATH
+    return
+  fi
+
+  echo "${FVP_BIN_NAME} not found; installing FVP from public ARM CDN..."
+  mkdir -p "${FVP_INSTALL_DIR}"
+  wget -q --show-progress --progress=bar:force:noscroll \
+    "${FVP_URL}" -O "${BUILD_ROOT}/fvp.tar.gz"
+  tar -xzf "${BUILD_ROOT}/fvp.tar.gz" -C "${FVP_INSTALL_DIR}" --strip-components=1
+  rm "${BUILD_ROOT}/fvp.tar.gz"
+
+  if [ ! -x "${FVP_INSTALL_DIR}/bin/${FVP_BIN_NAME}" ]; then
+    echo "Missing FVP binary after install: ${FVP_INSTALL_DIR}/bin/${FVP_BIN_NAME}" >&2
+    exit 1
+  fi
+
+  export ARMFVP_BIN_PATH="${FVP_INSTALL_DIR}/bin"
+}
+
+ensure_fvp_available
 
 # FVP terminal output port (default is 5000)
 FVP_TERM_PORT="${FVP_TERM_PORT:-5000}"
