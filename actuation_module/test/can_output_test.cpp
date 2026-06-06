@@ -238,8 +238,13 @@ int main()
   test_non_finite_values_are_rejected();
 #if defined(PLATFORM_FREERTOS)
   test_freertos_can_output_records_frames();
-#elif defined(PLATFORM_ZEPHYR) && defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
+#elif defined(PLATFORM_ZEPHYR)
+  #if defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
   test_zephyr_can_output_loopback();
+  #else
+  log_error("Zephyr CAN output test requires CONFIG_CONTROL_CMD_CAN_OUTPUT");
+  return 1;
+  #endif
 #endif
   log_info("CAN output tests passed");
 #if defined(PLATFORM_FREERTOS)

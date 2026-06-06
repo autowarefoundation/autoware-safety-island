@@ -53,7 +53,9 @@ RUN SDK_ARCH_SUFFIX="unknown" && \
 # runtime validation must run on an amd64 host/container.
 RUN if [ "${TARGETARCH}" = "amd64" ]; then \
         FVP_URL="https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz" && \
+        FVP_SHA256="627500afdb115701b412b85520e5c0e370b7f7e3f425f7ae4b1e8b14cbd4441a" && \
         wget -q --show-progress --progress=bar:force:noscroll "${FVP_URL}" -O /tmp/fvp.tar.gz && \
+        printf '%s  %s\n' "${FVP_SHA256}" /tmp/fvp.tar.gz | sha256sum -c - && \
         mkdir -p /opt/fvp && \
         tar -xzf /tmp/fvp.tar.gz -C /opt/fvp --strip-components=1 && \
         ln -s /opt/fvp/bin/FVP_BaseR_AEMv8R /usr/local/bin/FVP_BaseR_AEMv8R && \
