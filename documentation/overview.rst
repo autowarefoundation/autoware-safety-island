@@ -131,24 +131,25 @@ and compiled as part of the safety island application.
      - Controller node entry point
 
 *********************************
-ROS RCL to Zephyr mapping
+ROS RCL abstraction mapping
 *********************************
 
 Autoware code is written against ROS 2's ``rcl`` layer. In this project the
-equivalents are built directly on Zephyr primitives, so no ROS 2 runtime is
-needed on the safety island.
+equivalents are built directly on runtime primitives, so no ROS 2 runtime is
+needed on the safety island runtime target.
 
 .. list-table::
    :widths: 50 50
    :header-rows: 1
 
    * - ROS 2 (rcl)
-     - Zephyr equivalent
+     - Safety-island equivalent
    * - Logging
      - Custom logger (``include/common/logger/logger.hpp``)
    * - Node
-     - POSIX threads on Zephyr stacks (``include/common/node/node.hpp``)
+     - POSIX-style thread wrapper with platform-provided stacks
+       (``include/common/node/node.hpp`` and ``include/platform/``)
    * - Timers
-     - Zephyr software timers
+     - Runtime timer wrapper (``include/common/node/timer.hpp``)
    * - Publisher / Subscriber
      - CycloneDDS (``include/common/dds/``)

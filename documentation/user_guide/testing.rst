@@ -91,7 +91,12 @@ and are deployed in exactly the same way as the main application:
 
 ``freertos-posix`` test binaries are produced as
 ``build/freertos-posix/actuation_freertos`` unless ``-d`` selects another build
-directory.
+directory. Run them directly on the host, for example:
+
+.. code-block:: console
+
+  $ ./build.sh --platform freertos-posix --can-output-test
+  $ ./build/freertos-posix/actuation_freertos
 
 Clean between builds if switching flags:
 

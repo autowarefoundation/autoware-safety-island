@@ -14,6 +14,13 @@ NXP-licensed SDK packages and S32 Config Tools generated output.
 The detailed bring-up notes live in ``actuation_module/freertos_s32z2/README.md``
 and :doc:`/design/freertos-s32z2-bringup`.
 
+.. note::
+
+   ``freertos-s32z2`` is not a local validation target. Validate FreeRTOS DDS
+   and controller behavior locally with :doc:`freertos_posix`, then treat
+   ``freertos-s32z2`` as a bench-only hardware build that needs S32Z2-specific
+   validation.
+
 *************
 Prerequisites
 *************
@@ -55,4 +62,6 @@ Status
 ******
 
 ``freertos-s32z2`` is not part of the local validation flow. Treat it as a
-hardware target that requires bench validation after build changes.
+hardware target that requires bench validation after build changes. The
+implementation depends on NXP-generated/private inputs and hardware bring-up
+state that are not exercised by the public CI jobs.

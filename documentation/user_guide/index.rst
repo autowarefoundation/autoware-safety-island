@@ -18,6 +18,7 @@ hardware on S32Z.
    :caption: Contents
 
    quickstart
+   freertos_posix
    avh
    s32z_board
    freertos_s32z2
