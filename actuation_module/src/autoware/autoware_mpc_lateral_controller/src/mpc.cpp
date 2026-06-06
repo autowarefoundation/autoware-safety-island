@@ -115,6 +115,7 @@ ResultWithReason MPC::calculateMPC(
   ctrl_cmd.steering_tire_angle = static_cast<float>(u_filtered);
   ctrl_cmd.steering_tire_rotation_rate = static_cast<float>(calcDesiredSteeringRate(
     mpc_matrix, x0_delayed, Uex, u_filtered, current_steer.steering_tire_angle, prediction_dt));
+  ctrl_cmd.is_defined_steering_tire_rotation_rate = true;
 
   log_debug("MPC: Control Command Set");
 
@@ -157,6 +158,7 @@ ResultWithReason MPC::calculateMPC(
     lateral.steering_tire_rotation_rate =
       (lateral.steering_tire_angle - ctrl_cmd_horizon.controls.back().steering_tire_angle) /
       m_ctrl_period;
+    lateral.is_defined_steering_tire_rotation_rate = true;
     ctrl_cmd_horizon.controls.push_back(lateral);
   }
 
