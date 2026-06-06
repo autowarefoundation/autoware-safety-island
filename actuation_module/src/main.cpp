@@ -11,14 +11,16 @@ using namespace common::logger;
 #include "autoware/trajectory_follower_node/controller_node.hpp"
 
 int main(void)
-{   
+{
     autoware::motion::control::trajectory_follower_node::Controller* controller;
-    
+
     log_success("-----------------------------------------");
     log_success("ARM - Autoware: Actuation Safety Island");
     log_success("-----------------------------------------");
+#if defined(CONFIG_NET_DHCPV4) && CONFIG_NET_DHCPV4
     log_info("Waiting for DHCP to get IP address...");
     sleep(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX);
+#endif
 
     configure_network();
 

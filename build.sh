@@ -19,9 +19,11 @@ NC='\033[0m'
 ROOT_DIR=$(dirname "$(realpath "$0")")
 set -e
 set -u
+CYCLONEDDS_HOST_BUILD_DIR=${CYCLONEDDS_HOST_BUILD_DIR:-"${ROOT_DIR}/build/cyclonedds_host"}
 
 # Build options
 BUILD_TEST_FLAG=0
+BUILD_FVP_TAP_DEMO=0
 BUILD_DIR="build/actuation_module"
 ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
 ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
@@ -41,6 +43,7 @@ function usage() {
   echo -e "${GREEN}    --dds-subscriber   ${NC}Build Zephyr DDS subscriber."
   echo -e "${GREEN}    --can-output-test  ${NC}Build Zephyr CAN output test program."
   echo -e "${GREEN}    --dds-loopback-test${NC}Build Zephyr DDS loopback test program."
+  echo -e "${GREEN}    --fvp-tap-demo    ${NC}Build FVP with static IPv4 config for TAP DDS demo."
 }
 
 function parse_args() {
@@ -69,6 +72,10 @@ function parse_args() {
         ;;
       --dds-loopback-test)
         BUILD_TEST_FLAG=5
+        shift
+        ;;
+      --fvp-tap-demo)
+        BUILD_FVP_TAP_DEMO=1
         shift
         ;;
       *)
@@ -121,8 +128,8 @@ function clean() {
 
 function build_cyclonedds_host() {
   echo -e "${GREEN}Building CycloneDDS host tools...${NC}"
-  mkdir -p build/cyclonedds_host
-  pushd build/cyclonedds_host
+  mkdir -p "${CYCLONEDDS_HOST_BUILD_DIR}"
+  pushd "${CYCLONEDDS_HOST_BUILD_DIR}"
   cmake -DCMAKE_INSTALL_PREFIX="$(pwd)"/out -DENABLE_SECURITY=OFF -DENABLE_SSL=OFF -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON -DENABLE_SHM=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DBUILD_DDSPERF=OFF "${ROOT_DIR}"/cyclonedds
   cmake --build . --target install -- -j"$(nproc)"
   popd
@@ -130,8 +137,8 @@ function build_cyclonedds_host() {
 
 function build_actuation_module() {
   echo -e "${GREEN}Building Zephyr Actuation Module...${NC}"
-  typeset PATH="${ROOT_DIR}"/build/cyclonedds_host/out/bin:$PATH
-  typeset LD_LIBRARY_PATH="${ROOT_DIR}"/build/cyclonedds_host/out/lib
+  typeset PATH="${CYCLONEDDS_HOST_BUILD_DIR}"/out/bin:$PATH
+  typeset LD_LIBRARY_PATH="${CYCLONEDDS_HOST_BUILD_DIR}"/out/lib
   export CMAKE_PREFIX_PATH=""
   export AMENT_PREFIX_PATH=""
   local target_base="${ZEPHYR_TARGET%%@*}"
@@ -149,6 +156,16 @@ function build_actuation_module() {
   local board_conf="${ROOT_DIR}/actuation_module/boards/${target_base}_actuation.conf"
   if [ -f "${board_conf}" ]; then
     extra_conf_files+=("${board_conf}")
+  fi
+
+  if [ "${BUILD_FVP_TAP_DEMO}" = "1" ]; then
+    if [ "${target_base}" != "fvp_baser_aemv8r_smp" ]; then
+      echo -e "${RED}--fvp-tap-demo is only valid for fvp_baser_aemv8r_smp${NC}" 1>&2
+      exit 1
+    fi
+    extra_conf_files+=("${ROOT_DIR}/actuation_module/boards/fvp_baser_aemv8r_smp_tap_demo.conf")
+    local fvp_tap_interface="${FVP_TAP_INTERFACE:-tap0}"
+    export ARMFVP_EXTRA_FLAGS="${ARMFVP_EXTRA_FLAGS:-} -C bp.hostbridge.userNetworking=0 -C bp.hostbridge.interfaceName=${fvp_tap_interface}"
   fi
 
   # Add device tree overlay only for ARM board variant
