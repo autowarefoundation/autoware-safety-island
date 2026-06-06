@@ -10,10 +10,8 @@
 #   export FREERTOS_PATH=~/nxp/FreeRTOS_S32ZE_4.0.0/_jar/S32DS/software/PlatformSDK_S32ZE/FreeRTOS
 #   export LWIP_PATH=~/nxp/TCPIP_S32ZE_3.0.0/_jar/S32DS/software/PlatformSDK_S32ZE/stacks/tcpip
 #
-# Then:
-#   cmake -S actuation_module/freertos_s32z2 -B build-s32z2 \
-#         -DCMAKE_TOOLCHAIN_FILE=actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake
-#   cmake --build build-s32z2 -j
+# Preferred path from the repository root:
+#   ./build.sh --platform freertos-s32z2 -d build/freertos-s32z2
 
 cmake_minimum_required(VERSION 3.22)
 project(actuation_module_freertos_s32z2 LANGUAGES C CXX ASM)
@@ -598,18 +596,18 @@ target_sources(actuation_freertos_s32z2 PRIVATE
 )
 
 # ---- Pre-built CycloneDDS target library ----
-set(CDDS_HOST_PREFIX   ${CMAKE_SOURCE_DIR}/../../build-freertos/cdds_host_out CACHE PATH "")
-set(CDDS_TARGET_PREFIX ${CMAKE_SOURCE_DIR}/../../build-s32z2/cdds_target_out CACHE PATH "")
+set(CDDS_HOST_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/cdds_host_out CACHE PATH "CycloneDDS host tools install prefix")
+set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/cdds_target_out CACHE PATH "CycloneDDS S32Z2 target library install prefix")
 
 if(NOT EXISTS ${CDDS_HOST_PREFIX}/bin/idlc)
     message(FATAL_ERROR
         "Host idlc not found at ${CDDS_HOST_PREFIX}/bin/idlc. "
-        "Run the FreeRTOS POSIX simulator phase 1 build first.")
+        "Run ./build.sh --platform freertos-s32z2 first, or pass CDDS_HOST_PREFIX.")
 endif()
 if(NOT EXISTS ${CDDS_TARGET_PREFIX}/lib/libddsc.a)
     message(FATAL_ERROR
         "Cross-built CycloneDDS not found at ${CDDS_TARGET_PREFIX}/lib/libddsc.a. "
-        "Run actuation_module/freertos_s32z2/scripts/build-cdds-target.sh first.")
+        "Run ./build.sh --platform freertos-s32z2 first, or pass CDDS_TARGET_PREFIX.")
 endif()
 
 add_library(cdds STATIC IMPORTED GLOBAL)

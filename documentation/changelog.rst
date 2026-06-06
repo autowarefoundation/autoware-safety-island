@@ -27,7 +27,14 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
-Nothing yet.
+Changed
+-------
+
+- ``build.sh`` and the documentation now present the supported runtime target
+  matrix: ``zephyr-fvp``, ``zephyr-s32z``, ``freertos-posix``, and
+  ``freertos-s32z2``.
+- ``freertos-s32z2`` can be selected through ``build.sh --platform``; it remains
+  a hardware-specific target that requires NXP-licensed SDK inputs.
 
 *****
 v0.1.0
@@ -37,7 +44,7 @@ First release of *Autoware Safety Island*. Major restructuring from the
 previous project: Autoware components are now vendored directly into the
 application, the separate ``Actuation Service`` / ``Message Converter`` /
 ``Actuation Player`` split has been retired, and a platform abstraction
-layer enables a FreeRTOS POSIX simulator alongside the Zephyr target.
+layer enables a FreeRTOS POSIX runtime alongside the Zephyr target.
 
 New features
 ============
@@ -51,9 +58,9 @@ New features
 - Simplified top-level ``build.sh`` replacing the previous multi-step build.
 - Platform abstraction layer (``actuation_module/include/platform/``) with
   Zephyr and FreeRTOS backends, keeping controller logic fully shared.
-- FreeRTOS POSIX simulator build (``actuation_module/freertos/``) using
+- FreeRTOS POSIX runtime build (``actuation_module/freertos/``) using
   FreeRTOS-Kernel V11.1.0, buildable on any Linux host.
-- CI pipeline verifying both Zephyr (FVP) and FreeRTOS simulator builds on
+- CI pipeline verifying both Zephyr (FVP) and FreeRTOS POSIX builds on
   every pull request and daily.
 - Release workflow publishing ``zephyr-fvp.elf``, ``zephyr-s32z.elf``,
   ``actuation_freertos``, and ``sha256sums.txt`` on every ``v*.*.*`` tag.
@@ -80,7 +87,7 @@ Limitations
   which otherwise reuses the same MAC on every build
   (tracked in `Zephyr Project #61478
   <https://github.com/zephyrproject-rtos/zephyr/issues/61478>`_).
-- FreeRTOS support is currently POSIX simulator only; real hardware port
+- FreeRTOS support is currently POSIX runtime only; real hardware port
   (Phases 5–6) is future work.
 
 Third-party repositories

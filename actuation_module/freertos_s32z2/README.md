@@ -11,7 +11,7 @@ Ethernet 0 (RX and TX both flow), CycloneDDS creates its domain-2 participant,
 and the controller reaches `Controller Node Started` / `Actuation Safety Island
 is Live`, running the MPC/PID control loop at the 150 ms cadence. The
 end-to-end control round-trip (host → board → `control_cmd` → host) is verified
-on the POSIX simulator and being brought up on hardware.
+on the FreeRTOS POSIX runtime and being brought up on hardware.
 
 The NXP RTD MCAL drivers (`Mcu`, `Clock_Ip`, `Siul2_Port_Ip`, `Uart`, `Gpt`,
 `Eth_43_NETC`) require post-build configuration structures (`*_PBcfg.c`)
@@ -184,25 +184,36 @@ git.
 
 ## Build
 
+The preferred build path is the repository-level runtime target selector:
+
 ```bash
 export S32_RTD_PATH=...
 export FREERTOS_PATH=...
 export LWIP_PATH=...
 export S32CT_GENERATED_DIR=~/workspaceS32DS.3.6.2/lwip_S32Z27X_FreeRTOS_R52
 
-cmake -S actuation_module/freertos_s32z2 -B build-s32z2 \
-    -DCMAKE_TOOLCHAIN_FILE=$PWD/actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake
-cmake --build build-s32z2 -j
+./build.sh --platform freertos-s32z2 -d build/freertos-s32z2 \
+  --dds-interface 192.168.0.105 \
+  --control-output DDS_ONLY
 ```
 
-Output (once PB configs are in place): `build-s32z2/actuation_freertos_s32z2.elf`.
+Output (once PB configs are in place):
+`build/freertos-s32z2/actuation_freertos_s32z2.elf`.
 
-The CycloneDDS cross-build is a separate phase that runs first and produces
-the static `libddsc.a` consumed by the main target:
+`build.sh` first builds the host `idlc`, then cross-builds the S32Z2
+CycloneDDS static library, then builds the FreeRTOS S32Z2 firmware.
+
+The CycloneDDS cross-build can still be run manually when debugging that phase:
 
 ```bash
 ./actuation_module/freertos_s32z2/scripts/build-cdds-target.sh
 ```
+
+Set `FREERTOS_S32Z2_CDDS_HOST_BUILD_DIR`,
+`FREERTOS_S32Z2_CDDS_HOST_PREFIX`,
+`FREERTOS_S32Z2_CDDS_TARGET_BUILD_DIR`, or
+`FREERTOS_S32Z2_CDDS_TARGET_PREFIX` to override the default CycloneDDS paths
+under `build/freertos-s32z2/`.
 
 ## Flash
 
@@ -220,7 +231,7 @@ pgrep -x Xvfb >/dev/null || \
 source ~/zephyr-env/bin/activate
 west debug \
     --s32ds-path=/usr/local/NXP/S32DS.3.6.2 \
-    -d build-s32z2 \
+    -d build/freertos-s32z2 \
     --tool-opt='--batch'
 ```
 

@@ -9,10 +9,10 @@ Architecture
 
 The safety island hosts the Autoware trajectory follower and talks to the
 main compute over DDS. This page describes how the pieces fit together at
-runtime on the Zephyr backend. The controller logic is shared across
-backends via a platform abstraction layer
-(``actuation_module/include/platform/``); a FreeRTOS POSIX simulator uses
-the same core with a different backend under ``include/platform/freertos/``.
+runtime on the supported runtime targets. The controller logic is shared
+across backends via a platform abstraction layer
+(``actuation_module/include/platform/``); Zephyr and FreeRTOS targets provide
+different backend implementations under that layer.
 
 ************************
 Two-domain DDS topology
@@ -22,7 +22,7 @@ The main compute and the safety island live on separate CycloneDDS
 domains:
 
 - **Domain 1** — Autoware main compute (full ROS 2 graph).
-- **Domain 2** — Safety island (Zephyr + CycloneDDS, no ROS 2 runtime).
+- **Domain 2** — Safety island runtime target (CycloneDDS, no ROS 2 runtime).
 
 A ``ros2 domain_bridge`` instance running on the main compute forwards
 exactly the topics the safety island needs between the two domains. The
@@ -36,9 +36,9 @@ list is fixed in ``demo/bridge/bridge-config.yaml``.
            Bridge[domain_bridge]
        end
 
-       subgraph "Safety island (domain 2)"
-           Firmware[Zephyr firmware<br/>Controller Node]
-       end
+        subgraph "Safety island (domain 2)"
+            Firmware[Safety island runtime<br/>Controller Node]
+        end
 
        Autoware -- trajectory, odometry,<br/>steering, accel,<br/>operation_mode --> Bridge
        Bridge -- forwarded topics --> Firmware
@@ -47,8 +47,10 @@ list is fixed in ``demo/bridge/bridge-config.yaml``.
 
 Full topic list with message types: :doc:`topics`.
 
-Both domains are configured through ``demo/cyclonedds.xml``. The key
-tunables are shared across the two domains:
+The default demo domains are configured through ``demo/cyclonedds.xml``. The
+FreeRTOS POSIX local validation flow uses ``demo/cyclonedds.posix.xml`` to pin
+Domain 2 to a multicast-capable host interface. The key tunables are shared
+across the two domains:
 
 - ``MaxMessageSize = 1400B`` — matches the safety-island MTU.
 - ``AllowMulticast = spdp`` — SPDP discovery over multicast, application
@@ -88,11 +90,11 @@ RTOS primitives
 ****************
 
 The ``common`` abstraction layer under ``actuation_module/include/common/``
-hides Zephyr specifics behind small interfaces:
+hides runtime-specific primitives behind small interfaces:
 
-- ``node/node.hpp`` — thread and timer wrappers. Uses the pthread API
-  (``CONFIG_POSIX_API=y``) on top of Zephyr-allocated stacks; the caller
-  still provides stack memory via ``K_THREAD_STACK_DEFINE``.
+- ``node/node.hpp`` — thread and timer wrappers. On Zephyr this uses the
+  pthread API (``CONFIG_POSIX_API=y``) on top of Zephyr-allocated stacks; the
+  caller still provides stack memory via ``K_THREAD_STACK_DEFINE``.
 - ``dds/`` — CycloneDDS publisher/subscriber templates with ROS 2
   topic-name translation.
 - ``clock/clock.hpp`` — monotonic clock, optional SNTP-backed wall clock.

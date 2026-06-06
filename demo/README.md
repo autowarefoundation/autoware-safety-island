@@ -14,7 +14,7 @@ docker compose up -d
 
 ## FreeRTOS POSIX Safety Island
 
-For the local FreeRTOS POSIX simulator, use the POSIX compose override. It mounts `cyclonedds.posix.xml`, which keeps Domain 1 autodetected and pins Domain 2 to a multicast-capable host interface.
+For the local FreeRTOS POSIX runtime, use the POSIX compose override. It mounts `cyclonedds.posix.xml`, which keeps Domain 1 autodetected and pins Domain 2 to a multicast-capable host interface.
 
 ```bash
 SAFETY_ISLAND_DDS_INTERFACE=wlp2s0 docker compose -f docker-compose.yaml -f docker-compose.posix.yaml up -d

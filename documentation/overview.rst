@@ -13,11 +13,29 @@ localization, and vehicle-state topics from the Autoware main compute, runs
 MPC lateral and PID longitudinal control, and publishes control commands back
 out over DDS. No changes to the upstream Autoware codebase are required.
 
-The module runs on **Zephyr RTOS** for production hardware targets (FVP,
-NXP S32Z). A **FreeRTOS POSIX simulator** build is also available for
-development and integration testing on Linux. A platform abstraction layer
+The module supports Zephyr and FreeRTOS runtime targets for both local
+validation and S32Z hardware development. A platform abstraction layer
 (``actuation_module/include/platform/``) keeps the controller logic shared
-between both backends.
+between runtime backends.
+
+.. list-table:: Runtime targets
+   :widths: 20 40 40
+   :header-rows: 1
+
+   * - Runtime
+     - Local validation
+     - S32Z hardware
+   * - Zephyr
+     - ``zephyr-fvp``
+     - ``zephyr-s32z``
+   * - FreeRTOS
+     - ``freertos-posix``
+     - ``freertos-s32z2``
+
+``zephyr-fvp`` and ``freertos-posix`` are validated local development targets.
+``zephyr-fvp`` also covers AVH workflows. ``zephyr-s32z`` is the existing S32Z
+Zephyr hardware target.
+``freertos-s32z2`` is hardware-specific and requires NXP-licensed SDK inputs.
 
 The main compute and the safety island run on separate DDS domains. A
 domain bridge on the main compute forwards the relevant topics between them,
@@ -83,7 +101,7 @@ Autoware Components
 *******************
 
 The following Autoware packages are vendored into ``actuation_module/src/autoware/``
-and compiled as part of the Zephyr application.
+and compiled as part of the safety island application.
 
 .. list-table::
    :widths: 50 50

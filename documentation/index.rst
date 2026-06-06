@@ -7,11 +7,11 @@
 Autoware Safety Island
 ########################
 
-The Autoware Safety Island is a standalone Zephyr RTOS application that
-generates vehicle control commands in Autoware-compatible format and publishes
-them over DDS. It runs Autoware's MPC lateral and PID longitudinal controllers
-on an Arm safety-class processor, without requiring any modification to the
-Autoware codebase on the main compute.
+The Autoware Safety Island is a standalone actuation application that generates
+vehicle control commands in Autoware-compatible format and publishes them over
+DDS. It runs Autoware's MPC lateral and PID longitudinal controllers on local
+validation targets and S32Z hardware targets, without requiring any modification
+to the Autoware codebase on the main compute.
 
 If you are new here, start with the :doc:`user_guide/quickstart` to build and
 run the FVP target locally, then read :doc:`overview` for the architecture.

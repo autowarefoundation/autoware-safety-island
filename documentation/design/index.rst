@@ -17,3 +17,4 @@ Runtime design, DDS topic contracts, and forward-looking design work.
    architecture
    topics
    can_output
+   freertos-s32z2-bringup

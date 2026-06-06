@@ -99,7 +99,7 @@ ships dedicated ``sync/freertos.h`` and ``sockets/posix.h`` + lwIP backends —
 no patches required). Security, SSL, shared memory, IPv6, source-specific
 multicast, and network partitions are all disabled (see
 ``actuation_module/freertos_s32z2/scripts/build-cdds-target.sh``). The host
-``idlc`` from the POSIX-simulator phase 1 build is reused for IDL → C
+``idlc`` built by ``build.sh --platform freertos-s32z2`` is reused for IDL → C
 generation of ``autoware_msgs``.
 
 The cross-build needs two non-obvious workarounds:

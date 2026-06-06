@@ -3,9 +3,9 @@
 # Copyright (c) 2025, Arm Limited.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Build script for supported Autoware Safety Island runtimes.
+# Build script for supported Autoware Safety Island runtime targets.
 #
-# This script builds Zephyr targets and the FreeRTOS POSIX simulator.
+# This script builds Zephyr and FreeRTOS runtime targets.
 #
 # Usage: ./build.sh [OPTIONS]
 
@@ -30,6 +30,7 @@ BUILD_PLATFORM_SET=0
 NETWORK_PROFILE="default"
 DDS_NETWORK_INTERFACE=""
 CONTROL_CMD_OUTPUT_MODE=""
+RUNTIME_TARGET_LIST=("zephyr-fvp" "zephyr-s32z" "freertos-posix" "freertos-s32z2")
 ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
 ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
 ZEPHYR_TARGET_SET=0
@@ -37,10 +38,10 @@ ZEPHYR_TARGET_SET=0
 function usage() {
   echo -e "${GREEN}Usage: $0 [OPTIONS]${NC}"
   echo -e "------------------------------------------------"
-  echo -e "${GREEN}    --platform         ${NC}Build platform: zephyr-fvp, zephyr-s32z, freertos-posix."
+  echo -e "${GREEN}    --platform         ${NC}Runtime target: ${RUNTIME_TARGET_LIST[*]}."
   echo -e "${GREEN}                         default: zephyr-fvp.${NC}"
   echo -e "${GREEN}    --network          ${NC}Network profile: default, tap. tap is valid for zephyr-fvp."
-  echo -e "${GREEN}    --dds-interface    ${NC}DDS interface for freertos-posix, for example wlp2s0."
+  echo -e "${GREEN}    --dds-interface    ${NC}DDS interface/IP selector for FreeRTOS targets."
   echo -e "${GREEN}    --control-output   ${NC}FreeRTOS control output: DDS_ONLY, CAN_ONLY, DDS_AND_CAN."
   echo -e "${GREEN}    -t                 ${NC}Zephyr target board: ${ZEPHYR_TARGET_LIST[*]}"
   echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]}.${NC}"
@@ -49,15 +50,22 @@ function usage() {
   echo -e "${GREEN}    -h                 ${NC}Display the usage and exit."
   echo ""
   echo -e "${GREEN}    Optional arguments to build test programs:${NC}"
-  echo -e "${GREEN}    --unit-test        ${NC}Build Zephyr unit test program."
-  echo -e "${GREEN}    --dds-publisher    ${NC}Build Zephyr DDS publisher."
-  echo -e "${GREEN}    --dds-subscriber   ${NC}Build Zephyr DDS subscriber."
-  echo -e "${GREEN}    --can-output-test  ${NC}Build Zephyr CAN output test program."
+  echo -e "${GREEN}    --unit-test        ${NC}Build unit test program."
+  echo -e "${GREEN}    --dds-publisher    ${NC}Build DDS publisher test program."
+  echo -e "${GREEN}    --dds-subscriber   ${NC}Build DDS subscriber test program."
+  echo -e "${GREEN}    --can-output-test  ${NC}Build CAN output test program."
   echo -e "${GREEN}    --dds-loopback-test${NC}Build Zephyr DDS loopback test program."
+  echo ""
+  echo -e "${GREEN}    Runtime target matrix:${NC}"
+  echo -e "    zephyr-fvp       Zephyr on Arm FVP for local validation / AVH."
+  echo -e "    zephyr-s32z      Zephyr on S32Z hardware."
+  echo -e "    freertos-posix   FreeRTOS POSIX runtime for local validation."
+  echo -e "    freertos-s32z2   FreeRTOS on S32Z2 hardware."
   echo ""
   echo -e "${GREEN}    Examples:${NC}"
   echo -e "    $0 --platform zephyr-fvp --network tap -d build/zephyr-fvp-tap"
   echo -e "    $0 --platform freertos-posix -d build/freertos-posix --dds-interface wlp2s0 --control-output DDS_ONLY"
+  echo -e "    $0 --platform freertos-s32z2 -d build/freertos-s32z2 --dds-interface 192.168.0.105"
 }
 
 function require_arg() {
@@ -189,9 +197,18 @@ function normalize_platform() {
         BUILD_DIR="build/freertos-posix"
       fi
       ;;
+    freertos-s32z2)
+      if [ "${ZEPHYR_TARGET_SET}" = "1" ]; then
+        echo -e "${RED}-t is only valid for Zephyr platforms${NC}" 1>&2
+        exit 1
+      fi
+      if [ "${BUILD_DIR_SET}" = "0" ]; then
+        BUILD_DIR="build/freertos-s32z2"
+      fi
+      ;;
     *)
       echo -e "${RED}Invalid platform: ${BUILD_PLATFORM}${NC}" 1>&2
-      echo -e "${YELLOW}Valid platforms: zephyr-fvp zephyr-s32z freertos-posix${NC}" 1>&2
+      echo -e "${YELLOW}Valid platforms: ${RUNTIME_TARGET_LIST[*]}${NC}" 1>&2
       exit 1
       ;;
   esac
@@ -207,13 +224,13 @@ function normalize_platform() {
     exit 1
   fi
 
-  if [ -n "${DDS_NETWORK_INTERFACE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ]; then
-    echo -e "${RED}--dds-interface is only valid for --platform freertos-posix${NC}" 1>&2
+  if [ -n "${DDS_NETWORK_INTERFACE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
+    echo -e "${RED}--dds-interface is only valid for FreeRTOS platforms${NC}" 1>&2
     exit 1
   fi
 
-  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ]; then
-    echo -e "${RED}--control-output is only valid for --platform freertos-posix${NC}" 1>&2
+  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
+    echo -e "${RED}--control-output is only valid for FreeRTOS platforms${NC}" 1>&2
     exit 1
   fi
 
@@ -226,6 +243,11 @@ function normalize_platform() {
         exit 1
         ;;
     esac
+  fi
+
+  if [ "${BUILD_PLATFORM}" = "freertos-s32z2" ] && [ "${BUILD_TEST_FLAG}" != "0" ]; then
+    echo -e "${RED}Test build options are not supported for --platform freertos-s32z2${NC}" 1>&2
+    exit 1
   fi
 }
 
@@ -240,6 +262,21 @@ function build_cyclonedds_host() {
   cmake -DCMAKE_INSTALL_PREFIX="$(pwd)"/out -DENABLE_SECURITY=OFF -DENABLE_SSL=OFF -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON -DENABLE_SHM=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DBUILD_DDSPERF=OFF "${ROOT_DIR}"/cyclonedds
   cmake --build . --target install -- -j"$(nproc)"
   popd
+}
+
+function build_cyclonedds_host_tools_for_prefix() {
+  local cdds_host_build_dir="$1"
+  local cdds_host_prefix="$2"
+
+  echo -e "${GREEN}Building CycloneDDS host tools...${NC}"
+  cmake cyclonedds -B "${cdds_host_build_dir}" \
+    -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_INSTALL_PREFIX="${cdds_host_prefix}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_DDSPERF=OFF -DENABLE_SECURITY=OFF \
+    -DENABLE_SSL=OFF -DENABLE_SHM=OFF \
+    -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
+  cmake --build "${cdds_host_build_dir}" --target install -j"$(nproc)"
 }
 
 function build_zephyr_actuation_module() {
@@ -297,7 +334,7 @@ function build_zephyr_actuation_module() {
 }
 
 function build_freertos_posix() {
-  echo -e "${GREEN}Building FreeRTOS POSIX simulator...${NC}"
+  echo -e "${GREEN}Building FreeRTOS POSIX runtime...${NC}"
   if [ "${BUILD_TEST_FLAG}" = "5" ]; then
     echo -e "${RED}--dds-loopback-test is not supported by the FreeRTOS POSIX CMake path${NC}" 1>&2
     exit 1
@@ -350,6 +387,44 @@ function build_freertos_posix() {
   cmake --build "${app_build_dir}" -j"$(nproc)"
 }
 
+function build_freertos_s32z2() {
+  echo -e "${GREEN}Building FreeRTOS S32Z2 target...${NC}"
+  echo -e "${YELLOW}This target requires NXP S32Z2 RTD, FreeRTOS, lwIP, and S32 Config Tools output.${NC}"
+
+  local app_build_dir
+  app_build_dir=$(realpath -m "${BUILD_DIR}")
+  local cdds_host_build_dir="${FREERTOS_S32Z2_CDDS_HOST_BUILD_DIR:-${app_build_dir}/cdds_host}"
+  local cdds_target_build_dir="${FREERTOS_S32Z2_CDDS_TARGET_BUILD_DIR:-${app_build_dir}/cdds_target}"
+  local cdds_host_prefix="${FREERTOS_S32Z2_CDDS_HOST_PREFIX:-${app_build_dir}/cdds_host_out}"
+  local cdds_target_prefix="${FREERTOS_S32Z2_CDDS_TARGET_PREFIX:-${app_build_dir}/cdds_target_out}"
+
+  build_cyclonedds_host_tools_for_prefix "${cdds_host_build_dir}" "${cdds_host_prefix}"
+
+  FREERTOS_S32Z2_BUILD_ROOT="${app_build_dir}" \
+  FREERTOS_S32Z2_CDDS_HOST_PREFIX="${cdds_host_prefix}" \
+  FREERTOS_S32Z2_CDDS_TARGET_BUILD_DIR="${cdds_target_build_dir}" \
+  FREERTOS_S32Z2_CDDS_TARGET_PREFIX="${cdds_target_prefix}" \
+    "${ROOT_DIR}/actuation_module/freertos_s32z2/scripts/build-cdds-target.sh"
+
+  local freertos_args=(
+    actuation_module/freertos_s32z2
+    -B "${app_build_dir}"
+    -DCMAKE_TOOLCHAIN_FILE="${ROOT_DIR}/actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake"
+    -DCDDS_HOST_PREFIX="${cdds_host_prefix}"
+    -DCDDS_TARGET_PREFIX="${cdds_target_prefix}"
+  )
+
+  if [ -n "${DDS_NETWORK_INTERFACE}" ]; then
+    freertos_args+=(-DCONFIG_DDS_NETWORK_INTERFACE="${DDS_NETWORK_INTERFACE}")
+  fi
+  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
+    freertos_args+=(-DCONFIG_CONTROL_CMD_OUTPUT_MODE="${CONTROL_CMD_OUTPUT_MODE}")
+  fi
+
+  cmake "${freertos_args[@]}"
+  cmake --build "${app_build_dir}" -j"$(nproc)"
+}
+
 ## MAIN ##
 parse_args "$@"
 normalize_platform
@@ -365,5 +440,8 @@ case "${BUILD_PLATFORM}" in
     ;;
   freertos-posix)
     build_freertos_posix
+    ;;
+  freertos-s32z2)
+    build_freertos_s32z2
     ;;
 esac
