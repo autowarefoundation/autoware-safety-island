@@ -12,8 +12,6 @@ source "${ROOT_DIR}/.github/scripts/ci-helpers.sh"
 
 mkdir -p "${LOG_DIR}"
 
-# FVP binary path (installed in devcontainer)
-FVP_BIN="/usr/local/bin/FVP_BaseR_AEMv8R"
 export ARMFVP_BIN_PATH="/usr/local/bin"
 
 # FVP terminal output port (default is 5000)
@@ -47,7 +45,7 @@ run_fvp_variant()
   rm -f "${log}"
 
   echo "Starting FVP for ${name}..."
-  
+
   # Use west build --target run which uses CMake's FVP configuration
   # ARMFVP_BIN_PATH must be set for CMake to find the FVP binary
   set +e
