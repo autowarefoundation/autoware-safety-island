@@ -1,7 +1,7 @@
 [submodule "cyclonedds"]
 	path = cyclonedds
-	url = https://github.com/eclipse-cyclonedds/cyclonedds
-	branch = f7688ce709e53f408e30706ebc27bd052c03d693
+	url = https://github.com/autowarefoundation/cyclonedds
+	branch = freertos-s32z2
 [submodule "zephyr"]
 	path = zephyr
 	url = https://github.com/zephyrproject-rtos/zephyr
