@@ -56,6 +56,18 @@ static void handle_trajectory(const TrajectoryMsg_Raw* msg, void* arg) {
     log_success("-------------------------------\n");
 }
 
+// Round-trip endpoint: the board's controller output. Receiving this closes the
+// loop (host inputs -> board MPC/PID -> control_cmd -> host).
+static void handle_control_cmd(const ControlMsg* msg, void* arg) {
+    static int count = 0;
+    log_success("\n====== CONTROL CMD #%d (from board) ======\n", count++);
+    log_success("Timestamp: %f\n", Clock::toDouble(msg->stamp));
+    log_success("steering_tire_angle: %f rad\n", msg->lateral.steering_tire_angle);
+    log_success("accel: %f m/s^2  velocity: %f m/s\n",
+                msg->longitudinal.acceleration, msg->longitudinal.velocity);
+    log_success("==========================================\n");
+}
+
 
 static void callbackTimer() {
     log_info("Callback timer\n");
@@ -99,6 +111,9 @@ int main(void) {
     node.create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
                                                                 &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
                                                                 handle_operation_mode_state, &node);
+    node.create_subscription<ControlMsg>("/control/trajectory_follower/control_cmd",
+                                                                &autoware_control_msgs_msg_Control_desc,
+                                                                handle_control_cmd, &node);
 
     log_info("--------------------------------\n");
     log_info("DDS subscriber started\n");

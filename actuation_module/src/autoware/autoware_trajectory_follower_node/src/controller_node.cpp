@@ -162,6 +162,12 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   // Put data into state pointers
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_odometry_ = *msg;
+  // *msg is a loaned DDS sample: subscriber.hpp returns it (dds_return_loan)
+  // right after this callback, so the shallow-copied IDL string fields (char*)
+  // would dangle. The controller consumes only numeric fields, so null the
+  // strings instead of deep-copying them.
+  controller->current_odometry_.header.frame_id = nullptr;
+  controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
 }
 
@@ -176,6 +182,9 @@ void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, 
   // Put data into state pointers
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_accel_ = *msg;
+  // See callbackOdometry: null the loaned char* string field so it does not
+  // dangle once the sample's loan is returned.
+  controller->current_accel_.header.frame_id = nullptr;
   controller->has_accel_ = true;
 }
 

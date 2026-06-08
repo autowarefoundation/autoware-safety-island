@@ -97,9 +97,14 @@ message(STATUS "S32Z2 FreeRTOS example:        ${S32Z2_FREERTOS_EXAMPLE}")
 # both carry the NXP Confidential and Proprietary header and must not be
 # committed to this public repository. We commit only our diffs
 # (vendor_patched/*.patch) and apply them to the pristine originals from the NXP
-# packages into the build tree at configure time. configure_file(COPYONLY)
-# refreshes the copy from the original on every configure, so the subsequent
-# single-pass `patch` stays idempotent.
+# packages into the build tree at configure time. Re-copying from the original on
+# every configure keeps the subsequent single-pass `patch` idempotent.
+#
+# The NXP sources ship with CRLF line endings; our committed patches use LF (so
+# `git diff --check` stays clean and review/apply are not fragile). GNU patch
+# refuses to apply across a CRLF/LF mismatch ("different line endings"), so we
+# normalise both the freshly-copied source and the patch to LF before applying.
+# The compiler is indifferent to the resulting line endings.
 find_program(PATCH_EXECUTABLE patch REQUIRED)
 set(_s32z2_vendor_patched_dir ${CMAKE_CURRENT_BINARY_DIR}/vendor_patched)
 file(MAKE_DIRECTORY ${_s32z2_vendor_patched_dir})
@@ -109,9 +114,20 @@ function(s32z2_apply_vendor_patch orig patch out_var)
     if(NOT EXISTS "${orig}")
         message(FATAL_ERROR "NXP vendor source not found: ${orig}")
     endif()
+    string(ASCII 13 _cr)
+    # Copy the pristine source, then strip CRs so it is pure LF.
     configure_file("${orig}" "${_out}" COPYONLY)
+    file(READ "${_out}" _src)
+    string(REPLACE "${_cr}" "" _src "${_src}")
+    file(WRITE "${_out}" "${_src}")
+    # Stage an LF copy of the patch (the committed patch is already LF, but strip
+    # CRs anyway so a patch checked out with CRLF still applies).
+    set(_patch_lf "${_out}.patch")
+    file(READ "${patch}" _pat)
+    string(REPLACE "${_cr}" "" _pat "${_pat}")
+    file(WRITE "${_patch_lf}" "${_pat}")
     execute_process(
-        COMMAND "${PATCH_EXECUTABLE}" "${_out}" "${patch}"
+        COMMAND "${PATCH_EXECUTABLE}" "${_out}" "${_patch_lf}"
         RESULT_VARIABLE _rc OUTPUT_VARIABLE _log ERROR_VARIABLE _log)
     if(NOT _rc EQUAL 0)
         message(FATAL_ERROR "Failed to apply ${patch} to ${orig}:\n${_log}")

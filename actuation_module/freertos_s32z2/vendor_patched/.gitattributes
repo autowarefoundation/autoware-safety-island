@@ -1,0 +1,8 @@
+# Committed unified-diff patches for NXP vendor sources. A context line for
+# tab-indented vendor code necessarily begins "<space><tab>" (the diff's
+# context marker followed by the original tab indentation), which
+# `git diff --check` reports as "space before tab". That is structural to the
+# diff format, not a real defect, and the context bytes must stay faithful to
+# the upstream file for `patch` to apply. Exempt these files from whitespace
+# checking so the signal stays meaningful.
+*.patch -whitespace
