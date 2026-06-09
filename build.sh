@@ -183,6 +183,9 @@ function normalize_platform() {
         exit 1
       fi
       ZEPHYR_TARGET="fvp_baser_aemv8r_smp"
+      if [ "${BUILD_DIR_SET}" = "0" ]; then
+        BUILD_DIR="build/zephyr-fvp"
+      fi
       ;;
     zephyr-s32z)
       if [ "${ZEPHYR_TARGET_SET}" = "1" ] && [ "${ZEPHYR_TARGET}" != "s32z270dc2_rtu0_r52@D" ]; then
@@ -190,6 +193,9 @@ function normalize_platform() {
         exit 1
       fi
       ZEPHYR_TARGET="s32z270dc2_rtu0_r52@D"
+      if [ "${BUILD_DIR_SET}" = "0" ]; then
+        BUILD_DIR="build/zephyr-s32z"
+      fi
       ;;
     freertos-posix)
       if [ "${ZEPHYR_TARGET_SET}" = "1" ]; then

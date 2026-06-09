@@ -42,7 +42,12 @@ if [ -z "${CDDS_TARGET_BUILD_DIR}" ] || [ "${CDDS_TARGET_BUILD_DIR}" = "/" ]; th
     echo "Refusing to clean unsafe CDDS target build directory: ${CDDS_TARGET_BUILD_DIR}"
     exit 1
 fi
-rm -rf "${CDDS_TARGET_BUILD_DIR}"
+
+# Incremental build: skip the rm -rf when FREERTOS_S32Z2_CDDS_NO_CLEAN is set.
+if [ -z "${FREERTOS_S32Z2_CDDS_NO_CLEAN:-}" ]; then
+    rm -rf "${CDDS_TARGET_BUILD_DIR}"
+fi
+
 cmake -S cyclonedds -B "${CDDS_TARGET_BUILD_DIR}" \
     -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake" \
     -DBUILD_SHARED_LIBS=OFF \

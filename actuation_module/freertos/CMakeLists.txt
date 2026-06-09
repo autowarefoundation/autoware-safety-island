@@ -46,8 +46,8 @@ set(ACTUATION_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # Root of the repository
 set(REPO_ROOT ${ACTUATION_DIR}/..)
 # Pre-built CycloneDDS locations
-set(CDDS_HOST_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/../../build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
-set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/../../build/cyclonedds_target_out CACHE PATH "CycloneDDS target library install prefix")
+set(CDDS_HOST_PREFIX ${REPO_ROOT}/build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
+set(CDDS_TARGET_PREFIX ${REPO_ROOT}/build/cyclonedds_target_out CACHE PATH "CycloneDDS target library install prefix")
 
 # ---- Platform definition ----
 set(PLATFORM_FREERTOS ON)

@@ -215,6 +215,23 @@ Set `FREERTOS_S32Z2_CDDS_HOST_BUILD_DIR`,
 `FREERTOS_S32Z2_CDDS_TARGET_PREFIX` to override the default CycloneDDS paths
 under `build/freertos-s32z2/`.
 
+Set `FREERTOS_S32Z2_CDDS_NO_CLEAN=1` to skip the `rm -rf` of the target build
+directory and reuse the previous CMake configuration for incremental
+rebuilds during development.
+
+## DDS Configuration
+
+The S32Z2 board uses a static IP address (default `192.168.0.105`). The host
+side needs a matching CycloneDDS XML that points to the host interface on the
+same subnet. A template is provided at `demo/cyclonedds-s32z2.xml`:
+
+```bash
+export CYCLONEDDS_URI=file://$(pwd)/demo/cyclonedds-s32z2.xml
+```
+
+Edit the `Domain id="2"` interface name in the XML to match the host's IP
+or interface name on the subnet shared with the S32Z2 board.
+
 ## Flash
 
 The NXP `nxp_s32dbg` west runner supports **debug**, not `flash`. Use
