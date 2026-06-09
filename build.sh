@@ -20,6 +20,9 @@ ROOT_DIR=$(dirname "$(realpath "$0")")
 set -e
 set -u
 CYCLONEDDS_HOST_BUILD_DIR=${CYCLONEDDS_HOST_BUILD_DIR:-"${ROOT_DIR}/build/cyclonedds_host"}
+CYCLONEDDS_HOST_PREFIX=${CYCLONEDDS_HOST_PREFIX:-"${CYCLONEDDS_HOST_BUILD_DIR}/out"}
+CYCLONEDDS_TARGET_BUILD_DIR=${CYCLONEDDS_TARGET_BUILD_DIR:-"${ROOT_DIR}/build/cyclonedds_target"}
+CYCLONEDDS_TARGET_PREFIX=${CYCLONEDDS_TARGET_PREFIX:-"${ROOT_DIR}/build/cyclonedds_target_out"}
 
 # Build options
 BUILD_TEST_FLAG=0
@@ -256,33 +259,41 @@ function clean() {
 }
 
 function build_cyclonedds_host() {
+  if [ -x "${CYCLONEDDS_HOST_PREFIX}/bin/idlc" ]; then
+    echo -e "${GREEN}CycloneDDS host tools already built at ${CYCLONEDDS_HOST_PREFIX}${NC}"
+    return
+  fi
+
   echo -e "${GREEN}Building CycloneDDS host tools...${NC}"
-  mkdir -p "${CYCLONEDDS_HOST_BUILD_DIR}"
-  pushd "${CYCLONEDDS_HOST_BUILD_DIR}"
-  cmake -DCMAKE_INSTALL_PREFIX="$(pwd)"/out -DENABLE_SECURITY=OFF -DENABLE_SSL=OFF -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON -DENABLE_SHM=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DBUILD_DDSPERF=OFF "${ROOT_DIR}"/cyclonedds
-  cmake --build . --target install -- -j"$(nproc)"
-  popd
+  cmake cyclonedds -B "${CYCLONEDDS_HOST_BUILD_DIR}" \
+    -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_INSTALL_PREFIX="${CYCLONEDDS_HOST_PREFIX}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DENABLE_SECURITY=OFF -DENABLE_SSL=OFF -DENABLE_SHM=OFF \
+    -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DBUILD_DDSPERF=OFF
+  cmake --build "${CYCLONEDDS_HOST_BUILD_DIR}" --target install -j"$(nproc)"
 }
 
-function build_cyclonedds_host_tools_for_prefix() {
-  local cdds_host_build_dir="$1"
-  local cdds_host_prefix="$2"
+function build_cyclonedds_target_posix() {
+  if [ -f "${CYCLONEDDS_TARGET_PREFIX}/lib/libddsc.a" ]; then
+    echo -e "${GREEN}CycloneDDS POSIX target library already built at ${CYCLONEDDS_TARGET_PREFIX}${NC}"
+    return
+  fi
 
-  echo -e "${GREEN}Building CycloneDDS host tools...${NC}"
-  cmake cyclonedds -B "${cdds_host_build_dir}" \
-    -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_INSTALL_PREFIX="${cdds_host_prefix}" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_DDSPERF=OFF -DENABLE_SECURITY=OFF \
-    -DENABLE_SSL=OFF -DENABLE_SHM=OFF \
-    -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
-  cmake --build "${cdds_host_build_dir}" --target install -j"$(nproc)"
+  echo -e "${GREEN}Building CycloneDDS POSIX target library...${NC}"
+  cmake cyclonedds -B "${CYCLONEDDS_TARGET_BUILD_DIR}" \
+    -DBUILD_SHARED_LIBS=OFF -DENABLE_SECURITY=OFF \
+    -DENABLE_SSL=OFF -DENABLE_SHM=OFF -DENABLE_IPV6=OFF \
+    -DBUILD_IDLC=OFF -DBUILD_DDSPERF=OFF \
+    -DCMAKE_INSTALL_PREFIX="${CYCLONEDDS_TARGET_PREFIX}" \
+    -DCMAKE_BUILD_TYPE=Debug
+  cmake --build "${CYCLONEDDS_TARGET_BUILD_DIR}" --target install -j"$(nproc)"
 }
 
 function build_zephyr_actuation_module() {
   echo -e "${GREEN}Building Zephyr Actuation Module...${NC}"
-  export PATH="${CYCLONEDDS_HOST_BUILD_DIR}"/out/bin:$PATH
-  export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_BUILD_DIR}"/out/lib:${LD_LIBRARY_PATH:-}
+  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
+  export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:${LD_LIBRARY_PATH:-}
   export CMAKE_PREFIX_PATH=""
   export AMENT_PREFIX_PATH=""
   local target_base="${ZEPHYR_TARGET%%@*}"
@@ -342,37 +353,17 @@ function build_freertos_posix() {
 
   local app_build_dir
   app_build_dir=$(realpath -m "${BUILD_DIR}")
-  local build_root
-  build_root=$(dirname "${app_build_dir}")
-  local cdds_host_build_dir="${FREERTOS_CDDS_HOST_BUILD_DIR:-${build_root}/cyclonedds_host}"
-  local cdds_target_build_dir="${FREERTOS_CDDS_TARGET_BUILD_DIR:-${build_root}/cyclonedds_target}"
-  local cdds_host_prefix="${FREERTOS_CDDS_HOST_PREFIX:-${build_root}/cdds_host_out}"
-  local cdds_target_prefix="${FREERTOS_CDDS_TARGET_PREFIX:-${build_root}/cdds_target_out}"
 
-  cmake cyclonedds -B "${cdds_host_build_dir}" \
-    -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_INSTALL_PREFIX="${cdds_host_prefix}" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_DDSPERF=OFF -DENABLE_SECURITY=OFF \
-    -DENABLE_SSL=OFF -DENABLE_SHM=OFF \
-    -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
-  cmake --build "${cdds_host_build_dir}" --target install -j"$(nproc)"
+  build_cyclonedds_host
+  build_cyclonedds_target_posix
 
-  cmake cyclonedds -B "${cdds_target_build_dir}" \
-    -DBUILD_SHARED_LIBS=OFF -DENABLE_SECURITY=OFF \
-    -DENABLE_SSL=OFF -DENABLE_SHM=OFF -DENABLE_IPV6=OFF \
-    -DBUILD_IDLC=OFF -DBUILD_DDSPERF=OFF \
-    -DCMAKE_INSTALL_PREFIX="${cdds_target_prefix}" \
-    -DCMAKE_BUILD_TYPE=Debug
-  cmake --build "${cdds_target_build_dir}" --target install -j"$(nproc)"
-
-  export PATH="${cdds_host_prefix}"/bin:$PATH
-  export LD_LIBRARY_PATH="${cdds_host_prefix}"/lib:${LD_LIBRARY_PATH:-}
+  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
+  export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:${LD_LIBRARY_PATH:-}
   local freertos_args=(
     actuation_module/freertos
     -B "${app_build_dir}"
-    -DCDDS_HOST_PREFIX="${cdds_host_prefix}"
-    -DCDDS_TARGET_PREFIX="${cdds_target_prefix}"
+    -DCDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}"
+    -DCDDS_TARGET_PREFIX="${CYCLONEDDS_TARGET_PREFIX}"
     "-DBUILD_TEST=${BUILD_TEST_FLAG}"
   )
 
@@ -393,15 +384,13 @@ function build_freertos_s32z2() {
 
   local app_build_dir
   app_build_dir=$(realpath -m "${BUILD_DIR}")
-  local cdds_host_build_dir="${FREERTOS_S32Z2_CDDS_HOST_BUILD_DIR:-${app_build_dir}/cdds_host}"
   local cdds_target_build_dir="${FREERTOS_S32Z2_CDDS_TARGET_BUILD_DIR:-${app_build_dir}/cdds_target}"
-  local cdds_host_prefix="${FREERTOS_S32Z2_CDDS_HOST_PREFIX:-${app_build_dir}/cdds_host_out}"
   local cdds_target_prefix="${FREERTOS_S32Z2_CDDS_TARGET_PREFIX:-${app_build_dir}/cdds_target_out}"
 
-  build_cyclonedds_host_tools_for_prefix "${cdds_host_build_dir}" "${cdds_host_prefix}"
+  build_cyclonedds_host
 
   FREERTOS_S32Z2_BUILD_ROOT="${app_build_dir}" \
-  FREERTOS_S32Z2_CDDS_HOST_PREFIX="${cdds_host_prefix}" \
+  FREERTOS_S32Z2_CDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}" \
   FREERTOS_S32Z2_CDDS_TARGET_BUILD_DIR="${cdds_target_build_dir}" \
   FREERTOS_S32Z2_CDDS_TARGET_PREFIX="${cdds_target_prefix}" \
     "${ROOT_DIR}/actuation_module/freertos_s32z2/scripts/build-cdds-target.sh"
@@ -410,7 +399,7 @@ function build_freertos_s32z2() {
     actuation_module/freertos_s32z2
     -B "${app_build_dir}"
     -DCMAKE_TOOLCHAIN_FILE="${ROOT_DIR}/actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake"
-    -DCDDS_HOST_PREFIX="${cdds_host_prefix}"
+    -DCDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}"
     -DCDDS_TARGET_PREFIX="${cdds_target_prefix}"
   )
 

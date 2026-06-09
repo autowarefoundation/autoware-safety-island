@@ -601,7 +601,7 @@ target_sources(actuation_freertos_s32z2 PRIVATE
 )
 
 # ---- Pre-built CycloneDDS target library ----
-set(CDDS_HOST_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/cdds_host_out CACHE PATH "CycloneDDS host tools install prefix")
+set(CDDS_HOST_PREFIX   ${CMAKE_CURRENT_SOURCE_DIR}/../../build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
 set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/cdds_target_out CACHE PATH "CycloneDDS S32Z2 target library install prefix")
 
 if(NOT EXISTS ${CDDS_HOST_PREFIX}/bin/idlc)

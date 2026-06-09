@@ -12,7 +12,7 @@
 # Phase 1 -- CycloneDDS host tools (provides idlc):
 #   cmake cyclonedds -B build/cyclonedds_host \
 #     -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
-#     -DCMAKE_INSTALL_PREFIX=$PWD/build/cdds_host_out \
+#     -DCMAKE_INSTALL_PREFIX=$PWD/build/cyclonedds_host/out \
 #     -DCMAKE_BUILD_TYPE=Release
 #   cmake --build build/cyclonedds_host --target install -j$(nproc)
 #
@@ -23,15 +23,15 @@
 #     -DBUILD_SHARED_LIBS=OFF -DENABLE_SECURITY=OFF \
 #     -DENABLE_SSL=OFF -DENABLE_SHM=OFF -DENABLE_IPV6=OFF -DBUILD_IDLC=OFF \
 #     -DBUILD_DDSPERF=OFF \
-#     -DCMAKE_INSTALL_PREFIX=$PWD/build/cdds_target_out -DCMAKE_BUILD_TYPE=Debug
+#     -DCMAKE_INSTALL_PREFIX=$PWD/build/cyclonedds_target_out -DCMAKE_BUILD_TYPE=Debug
 #   cmake --build build/cyclonedds_target --target install -j$(nproc)
 #
 # Phase 3 -- the runtime. autoware_msgs needs the Phase 1 idlc on PATH:
-#   export PATH=$PWD/build/cdds_host_out/bin:$PATH
-#   export LD_LIBRARY_PATH=$PWD/build/cdds_host_out/lib:${LD_LIBRARY_PATH:-}
+#   export PATH=$PWD/build/cyclonedds_host/out/bin:$PATH
+#   export LD_LIBRARY_PATH=$PWD/build/cyclonedds_host/out/lib:${LD_LIBRARY_PATH:-}
 #   cmake actuation_module/freertos -B build/freertos-posix \
-#     -DCDDS_HOST_PREFIX=$PWD/build/cdds_host_out \
-#     -DCDDS_TARGET_PREFIX=$PWD/build/cdds_target_out
+#     -DCDDS_HOST_PREFIX=$PWD/build/cyclonedds_host/out \
+#     -DCDDS_TARGET_PREFIX=$PWD/build/cyclonedds_target_out
 #   cmake --build build/freertos-posix -j$(nproc)
 
 cmake_minimum_required(VERSION 3.22.1)
@@ -46,8 +46,8 @@ set(ACTUATION_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # Root of the repository
 set(REPO_ROOT ${ACTUATION_DIR}/..)
 # Pre-built CycloneDDS locations
-set(CDDS_HOST_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/../cdds_host_out CACHE PATH "CycloneDDS host tools install prefix")
-set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/../cdds_target_out CACHE PATH "CycloneDDS target library install prefix")
+set(CDDS_HOST_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/../../build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
+set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/../../build/cyclonedds_target_out CACHE PATH "CycloneDDS target library install prefix")
 
 # ---- Platform definition ----
 set(PLATFORM_FREERTOS ON)
