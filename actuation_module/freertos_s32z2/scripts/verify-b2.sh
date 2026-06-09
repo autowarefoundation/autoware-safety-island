@@ -28,6 +28,12 @@ source "${ZEPHYR_VENV}/bin/activate"
 
 # Rebuild target firmware.
 rm -rf build-s32z2
+# The firmware CMake configure requires the cross-built CycloneDDS static lib
+# (CMakeLists.txt checks for build-s32z2/cdds_target_out/lib/libddsc.a). The
+# rm -rf above wipes any previous copy, so (re)build it before configuring.
+if [ ! -f build-s32z2/cdds_target_out/lib/libddsc.a ]; then
+    ./actuation_module/freertos_s32z2/scripts/build-cdds-target.sh
+fi
 cmake -S actuation_module/freertos_s32z2 -B build-s32z2 \
     -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake"
 cmake --build build-s32z2 -j
