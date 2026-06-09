@@ -103,10 +103,11 @@
 #define INCLUDE_eTaskGetState               1
 #define INCLUDE_xTaskGetIdleTaskHandle      1
 
-// PIT-backed tick. board_init.c implements these.
-void s32z2_pit_setup_tick_interrupt(void);
-void s32z2_pit_clear_tick_interrupt(void);
-#define configSETUP_TICK_INTERRUPT()        s32z2_pit_setup_tick_interrupt()
-#define configCLEAR_TICK_INTERRUPT()        s32z2_pit_clear_tick_interrupt()
+// Tick source: the Cortex-R52 generic timer (NXP generic_timer.c). Its
+// SysTick_Handler is aliased to the port's xPortSysTickHandler via a linker
+// --defsym in CMakeLists.txt, and the generic-timer path owns tick setup and
+// acknowledgement. We therefore define no configSETUP_TICK_INTERRUPT() /
+// configCLEAR_TICK_INTERRUPT() hooks — the earlier PIT-backed hooks were a
+// second, unused tick source (Pit_Ip_* placeholder stubs) and were removed.
 
 #endif  // FREERTOS_CONFIG_H

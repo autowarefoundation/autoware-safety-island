@@ -22,14 +22,16 @@ set -u
 
 # Build options
 BUILD_TEST_FLAG=0
+BUILD_DIR="build/actuation_module"
 ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
-ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is FVP
+ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
 
 function usage() {
   echo -e "${GREEN}Usage: $0 [OPTIONS]${NC}"
   echo -e "------------------------------------------------"
   echo -e "${GREEN}    -t                 ${NC}Zephyr target board: ${ZEPHYR_TARGET_LIST[*]}"
-  echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]} (FVP).${NC}"
+  echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]}.${NC}"
+  echo -e "${GREEN}    -d                 ${NC}Build directory. Default: ${BUILD_DIR}."
   echo -e "${GREEN}    -c                 ${NC}Clean all builds and exit."
   echo -e "${GREEN}    -h                 ${NC}Display the usage and exit."
   echo ""
@@ -37,6 +39,8 @@ function usage() {
   echo -e "${GREEN}    --unit-test        ${NC}Build Zephyr unit test program."
   echo -e "${GREEN}    --dds-publisher    ${NC}Build Zephyr DDS publisher."
   echo -e "${GREEN}    --dds-subscriber   ${NC}Build Zephyr DDS subscriber."
+  echo -e "${GREEN}    --can-output-test  ${NC}Build Zephyr CAN output test program."
+  echo -e "${GREEN}    --dds-loopback-test${NC}Build Zephyr DDS loopback test program."
 }
 
 function parse_args() {
@@ -59,6 +63,14 @@ function parse_args() {
         BUILD_TEST_FLAG=3
         shift
         ;;
+      --can-output-test)
+        BUILD_TEST_FLAG=4
+        shift
+        ;;
+      --dds-loopback-test)
+        BUILD_TEST_FLAG=5
+        shift
+        ;;
       *)
         new_args+=("$arg")
         ;;
@@ -66,7 +78,7 @@ function parse_args() {
   done
   set -- "${new_args[@]}" # Reset the positional parameters to the remaining arguments
 
-  while getopts "t:ch" opt; do
+  while getopts "t:d:ch" opt; do
     case ${opt} in
       t )
         ZEPHYR_TARGET=""
@@ -81,6 +93,9 @@ function parse_args() {
           echo -e "${YELLOW}Valid targets: ${ZEPHYR_TARGET_LIST[*]}${NC}" 1>&2
           exit 1
         fi
+        ;;
+      d )
+        BUILD_DIR=${OPTARG}
         ;;
       c )
         clean
@@ -117,8 +132,10 @@ function build_actuation_module() {
   echo -e "${GREEN}Building Zephyr Actuation Module...${NC}"
   typeset PATH="${ROOT_DIR}"/build/cyclonedds_host/out/bin:$PATH
   typeset LD_LIBRARY_PATH="${ROOT_DIR}"/build/cyclonedds_host/out/lib
-  typeset CMAKE_PREFIX_PATH=""
-  typeset AMENT_PREFIX_PATH=""
+  export CMAKE_PREFIX_PATH=""
+  export AMENT_PREFIX_PATH=""
+  local target_base="${ZEPHYR_TARGET%%@*}"
+  local extra_conf_files=()
 
   # Build command with common arguments
   local build_args=(
@@ -126,15 +143,37 @@ function build_actuation_module() {
     -DCYCLONEDDS_SRC="${ROOT_DIR}"/cyclonedds
     -DEXTRA_CFLAGS="-Wno-error"
     -DEXTRA_CXXFLAGS="-Wno-error"
-    -DBUILD_TEST=${BUILD_TEST_FLAG}
+    "-DBUILD_TEST=${BUILD_TEST_FLAG}"
   )
+
+  local board_conf="${ROOT_DIR}/actuation_module/boards/${target_base}_actuation.conf"
+  if [ -f "${board_conf}" ]; then
+    extra_conf_files+=("${board_conf}")
+  fi
 
   # Add device tree overlay only for ARM board variant
   if [ "${ZEPHYR_TARGET}" = "s32z270dc2_rtu0_r52@D" ]; then
     build_args+=(-DEXTRA_DTC_OVERLAY_FILE="${ROOT_DIR}"/actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay)
   fi
 
-  west build -p auto -d build/actuation_module -b "${ZEPHYR_TARGET}" actuation_module/ -- "${build_args[@]}"
+  local can_loopback_conf="${ROOT_DIR}/actuation_module/boards/${target_base}_can_loopback.conf"
+  local can_loopback_overlay="${ROOT_DIR}/actuation_module/boards/${target_base}_can_loopback.overlay"
+  if [ "${BUILD_TEST_FLAG}" = "4" ]; then
+    if [ -f "${can_loopback_conf}" ]; then
+      extra_conf_files+=("${can_loopback_conf}")
+    fi
+    if [ -f "${can_loopback_overlay}" ]; then
+      build_args+=(-DEXTRA_DTC_OVERLAY_FILE="${can_loopback_overlay}")
+    fi
+  fi
+
+  if [ "${#extra_conf_files[@]}" -gt 0 ]; then
+    local extra_conf_file
+    extra_conf_file=$(IFS=';'; echo "${extra_conf_files[*]}")
+    build_args+=(-DEXTRA_CONF_FILE="${extra_conf_file}")
+  fi
+
+  west build -p auto -d "${BUILD_DIR}" -b "${ZEPHYR_TARGET}" actuation_module/ -- "${build_args[@]}"
 }
 
 ## MAIN ##

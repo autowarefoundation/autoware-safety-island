@@ -48,7 +48,7 @@ int main(void) {
     log_info("Waiting for DHCP to get IP address...\n");
     sleep(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX);
 
-#ifdef CONFIG_ENABLE_SNTP
+#if defined(CONFIG_ENABLE_SNTP) && CONFIG_ENABLE_SNTP
     if (Clock::init_clock_via_sntp() < 0) {
         log_error("Failed to set time using SNTP\n");
     }
@@ -70,6 +70,13 @@ int main(void) {
     log_info("--------------------------------\n");
     log_info("DDS publisher started\n");
     log_info("--------------------------------\n");
+
+    // idlc generates frame_id as char* (not const char*). Hold the strings
+    // in writable storage so we never assign a string-literal pointer through
+    // a const_cast — the standard treats writes to a string literal as UB,
+    // and a future CycloneDDS change that mutated the buffer would crash.
+    static char odom_frame_id[]      = "odom";
+    static char base_link_frame_id[] = "base_link";
 
     while(true) {
         auto current_time = Clock::toRosTime(Clock::now());
@@ -126,7 +133,7 @@ int main(void) {
         // Publish Odometry message (child_frame_id left NULL via value-init)
         OdometryMsg odometry_msg{};
         odometry_msg.header.stamp = current_time;
-        odometry_msg.header.frame_id = "odom";
+        odometry_msg.header.frame_id = odom_frame_id;
         odometry_msg.pose.pose.position.x = 10.0;
         odometry_msg.pose.pose.position.y = 20.0;
         odometry_msg.pose.pose.position.z = 0.0;
@@ -141,7 +148,7 @@ int main(void) {
         // Publish Acceleration message
         AccelerationMsg acceleration_msg{};
         acceleration_msg.header.stamp = current_time;
-        acceleration_msg.header.frame_id = "base_link";
+        acceleration_msg.header.frame_id = base_link_frame_id;
         acceleration_msg.accel.accel.linear.x = 2.0;
         acceleration_msg.accel.accel.linear.y = 0.0;
         acceleration_msg.accel.accel.linear.z = 0.0;

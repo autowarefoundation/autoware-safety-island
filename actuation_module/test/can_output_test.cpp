@@ -11,6 +11,12 @@
 #include "common/logger/logger.hpp"
 #include "platform/platform_can.h"
 
+#if defined(PLATFORM_ZEPHYR)
+  #include <zephyr/device.h>
+  #include <zephyr/drivers/can.h>
+  #include <zephyr/kernel.h>
+#endif
+
 using common::logger::log_error;
 using common::logger::log_info;
 
@@ -123,6 +129,19 @@ static void test_non_finite_values_are_rejected()
   ASSERT_MSG(encoded.count == 0U, "rejected command produces no frames");
 }
 
+static void assert_frame_equals(
+  const common::can::CanFrame & actual,
+  const common::can::CanFrame & expected,
+  const char * message)
+{
+  ASSERT_MSG(actual.id == expected.id, message);
+  ASSERT_MSG(actual.dlc == expected.dlc, message);
+  ASSERT_MSG(actual.extended == expected.extended, message);
+  for (std::size_t index = 0U; index < expected.dlc; ++index) {
+    ASSERT_MSG(actual.data[index] == expected.data[index], message);
+  }
+}
+
 #if defined(PLATFORM_FREERTOS)
 static void test_freertos_can_output_records_frames()
 {
@@ -145,6 +164,71 @@ static void test_freertos_can_output_records_frames()
 }
 #endif
 
+#if defined(PLATFORM_ZEPHYR) && defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
+CAN_MSGQ_DEFINE(zephyr_can_rx_msgq, 8);
+
+static common::can::CanFrame to_common_can_frame(const struct can_frame & frame)
+{
+  common::can::CanFrame out{};
+  out.id = frame.id;
+  out.dlc = frame.dlc;
+  out.extended = (frame.flags & CAN_FRAME_IDE) != 0U;
+  for (std::size_t index = 0U; index < frame.dlc; ++index) {
+    out.data[index] = frame.data[index];
+  }
+  return out;
+}
+
+static void add_zephyr_can_filter(const uint32_t id)
+{
+  struct can_filter filter{};
+  filter.id = id;
+  filter.mask = CAN_STD_ID_MASK;
+  filter.flags = CAN_FILTER_DATA;
+
+  const int filter_id = ::can_add_rx_filter_msgq(
+    common::can::platform::can_device(), &zephyr_can_rx_msgq, &filter);
+  ASSERT_MSG(filter_id >= 0, "Zephyr CAN filter registration succeeds");
+}
+
+static void test_zephyr_can_output_loopback()
+{
+  using common::can::ControlCommandCanOutput;
+  using common::can::ControlCommandOutputMode;
+
+  const struct device * device = common::can::platform::can_device();
+  ASSERT_MSG(device_is_ready(device), "Zephyr CAN device is ready");
+  ASSERT_MSG(::can_set_mode(device, CAN_MODE_LOOPBACK) == 0, "Zephyr CAN loopback mode is set");
+
+  add_zephyr_can_filter(common::can::kLateralCommandCanId);
+  add_zephyr_can_filter(common::can::kLongitudinalCommandCanId);
+  add_zephyr_can_filter(common::can::kCommandStatusCanId);
+
+  ControlCommandCanOutput output;
+  ASSERT_MSG(output.init(), "Zephyr CAN output initializes");
+  ASSERT_MSG(output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY), "first Zephyr CAN send succeeds");
+  ASSERT_MSG(output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY), "second Zephyr CAN send succeeds");
+
+  const auto expected_first = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 0U);
+  const auto expected_second = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 1U);
+  ASSERT_MSG(expected_first.ok, "first expected frame set encodes");
+  ASSERT_MSG(expected_second.ok, "second expected frame set encodes");
+
+  struct can_frame received{};
+  for (std::size_t index = 0U; index < expected_first.count; ++index) {
+    ASSERT_MSG(k_msgq_get(&zephyr_can_rx_msgq, &received, K_MSEC(500)) == 0, "first Zephyr CAN frame is received");
+    assert_frame_equals(to_common_can_frame(received), expected_first.frames[index], "first Zephyr CAN frame matches");
+  }
+
+  for (std::size_t index = 0U; index < expected_second.count; ++index) {
+    ASSERT_MSG(k_msgq_get(&zephyr_can_rx_msgq, &received, K_MSEC(500)) == 0, "second Zephyr CAN frame is received");
+    assert_frame_equals(to_common_can_frame(received), expected_second.frames[index], "second Zephyr CAN frame matches");
+  }
+}
+#endif
+
 int main()
 {
   log_info("=== Starting CAN output tests ===");
@@ -154,6 +238,13 @@ int main()
   test_non_finite_values_are_rejected();
 #if defined(PLATFORM_FREERTOS)
   test_freertos_can_output_records_frames();
+#elif defined(PLATFORM_ZEPHYR)
+  #if defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
+  test_zephyr_can_output_loopback();
+  #else
+  log_error("Zephyr CAN output test requires CONFIG_CONTROL_CMD_CAN_OUTPUT");
+  return 1;
+  #endif
 #endif
   log_info("CAN output tests passed");
 #if defined(PLATFORM_FREERTOS)

@@ -6,6 +6,7 @@ __pycache__
 
 # zephyr modules
 zephyr_modules/
+modules/
 
 # build artifacts
 build/

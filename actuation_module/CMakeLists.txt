@@ -5,10 +5,10 @@
 cmake_minimum_required(VERSION 3.22.1)
 set(CONF_FILE "prj_actuation.conf")
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-if(NOT BUILD_TEST STREQUAL "4")
-  find_package(Eigen3 REQUIRED)
-else()
+if(BUILD_TEST STREQUAL "4" OR BUILD_TEST STREQUAL "5")
   set(EIGEN3_INCLUDE_DIR "")
+else()
+  find_package(Eigen3 REQUIRED)
 endif()
 project(actuation_module)
 include(GNUInstallDirs)
@@ -36,6 +36,8 @@ elseif(BUILD_TEST STREQUAL "3")
   target_sources(app PRIVATE test/dds_sub.cpp)
 elseif(BUILD_TEST STREQUAL "4")
   target_sources(app PRIVATE test/can_output_test.cpp)
+elseif(BUILD_TEST STREQUAL "5")
+  target_sources(app PRIVATE test/dds_loopback_test.cpp)
 else()
   set(AUTOWARE_COMPONENTS
     autoware_universe_utils
@@ -74,6 +76,8 @@ target_compile_options(app PRIVATE
   "-Dfabsl(x)=((long double)fabs((double)(x)))"
 )
 endif()
+
+
 
 target_include_directories(app PRIVATE
   include

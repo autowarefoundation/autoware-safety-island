@@ -113,23 +113,8 @@ int _isatty(int fd) { return (fd == 1 || fd == 2) ? 1 : 0; }
 int _getpid(void) { return 1; }
 int _kill(int pid, int sig) { (void)pid; (void)sig; errno = EINVAL; return -1; }
 
-// ---- PIT-driven FreeRTOS tick ----
-// Engineer substitutes the actual PIT register layout from the S32Z2
-// reference manual; the RTD typically exposes Pit_Ip_Init / Pit_Ip_StartChannel.
-// PIT channel 0, period = configCPU_CLOCK_HZ / configTICK_RATE_HZ.
-
-#include "FreeRTOSConfig.h"
-
-extern void Pit_Ip_Init(void);
-extern void Pit_Ip_StartChannel(uint8_t instance, uint8_t channel, uint32_t ticks);
-extern void Pit_Ip_ClearInterruptFlag(uint8_t instance, uint8_t channel);
-
-void s32z2_pit_setup_tick_interrupt(void) {
-    Pit_Ip_Init();
-    Pit_Ip_StartChannel(0u, 0u,
-        (uint32_t)(configCPU_CLOCK_HZ / configTICK_RATE_HZ));
-}
-
-void s32z2_pit_clear_tick_interrupt(void) {
-    Pit_Ip_ClearInterruptFlag(0u, 0u);
-}
+// The FreeRTOS tick is driven by the Cortex-R52 generic timer (NXP
+// generic_timer.c), whose SysTick_Handler is aliased to the port's
+// xPortSysTickHandler via a linker --defsym in CMakeLists.txt. The previous
+// PIT-backed tick (Pit_Ip_* placeholder stubs wired through
+// configSETUP_TICK_INTERRUPT) was an unused second tick source and was removed.
