@@ -199,6 +199,12 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   // Copy the data instead of storing the pointer
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_trajectory_ = TrajectoryMsg(msg);  // Copy the entire message
+  // TrajectoryMsg deep-copies points but its `header = msg->header` shallow-copies
+  // the loaned char* frame_id, which dds_return_loan() frees once this callback
+  // returns — see callbackOdometry. Only the points/header.stamp are consumed, so
+  // drop the dangling string pointer rather than retaining it (publishPredictedTraj()
+  // is currently disabled, but this keeps the field safe for any future reader).
+  controller->current_trajectory_.header.frame_id = nullptr;
   controller->has_trajectory_ = true;
 }
 

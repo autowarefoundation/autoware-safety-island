@@ -77,6 +77,15 @@ if [ "${count}" -lt 2 ]; then
     echo "STEERING REPORT count is ${count} (need >= 2)"
     errors=$((errors+1))
 fi
+# CONTROL CMD is the actual round-trip evidence: it is published by the board
+# after it ran MPC/PID, whereas STEERING REPORT above is only the host
+# publisher's own loopback. At the -O2 control cycle (~3.5 s) at least one
+# CONTROL CMD should land inside the 30 s edge_ecu_sub window.
+cmd_count=$(grep -cF "CONTROL CMD" "${EDGE_SUB_LOG}")
+if [ "${cmd_count}" -lt 1 ]; then
+    echo "CONTROL CMD count is ${cmd_count} (need >= 1; no board round-trip observed)"
+    errors=$((errors+1))
+fi
 if grep -qF "actuation_main returned" "${UART_LOG}"; then
     echo "actuation_main returned — controller loop died during verification"
     errors=$((errors+1))
