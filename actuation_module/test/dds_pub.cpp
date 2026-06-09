@@ -20,7 +20,22 @@ using OperationModeStateMsg = autoware_adapi_v1_msgs_msg_OperationModeState;
 static K_THREAD_STACK_DEFINE(node_stack, CONFIG_THREAD_STACK_SIZE);
 #define STACK_SIZE (K_THREAD_STACK_SIZEOF(node_stack))
 
-#define PUBLISH_PERIOD_MS (2000)
+#include <time.h>   // POSIX nanosleep / struct timespec (not guaranteed by <ctime>)
+#include <cerrno>
+
+#define PUBLISH_PERIOD_MS (100)  // 10 Hz — realistic input cadence for the controller
+
+// EINTR-safe millisecond sleep. The FreeRTOS POSIX port delivers a ~1 kHz
+// tick signal that interrupts libc sleep()/usleep(), making them return early
+// (so the publish loop floods the bus). nanosleep reports the unslept
+// remainder, so we resume until the full interval has elapsed.
+static void sleep_ms(long ms)
+{
+    struct timespec req{ ms / 1000, (ms % 1000) * 1000000L };
+    while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+        // resume with the remaining time written back into req
+    }
+}
 
 /*
     This test is used to test the DDS communication between ROS2 and Zephyr
@@ -47,7 +62,7 @@ int main(void) {
     
     // Create publishers for all message types
     auto steering_publisher = node.create_publisher<SteeringReportMsg>("/vehicle/status/steering_status", &autoware_vehicle_msgs_msg_SteeringReport_desc);
-    // auto trajectory_publisher = node.create_publisher<TrajectoryMsg>("/planning/scenario_planning/trajectory", &autoware_planning_msgs_msg_Trajectory_desc);
+    auto trajectory_publisher = node.create_publisher<TrajectoryMsg>("/planning/scenario_planning/trajectory", &autoware_planning_msgs_msg_Trajectory_desc);
     auto odometry_publisher = node.create_publisher<OdometryMsg>("/localization/kinematic_state", &nav_msgs_msg_Odometry_desc);
     auto acceleration_publisher = node.create_publisher<AccelerationMsg>("/localization/acceleration", &geometry_msgs_msg_AccelWithCovarianceStamped_desc);
     auto operation_mode_publisher = node.create_publisher<OperationModeStateMsg>("/system/operation_mode/state", &autoware_adapi_v1_msgs_msg_OperationModeState_desc);
@@ -67,34 +82,56 @@ int main(void) {
         auto current_time = Clock::toRosTime(Clock::now());
         
         // Publish SteeringReport message
-        SteeringReportMsg steering_msg = {};
+        // Value-initialize so any string members start as NULL (the CDR writer
+        // serializes NULL as an empty string); an uninitialized char* member is
+        // a garbage pointer that crashes strlen() during serialization.
+        SteeringReportMsg steering_msg{};
         steering_msg.stamp = current_time;
         steering_msg.steering_tire_angle = 0.5; // radians
         steering_publisher->publish(steering_msg);
         log_info("Published steering report: angle=%.2f\n", steering_msg.steering_tire_angle);
 
-        // Publish Trajectory message
-        // TrajectoryMsg trajectory_msg;
-        // trajectory_msg.header.stamp = current_time;
-        // trajectory_msg.header.frame_id = "map";
-        // // Initialize trajectory points (simplified - just 3 points)
-        // trajectory_msg.points._length = 3;
-        // trajectory_msg.points._maximum = 3;
-        // trajectory_msg.points._buffer = new autoware_planning_msgs_msg_TrajectoryPoint[3];
-        // for (int i = 0; i < 3; i++) {
-        //     trajectory_msg.points._buffer[i].pose.position.x = i * 10.0;
-        //     trajectory_msg.points._buffer[i].pose.position.y = i * 5.0;
-        //     trajectory_msg.points._buffer[i].pose.position.z = 0.0;
-        //     trajectory_msg.points._buffer[i].longitudinal_velocity_mps = 10.0;
-        //     trajectory_msg.points._buffer[i].lateral_velocity_mps = 0.0;
-        //     trajectory_msg.points._buffer[i].acceleration_mps2 = 1.0;
-        // }
-        // trajectory_publisher->publish(trajectory_msg);
-        // log_info("Published trajectory with %d points\n", trajectory_msg.points._length);
-        // delete[] trajectory_msg.points._buffer;
+        // Publish Trajectory message: a straight path along +x starting near the
+        // vehicle's odometry pose (x=10, y=20) at a constant 5 m/s, so the MPC has
+        // a solvable path (>=3 points, identity orientation = yaw 0 facing +x,
+        // time_from_start increasing). Value-initialize so unset members (string
+        // pointers, covariances) are zero, not garbage that crashes serialization.
+        // Keep the whole trajectory in ONE UDP datagram (< CycloneDDS
+        // max_msg_size 1400 B): each TrajectoryPoint is ~88 B, so 10 points
+        // (~920 B) avoids DDS fragmentation, which otherwise congests the board's
+        // poll-mode RX ring and starves the small input topics.
+        constexpr uint32_t TRAJ_POINTS = 10;
+        constexpr double TRAJ_SPACING_M = 8.0;     // distance between points (80 m path)
+        constexpr float  TRAJ_SPEED_MPS = 5.0f;    // matches published odometry vx
+        TrajectoryMsg trajectory_msg{};
+        trajectory_msg.header.stamp = current_time;
+        trajectory_msg.header.frame_id = "map";
+        trajectory_msg.points._length = TRAJ_POINTS;
+        trajectory_msg.points._maximum = TRAJ_POINTS;
+        trajectory_msg.points._release = false;
+        trajectory_msg.points._buffer = new autoware_planning_msgs_msg_TrajectoryPoint[TRAJ_POINTS]();
+        for (uint32_t i = 0; i < TRAJ_POINTS; ++i) {
+            auto & pt = trajectory_msg.points._buffer[i];
+            pt.pose.position.x = 10.0 + i * TRAJ_SPACING_M;
+            pt.pose.position.y = 20.0;
+            pt.pose.position.z = 0.0;
+            pt.pose.orientation.x = 0.0;
+            pt.pose.orientation.y = 0.0;
+            pt.pose.orientation.z = 0.0;
+            pt.pose.orientation.w = 1.0;           // identity: heading along +x
+            pt.longitudinal_velocity_mps = TRAJ_SPEED_MPS;
+            pt.lateral_velocity_mps = 0.0f;
+            pt.acceleration_mps2 = 0.0f;
+            const double t_s = (i * TRAJ_SPACING_M) / TRAJ_SPEED_MPS;
+            pt.time_from_start.sec = (int32_t)t_s;
+            pt.time_from_start.nanosec = (uint32_t)((t_s - (int32_t)t_s) * 1e9);
+        }
+        trajectory_publisher->publish(trajectory_msg);
+        log_info("Published trajectory with %u points\n", trajectory_msg.points._length);
+        delete[] trajectory_msg.points._buffer;
 
-        // Publish Odometry message
-        OdometryMsg odometry_msg = {};
+        // Publish Odometry message (child_frame_id left NULL via value-init)
+        OdometryMsg odometry_msg{};
         odometry_msg.header.stamp = current_time;
         odometry_msg.header.frame_id = odom_frame_id;
         odometry_msg.pose.pose.position.x = 10.0;
@@ -109,7 +146,7 @@ int main(void) {
                  odometry_msg.twist.twist.linear.x, odometry_msg.twist.twist.linear.y, odometry_msg.twist.twist.linear.z);
 
         // Publish Acceleration message
-        AccelerationMsg acceleration_msg = {};
+        AccelerationMsg acceleration_msg{};
         acceleration_msg.header.stamp = current_time;
         acceleration_msg.header.frame_id = base_link_frame_id;
         acceleration_msg.accel.accel.linear.x = 2.0;
@@ -124,7 +161,7 @@ int main(void) {
                  acceleration_msg.accel.accel.angular.x, acceleration_msg.accel.accel.angular.y, acceleration_msg.accel.accel.angular.z);
 
         // Publish OperationModeState message
-        OperationModeStateMsg operation_mode_msg = {};
+        OperationModeStateMsg operation_mode_msg{};
         operation_mode_msg.stamp = current_time;
         operation_mode_msg.mode = 1; // Some mode value
         operation_mode_msg.is_autoware_control_enabled = true;
@@ -134,7 +171,7 @@ int main(void) {
                  operation_mode_msg.mode, operation_mode_msg.is_autoware_control_enabled, operation_mode_msg.is_in_transition);
 
         log_info("--------------------------------\n");
-        sleep(PUBLISH_PERIOD_MS / 1000);
+        sleep_ms(PUBLISH_PERIOD_MS);
     }
 
     return 0;

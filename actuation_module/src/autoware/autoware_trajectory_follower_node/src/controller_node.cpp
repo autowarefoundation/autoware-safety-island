@@ -162,6 +162,13 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   // Put data into state pointers
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_odometry_ = *msg;
+  // *msg is a shallow copy of a CycloneDDS loaned sample: its char* members
+  // (header.frame_id, child_frame_id) point into storage the subscriber returns
+  // via dds_return_loan() the moment this callback returns. The controller only
+  // consumes the numeric pose/twist fields, so drop the unused string pointers
+  // instead of retaining them as dangling references into freed loan storage.
+  controller->current_odometry_.header.frame_id = nullptr;
+  controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
 }
 
@@ -176,6 +183,9 @@ void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, 
   // Put data into state pointers
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_accel_ = *msg;
+  // Drop the loaned char* string (header.frame_id) before dds_return_loan() runs
+  // — see callbackOdometry; only the numeric accel fields are consumed.
+  controller->current_accel_.header.frame_id = nullptr;
   controller->has_accel_ = true;
 }
 
@@ -189,6 +199,12 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   // Copy the data instead of storing the pointer
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_trajectory_ = TrajectoryMsg(msg);  // Copy the entire message
+  // TrajectoryMsg deep-copies points but its `header = msg->header` shallow-copies
+  // the loaned char* frame_id, which dds_return_loan() frees once this callback
+  // returns — see callbackOdometry. Only the points/header.stamp are consumed, so
+  // drop the dangling string pointer rather than retaining it (publishPredictedTraj()
+  // is currently disabled, but this keeps the field safe for any future reader).
+  controller->current_trajectory_.header.frame_id = nullptr;
   controller->has_trajectory_ = true;
 }
 

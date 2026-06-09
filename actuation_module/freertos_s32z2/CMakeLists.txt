@@ -306,6 +306,11 @@ target_link_options(actuation_freertos_s32z2 PRIVATE
     # nearly-full int_sram_dram into int_sram too — the MPC/Eigen control cycle
     # overflowed 256 KiB there. Another INSERT fragment (augments the default).
     -T${CMAKE_CURRENT_SOURCE_DIR}/node_stack_in_sram.ld
+    # Discard the orphan .ARM.exidx/.ARM.extab unwind sections. Unwinding is
+    # already disabled (__exidx_start/_end defsym'd 0 below), and at -O1+ the
+    # dangling orphan exidx makes ld segfault during the final link. Another
+    # INSERT fragment so it augments the default script.
+    -T${CMAKE_CURRENT_SOURCE_DIR}/discard_unwind.ld
     # main.cpp is C++, so -Dmain=actuation_main produces the mangled symbol
     # _Z14actuation_mainv. NXP's startup.s and freertos_main.cpp both call
     # `actuation_main` unmangled; expose it as an alias so both reach the
@@ -634,6 +639,47 @@ include(${CMAKE_SOURCE_DIR}/../cmake/actuation_core.cmake)
 target_sources(actuation_freertos_s32z2 PRIVATE
     ${ACTUATION_DIR}/src/main.cpp
     ${APP_SOURCES}
+)
+
+# ---- Optimisation policy: C++ at -O2, C at -O0, never -g ----
+# The control cycle is dominated by a dense-Cholesky Eigen QP solve
+# (QPSolverEigenLeastSquareLLT -- this port does NOT use OSQP) plus the MPC matrix
+# generation. At -O0 the first solve takes ~86 s because Eigen is pathologically
+# slow unoptimised (it depends on aggressive inlining of its expression
+# templates). Compiling the C++ at -O2 cuts the control cycle ~25x (to ~3.5 s) and
+# the full host->board->control_cmd round-trip works with identical output.
+#
+# Optimisation is applied to C++ ONLY -- the C sources stay at -O0 -- and it is
+# applied UNIFORMLY across all C++ (a single target-wide option, not a per-TU
+# mix). Both constraints are load-bearing and were established on hardware:
+#   * The custom C platform/network port (lwIP + NETC + vendor glue + FreeRTOS)
+#     is tuned for -O0 codegen. At -O1 it silently drops controller input RX; at
+#     -O2 it hard-hangs the board right after DDS setup (no UART, no ping). So C
+#     stays -O0.
+#   * Mixing -O0 and -O2 *within* C++ (e.g. only the autoware math at -O2, the DDS
+#     glue at -O0) makes dds_create_domain_with_rawconfig fail at boot -- an
+#     ODR/ABI mismatch on inline code shared between the -O0 and -O2 translation
+#     units. Uniform C++ optimisation (all -O2) avoids it; consistent -O0 or -O2
+#     both boot DDS fine, only the mix breaks it.
+#
+# -g must stay OFF: GNU ld 2.42 (BFD) segfaults during the final link when -O2's
+# inlining orphans the per-function DWARF sections and --gc-sections then walks
+# the dangling .debug_* list (in lang_size_sections). -O2 itself links fine
+# without -g. The explicit -g0 below ENFORCES this so the constraint is not just
+# documentation: it overrides a -g pulled in by CMAKE_BUILD_TYPE=Debug or a
+# custom CMAKE_CXX_FLAGS, which would otherwise reintroduce the link crash. If
+# you genuinely need debug info, drop the -g0 and use -gsplit-dwarf (keeps
+# .debug_* out of the link); address-level gdb (arm-none-eabi-nm) works without
+# -g regardless.
+#
+# Not yet hard-real-time: the ~3.5 s cycle is scalar Eigen (NEON is disabled via
+# EIGEN_DONT_VECTORIZE, see above). Closing the gap to the 150 ms control period
+# needs NEON and/or an algorithmic change -- a separate effort.
+target_compile_options(actuation_freertos_s32z2 PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-O2>
+    # Enforce "never -g" for C++ (scoped to match -O2, the combination that
+    # crashes ld 2.42). Last on the command line, so it wins over any earlier -g.
+    $<$<COMPILE_LANGUAGE:CXX>:-g0>
 )
 
 # Rename main() to actuation_main() only inside the Autoware app's main.cpp;

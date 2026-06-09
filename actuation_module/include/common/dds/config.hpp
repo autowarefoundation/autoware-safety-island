@@ -23,21 +23,37 @@ static struct ddsi_config_network_interface_listelem cfg_iface
 {
   nullptr,
   {
-    0,
-    const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE),
-    nullptr,
+    0,        // automatic
+    nullptr,  // name    } exactly one of these is set at runtime in
+    nullptr,  // address } init_config(), depending on the selector form
     1,  // prefer_multicast
-    1,
+    1,  // presence_required
     DDSI_BOOLDEF_DEFAULT, // multicast
     {1, 0}
   }
 };
 
-static struct ddsi_config_ignoredpartition_listelem cfg_ignoredpartition
+// CycloneDDS selects an interface by OS name (strcmp) or by IP address (locator
+// match) — these are different config fields. CONFIG_DDS_NETWORK_INTERFACE is
+// overloaded: POSIX/Zephyr pass a name ("lo"), the S32Z2 board passes its IP.
+// Route a dotted-quad IPv4 literal to the address field; anything else is a name.
+static bool dds_selector_is_ipv4(const char * s)
 {
-  nullptr,
-  const_cast<char *>("*.*")
-};
+  int groups = 0, digits = 0, octet = 0;
+  for (const char * p = s; ; ++p) {
+    if (*p >= '0' && *p <= '9') {
+      octet = octet * 10 + (*p - '0');
+      if (++digits > 3 || octet > 255) return false;
+    } else if (*p == '.' || *p == '\0') {
+      if (digits == 0) return false;
+      ++groups; digits = 0; octet = 0;
+      if (*p == '\0') break;
+    } else {
+      return false;
+    }
+  }
+  return groups == 4;
+}
 
 /**
  * @brief Initialize a given DDS configuration structure.
@@ -47,22 +63,34 @@ inline static void init_config(struct ddsi_config & cfg)
 {
   log_debug("Initializing DDS configuration\n");
 
-  if (sizeof(CONFIG_DDS_NETWORK_INTERFACE) <= 1) {
-    log_error("DDS network interface not set, please set CONFIG_DDS_NETWORK_INTERFACE\n");
-    std::exit(1);
-  }
-  else {
-    log_info("Network interface: %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+  // CONFIG_DDS_NETWORK_INTERFACE is a compile-time string literal. An empty
+  // value is the documented "empty = auto" default (CMake) used by the host
+  // edge-ECU peer: leave cfg.network_interfaces at the ddsi_config_init_default()
+  // default so CycloneDDS auto-selects a suitable interface, rather than treating
+  // it as a fatal misconfiguration.
+  constexpr bool iface_configured = (sizeof(CONFIG_DDS_NETWORK_INTERFACE) > 1);
+
+  if (iface_configured) {
+    if (dds_selector_is_ipv4(CONFIG_DDS_NETWORK_INTERFACE)) {
+      cfg_iface.cfg.address = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
+      log_info("Network interface (by IP address): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+    } else {
+      cfg_iface.cfg.name = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
+      log_info("Network interface (by name): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+    }
+  } else {
+    log_info("Network interface: auto (CONFIG_DDS_NETWORK_INTERFACE empty)\n");
   }
 
   ddsi_config_init_default(&cfg);
 
-  // Network interface
-  cfg.network_interfaces = &cfg_iface;
+  // Network interface — pin our descriptor only when one was configured;
+  // otherwise leave the auto-selected default in place.
+  if (iface_configured) {
+    cfg.network_interfaces = &cfg_iface;
+  }
 
   // cfg.enable_topic_discovery_endpoints = DDSI_BOOLDEF_FALSE;
-
-  // cfg.ignoredPartitions = &cfg_ignoredpartition;
 
   // Processing
   cfg.retransmit_merging = DDSI_REXMIT_MERGE_ALWAYS;
