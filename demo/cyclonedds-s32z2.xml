@@ -24,7 +24,7 @@
   <!-- S32Z2 Safety Island Domain -->
   <!--
     The S32Z2 board runs a static IP on its Ethernet interface (default 192.168.0.105).
-    Update the NetworkInterface name below to match the host interface that connects
+    Update the NetworkInterface name or IP address below to match the host interface that connects
     to the S32Z2 board (e.g., eth0, enp3s0, or the IP of the host interface on the same
     subnet as the board).
   -->
