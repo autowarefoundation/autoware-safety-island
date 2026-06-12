@@ -292,6 +292,10 @@ void Controller::callbackTimerControl()
 {
   // log_debug("Timer control callback");
 
+  // Cycle phase stopwatch (M2.1): one CYCLE line per cycle on the info level so
+  // the UART log shows where the control period actually goes on hardware.
+  const double cyc_t0 = Clock::now();
+
   // 1. create input data
   const auto input_data = createInputData();
   if (!input_data) {
@@ -311,6 +315,8 @@ void Controller::callbackTimerControl()
 
   log_debug("Controllers are ready");
 
+  const double cyc_t_ready = Clock::now();
+
   // 3. run controllers
   stop_watch_.tic("lateral");
   const auto lat_out = lateral_controller_->run(*input_data);
@@ -323,6 +329,8 @@ void Controller::callbackTimerControl()
   log_debug("Lateral is defined steering tire rotation rate: %s", lat_out.control_cmd.is_defined_steering_tire_rotation_rate ? "true" : "false");
 
   publishProcessingTime(stop_watch_.toc("lateral"), pub_processing_time_lat_ms_);
+
+  const double cyc_t_lat = Clock::now();
 
   stop_watch_.tic("longitudinal");
   const auto lon_out = longitudinal_controller_->run(*input_data);
@@ -341,6 +349,8 @@ void Controller::callbackTimerControl()
 
   log_debug("Controllers ran");
 
+  const double cyc_t_lon = Clock::now();
+
   // 4. sync with each other controllers
   longitudinal_controller_->sync(lat_out.sync_data);
   lateral_controller_->sync(lon_out.sync_data);
@@ -352,6 +362,12 @@ void Controller::callbackTimerControl()
 
   // 5. publish control command
   publishControlCommand(lon_out, lat_out);
+
+  const double cyc_t_end = Clock::now();
+  log_info("CYCLE in=%.1f lat=%.1f lon=%.1f pub=%.1f total=%.1f [ms]",
+    (cyc_t_ready - cyc_t0) * 1000.0, (cyc_t_lat - cyc_t_ready) * 1000.0,
+    (cyc_t_lon - cyc_t_lat) * 1000.0, (cyc_t_end - cyc_t_lon) * 1000.0,
+    (cyc_t_end - cyc_t0) * 1000.0);
 
   // 6. Reset flags for next cycle
   // TODO: Check if this is required, autoware version keeps publishing even there is no new data

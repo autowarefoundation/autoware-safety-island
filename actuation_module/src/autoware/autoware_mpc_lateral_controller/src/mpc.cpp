@@ -44,12 +44,18 @@ ResultWithReason MPC::calculateMPC(
 {
   log_debug("MPC: Start Calculating");
 
+  // MPC phase stopwatch (M2.1): one "MPC ..." line per cycle on the info level so
+  // the UART log shows which phase dominates the solve on hardware.
+  const double mpc_t0 = Clock::now();
+
   // since the reference trajectory does not take into account the current velocity of the ego
   // vehicle, it needs to calculate the trajectory velocity considering the longitudinal dynamics.
   const auto reference_trajectory =
     applyVelocityDynamicsFilter(m_reference_trajectory, current_kinematics);
 
   log_debug("MPC: Reference Trajectory Applied");
+
+  const double mpc_t_vel = Clock::now();
 
   // get the necessary data
   const auto [get_data_result, mpc_data] =
@@ -59,6 +65,8 @@ ResultWithReason MPC::calculateMPC(
   }
 
   log_debug("MPC: Data Got");
+
+  const double mpc_t_data = Clock::now();
 
   // calculate initial state of the error dynamics
   const auto x0 = getInitialState(mpc_data);
@@ -88,11 +96,15 @@ ResultWithReason MPC::calculateMPC(
   
   log_debug("MPC: Resampled Reference Trajectory Size: %zu", mpc_resampled_ref_trajectory.size());
 
+  const double mpc_t_rsmp = Clock::now();
+
   // TODO: POSSIBLE EIGEN ALIGNMENT PROBLEM
   // generate mpc matrix : predict equation Xec = Aex * x0 + Bex * Uex + Wex
   const auto mpc_matrix = generateMPCMatrix(mpc_resampled_ref_trajectory, prediction_dt);
 
   log_debug("MPC: MPC Matrix Generated");
+
+  const double mpc_t_mtx = Clock::now();
 
   // TODO: POSSIBLE EIGEN ALIGNMENT PROBLEM
   // solve Optimization problem
@@ -104,6 +116,12 @@ ResultWithReason MPC::calculateMPC(
   }
 
   log_debug("MPC: Optimization Problem Solved");
+
+  const double mpc_t_opt = Clock::now();
+  log_info("MPC vel=%.1f data=%.1f rsmp=%.1f mtx=%.1f opt=%.1f [ms]",
+    (mpc_t_vel - mpc_t0) * 1000.0, (mpc_t_data - mpc_t_vel) * 1000.0,
+    (mpc_t_rsmp - mpc_t_data) * 1000.0, (mpc_t_mtx - mpc_t_rsmp) * 1000.0,
+    (mpc_t_opt - mpc_t_mtx) * 1000.0);
 
   // apply filters for the input limitation and low pass filter
   const double u_saturated = std::clamp(Uex(0), -m_steer_lim, m_steer_lim);
@@ -584,6 +602,8 @@ std::pair<ResultWithReason, VectorXd> MPC::executeOptimization(
 
   log_debug("MPC: Model Matrix Valid");
 
+  const double opt_t0 = Clock::now();
+
   const int DIM_U_N = m_param.prediction_horizon * m_vehicle_model_ptr->getDimU();
 
   // TODO: POSSIBLE EIGEN ALIGNMENT PROBLEM
@@ -613,6 +633,8 @@ std::pair<ResultWithReason, VectorXd> MPC::executeOptimization(
 
   log_debug("MPC: Steering Angle Limit Set");
 
+  const double opt_t_cost = Clock::now();
+
   // steering angle rate limit
   VectorXd steer_rate_limits = calcSteerRateLimitOnTrajectory(traj, current_velocity);
   VectorXd ubA = steer_rate_limits * prediction_dt;
@@ -633,10 +655,11 @@ std::pair<ResultWithReason, VectorXd> MPC::executeOptimization(
 
   log_debug("MPC: QP Solver Finished");
 
-  {
-    auto t = t_end - t_start;
-    log_info("MPC: qp solver calculation time = %ld [ms]", t);
-  }
+  // Clock::now() returns seconds as double, so format the deltas as %f
+  // milliseconds (the previous "%ld" of a double delta printed garbage).
+  log_info("OPT cost=%.1f lim=%.1f solve=%.1f [ms]",
+    (opt_t_cost - opt_t0) * 1000.0, (t_start - opt_t_cost) * 1000.0,
+    (t_end - t_start) * 1000.0);
 
   if (Uex.array().isNaN().any()) {
     log_error("MPC: Model Uex including NaN");
