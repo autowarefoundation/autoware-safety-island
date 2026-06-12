@@ -243,11 +243,26 @@ add_compile_definitions(MPU_ENABLE=1)
 # it globally pulls OsIf_ArchCfg.h into eth_port.c too, which conflicts with
 # lwIP's sys_mutex_t typedef.)
 
-# Eigen 3.4's NEON specializations assume `int32_t = int`, but
-# arm-none-eabi newlib types `int32_t` as `long int` on Cortex-R52, which
-# breaks ploadu<PacketI>(...) overloads. Determinism matters more than SIMD
-# throughput on the safety island; disable Eigen vectorization here.
-add_compile_definitions(EIGEN_DONT_VECTORIZE=1)
+# M1.2: enable Eigen NEON vectorisation on the MPC/PID control cycle.
+#
+# Eigen 3.4's NEON specializations type the integer packets on `int32_t`, but
+# arm-none-eabi newlib types `int32_t` as `long int` on Cortex-R52 (ILP32, so
+# `int` != `int32_t` despite both being 32-bit). The ONLY place this breaks the
+# build is psincos_float (Default/GenericPacketMathFunctions.h), which uses a
+# plain `int` scratch buffer and then calls ploadu<PacketI>/pstoreu on it — every
+# other vectorised transcendental (plog/pexp/pldexp/pfrexp) already uses the
+# packet's own ScalarI type and compiles cleanly. psincos's specialization is
+# compiled eagerly whenever NEON is active (not gated by HasSin), so a flag alone
+# cannot elide it; the buffer type is fixed by a configure-time patch over the
+# host Eigen tree (see vendor_patched/eigen-psincos-int32.patch and the Eigen3
+# section below).
+#
+# EIGEN_FAST_MATH=0 then keeps sin/cos/tanh/erf DISPATCH scalar (HasSin/HasCos/
+# HasTanh/HasErf are FAST_MATH-gated), so the now-compilable vectorised psincos is
+# never actually called — trig uses accurate, deterministic scalar libm (exact
+# against the scalar control-output baseline; preferable on a safety island) while
+# NEON still vectorises the matrix hot path (Cholesky/LLT QP solve), exp/log/sqrt.
+add_compile_definitions(EIGEN_FAST_MATH=0)
 
 # S32CT's Update Code left {Mcu,Power_Ip,Ram_Ip}_VS_0_PBcfg.h as 1-byte
 # empty stubs inside S32CT_GENERATED_DIR/generate/include. The matching
@@ -638,6 +653,27 @@ set(CycloneDDS_DIR ${CDDS_HOST_PREFIX}/lib/cmake/CycloneDDS)
 
 # ---- Eigen3 (host package, header-only) ----
 find_package(Eigen3 REQUIRED)
+# Eigen NEON psincos int32_t==long fix (see the EIGEN_FAST_MATH note above for the
+# why). Copy the host Eigen tree into the build dir, apply the one-function buffer
+# patch, and put the patched tree ahead of the system tree on the include path.
+# Done at configure time so the repo carries only the small patch, not a full
+# vendored Eigen. The patched headers must win over ${EIGEN3_INCLUDE_DIR}, hence
+# target_include_directories(... BEFORE ...).
+set(_eigen_patched_dir ${CMAKE_CURRENT_BINARY_DIR}/eigen-patched)
+set(_eigen_patch ${CMAKE_CURRENT_SOURCE_DIR}/vendor_patched/eigen-psincos-int32.patch)
+if(NOT EXISTS ${_eigen_patched_dir}/.patched)
+    file(REMOVE_RECURSE ${_eigen_patched_dir})
+    file(COPY ${EIGEN3_INCLUDE_DIR}/Eigen DESTINATION ${_eigen_patched_dir})
+    execute_process(
+        COMMAND patch -p1 -d ${_eigen_patched_dir}
+        INPUT_FILE ${_eigen_patch}
+        RESULT_VARIABLE _eigen_patch_rc)
+    if(NOT _eigen_patch_rc EQUAL 0)
+        message(FATAL_ERROR "Failed to apply ${_eigen_patch} to Eigen at ${_eigen_patched_dir}")
+    endif()
+    file(WRITE ${_eigen_patched_dir}/.patched "")
+endif()
+target_include_directories(actuation_freertos_s32z2 BEFORE PRIVATE ${_eigen_patched_dir})
 
 # ---- Autoware Messages (IDL -> C via host idlc) ----
 add_subdirectory(${CMAKE_SOURCE_DIR}/../src/autoware/autoware_msgs
