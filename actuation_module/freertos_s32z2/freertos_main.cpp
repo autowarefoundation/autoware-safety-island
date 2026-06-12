@@ -71,9 +71,19 @@ extern "C" void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskNa
     for (;;) {}
 }
 
+extern "C" uint32_t __wrap_read_SCTLR(void);
+
 int main(void) {
     board_init();
     printf("FreeRTOS S32Z2 actuation starting...\n");
+    // One-line ground truth for the L1 cache state this boot (SystemInit's
+    // Core_Cache_Init is compile-time gated): SCTLR.I is bit 12, SCTLR.C bit 2.
+    {
+        const uint32_t sctlr = __wrap_read_SCTLR();
+        printf("SCTLR=0x%08lx I-cache=%s D-cache=%s\n", (unsigned long)sctlr,
+               (sctlr & (1UL << 12)) ? "ON" : "off",
+               (sctlr & (1UL << 2)) ? "ON" : "off");
+    }
 
     // actuation_task is the launcher: it brings up the network, then constructs
     // the Controller node and blocks in wait_for_completion(). The deep per-cycle

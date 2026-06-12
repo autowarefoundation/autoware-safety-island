@@ -123,6 +123,47 @@ __wrap_write_MAIR1:
     bx      lr
     .size   __wrap_write_MAIR1, . - __wrap_write_MAIR1
 
+    // ===== L1 cache enable helpers (Core_Cache_Init / Core_Cache_Segregation) =====
+    // Activated by D_CACHE_ENABLE / I_CACHE_ENABLE: same Thumb `mov pc, lr`
+    // originals in core_utility.s, so each needs an ARM-mode wrap too.
+
+    .global __wrap_write_IMP_CSCTLR
+    .type   __wrap_write_IMP_CSCTLR, %function
+__wrap_write_IMP_CSCTLR:
+    mcr     p15, 1, r0, c9, c1, 0
+    isb     sy
+    bx      lr
+    .size   __wrap_write_IMP_CSCTLR, . - __wrap_write_IMP_CSCTLR
+
+    .global __wrap_write_CSSELR
+    .type   __wrap_write_CSSELR, %function
+__wrap_write_CSSELR:
+    mcr     p15, 2, r0, c0, c0, 0
+    isb     sy
+    bx      lr
+    .size   __wrap_write_CSSELR, . - __wrap_write_CSSELR
+
+    .global __wrap_read_CCSIDR
+    .type   __wrap_read_CCSIDR, %function
+__wrap_read_CCSIDR:
+    mrc     p15, 1, r0, c0, c0, 0
+    bx      lr
+    .size   __wrap_read_CCSIDR, . - __wrap_read_CCSIDR
+
+    .global __wrap_write_DCISW
+    .type   __wrap_write_DCISW, %function
+__wrap_write_DCISW:
+    mcr     p15, 0, r0, c7, c6, 2
+    bx      lr
+    .size   __wrap_write_DCISW, . - __wrap_write_DCISW
+
+    .global __wrap_write_ICIALLU
+    .type   __wrap_write_ICIALLU, %function
+__wrap_write_ICIALLU:
+    mcr     p15, 0, r0, c7, c5, 0
+    bx      lr
+    .size   __wrap_write_ICIALLU, . - __wrap_write_ICIALLU
+
     .global __wrap_read_MPIDR
     .type   __wrap_read_MPIDR, %function
 __wrap_read_MPIDR:

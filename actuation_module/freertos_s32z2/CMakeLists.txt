@@ -234,6 +234,25 @@ add_compile_definitions(ENABLE_FPU=1)
 # The Toggle_Led example's .cproject sets this — we have to set it too.
 add_compile_definitions(MPU_ENABLE=1)
 
+# NXP's SystemInit also gates Core_Cache_Init() — on these two macros. Without
+# them the function compiles to a no-op, SCTLR.C/I stay 0, and the R52 runs
+# fully uncached: measured ~1 MFLOP/s on the MPC cycle (3 s for ~3 MFLOP),
+# with even trivial phases (a few-KB struct copy: 433 ms) 2-3 orders of
+# magnitude too slow. The MPU tables above already give cache-ready
+# attributes: .sram_code/.freertos_heap/.node_stack sit in Write-Back/
+# Write-Allocate regions, while the NETC DMA descriptors/buffers stay in the
+# non-cacheable 0x3180_0000 region (.int_sram_no_cacheable), so DMA coherence
+# should be unaffected by turning the caches on. Kept as cache variables so
+# the I/D contribution can be isolated per build while validating on HW.
+set(S32Z2_ICACHE ON CACHE BOOL "Enable Cortex-R52 L1 instruction cache")
+set(S32Z2_DCACHE ON CACHE BOOL "Enable Cortex-R52 L1 data cache")
+if(S32Z2_ICACHE)
+    add_compile_definitions(I_CACHE_ENABLE=1)
+endif()
+if(S32Z2_DCACHE)
+    add_compile_definitions(D_CACHE_ENABLE=1)
+endif()
+
 # Stay on the GENERIC_ECC_SRAM_INIT_64B init path (NXP's default).
 # init_data_bss uses block_copy64 / zero_copy64 / write_64bit; write_64bit
 # is the only Thumb-encoded helper in that chain and is fixed via the
@@ -397,6 +416,13 @@ target_link_options(actuation_freertos_s32z2 PRIVATE
     "-Wl,--wrap=write_ICC_IGRPEN1"
     "-Wl,--wrap=read_ICC_CTLR"
     "-Wl,--wrap=write_ICC_CTLR"
+    # Core_Cache_Init / Core_Cache_Segregation (activated by D_CACHE_ENABLE /
+    # I_CACHE_ENABLE above) call five more Thumb-encoded helpers.
+    "-Wl,--wrap=write_IMP_CSCTLR"
+    "-Wl,--wrap=write_CSSELR"
+    "-Wl,--wrap=read_CCSIDR"
+    "-Wl,--wrap=write_DCISW"
+    "-Wl,--wrap=write_ICIALLU"
 )
 
 target_include_directories(actuation_freertos_s32z2 PRIVATE
