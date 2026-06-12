@@ -64,24 +64,45 @@ static void tcpip_init_done(void *arg) {
 // Enable the NETC ETH0 RX RGMII clock (MC_CGM_1 MUX_7, source ETH0_EXT_RX_CLK =
 // the PHY's RXC). Clock_Ip_Init(config0) selected the source but left the mux
 // switch incomplete (SELSTAT stuck at 0) and the divider disabled, because the
-// PHY's RXC was not toggling that early in boot. By the time this runs (after
-// Eth_43_NETC_Init, PHY linked) the external RXC is present, so re-trigger the
-// switch (keep SELCTL, set CLK_SW bit2; poll SWIP clear) and enable the divider
+// PHY's RXC was not toggling that early in boot. Re-trigger the switch (keep
+// SELCTL, set CLK_SW bit2; poll SWIP clear) and enable the divider
 // (DE=1, DIV=0 => /1). Without it the MAC RX state machine has no clock and
 // receives 0 frames while TX (SoC-sourced TXC) works.
+//
+// The switch only takes while the PHY's RXC is actually toggling, i.e. after
+// the PHY has link. When this firmware is loaded over a previous live session
+// the link never dropped and one trigger suffices; from a cold/hung/reset
+// state the PHY is still autonegotiating (~2-3 s) when bring-up reaches this
+// point, the trigger silently fails (SELSTAT stays 0) and RX stays clockless
+// forever — the recurring "board boots Live but is mute on the wire" RX death.
+// So verify SELSTAT==SELCTL in CSS and retry with a delay until the switch
+// actually takes (up to ~10 s to cover autoneg from a cold start).
 #define MC_CGM_1_MUX_7_CSC 0x408304C0U
 #define MC_CGM_1_MUX_7_CSS 0x408304C4U
 #define MC_CGM_1_MUX_7_DC0 0x408304C8U
 static void s32z2_enable_eth0_rx_clock(void) {
-    uint32_t csc = NETC_REG32(MC_CGM_1_MUX_7_CSC);
-    NETC_REG32(MC_CGM_1_MUX_7_CSC) = (csc & 0x3F000000U) | 0x4U;  /* keep SELCTL, set CLK_SW */
-    for (int t = 0; t < 200000; ++t) {            /* wait for SWIP (CSS bit16) to clear */
-        if ((NETC_REG32(MC_CGM_1_MUX_7_CSS) & 0x10000U) == 0U) break;
+    uint32_t css = 0U;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        uint32_t csc = NETC_REG32(MC_CGM_1_MUX_7_CSC);
+        NETC_REG32(MC_CGM_1_MUX_7_CSC) = (csc & 0x3F000000U) | 0x4U;  /* keep SELCTL, set CLK_SW */
+        for (int t = 0; t < 200000; ++t) {        /* wait for SWIP (CSS bit16) to clear */
+            if ((NETC_REG32(MC_CGM_1_MUX_7_CSS) & 0x10000U) == 0U) break;
+        }
+        css = NETC_REG32(MC_CGM_1_MUX_7_CSS);
+        if (((css >> 24) & 0x3FU) == ((csc >> 24) & 0x3FU)) break;  /* SELSTAT == SELCTL */
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
+    printf("lwip: eth0 RX clock mux CSS=0x%08lx (%s)\n", (unsigned long)css,
+           (((css >> 24) & 0x3FU) != 0U) ? "switched" : "FAILED - RX will be dead");
     NETC_REG32(MC_CGM_1_MUX_7_DC0) = 0x80000000U; /* DE=1, DIV=0 (/1) */
     for (volatile int i = 0; i < 20000; ++i) { }
 }
 
+// Bench note (2026-06-12): do NOT read the port MAC RMON counters from this
+// firmware. Both Eth_43_NETC_GetRxStats(0,..) and EthSwt_43_NETC_GetRxStats(0,
+// port,..) DATA-ABORT on this part — the counter register space is the same
+// AXI region the debugger cannot read (project_s32z2_netc_debugger_unreachable)
+// — and the abort handler is a spin, so the board dies ~3 s after "Live".
 int lwip_bring_up_blocking(void) {
     SemaphoreHandle_t tcpip_done = xSemaphoreCreateBinary();
     if (tcpip_done == NULL) {
