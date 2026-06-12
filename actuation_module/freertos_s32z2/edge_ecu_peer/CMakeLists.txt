@@ -38,6 +38,14 @@ set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
 set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
 set(CONFIG_DDS_NETWORK_INTERFACE "" CACHE STRING "DDS network interface (name or host IP; empty=auto)")
 set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
+# Optional unicast SPDP peer (IPv4). When the bench is on a switched segment whose
+# managed switch/router does IGMP snooping, host->board multicast SPDP can be
+# filtered while unicast still flows; pointing CycloneDDS at the board's IP as a
+# unicast discovery peer makes participant discovery independent of multicast.
+set(CONFIG_DDS_PEER "" CACHE STRING "Unicast SPDP peer IPv4 (empty = multicast-only discovery)")
+if(CONFIG_DDS_PEER)
+    add_compile_definitions(CONFIG_NET_CONFIG_PEER_IPV4_ADDR="${CONFIG_DDS_PEER}")
+endif()
 set(CONFIG_THREAD_STACK_SIZE 262144 CACHE STRING "Thread stack size in bytes")
 set(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX 0 CACHE STRING "DHCP delay (0 for host)")
 set(CONFIG_ENABLE_SNTP OFF CACHE BOOL "Enable SNTP time sync")

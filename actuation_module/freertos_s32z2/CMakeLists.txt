@@ -139,6 +139,16 @@ set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
 # the lwip_bringup.c static-fallback address so a bench build is self-consistent.
 set(CONFIG_DDS_NETWORK_INTERFACE "192.168.0.105" CACHE STRING "DDS network interface name or IP")
 set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
+# Optional unicast SPDP peer (IPv4). Participant discovery defaults to multicast
+# (cfg.allowMulticast = DDSI_AMC_SPDP). When the board sits on a switched segment
+# whose managed switch/router does IGMP snooping, multicast SPDP is filtered in
+# both directions while unicast (ICMP/SEDP/data) still flows; pointing CycloneDDS
+# at the edge ECU's IP as a unicast discovery peer makes the board's participant
+# announcements reach the host independently of multicast.
+set(CONFIG_DDS_PEER "" CACHE STRING "Unicast SPDP peer IPv4 (empty = multicast-only discovery)")
+if(CONFIG_DDS_PEER)
+    add_compile_definitions(CONFIG_NET_CONFIG_PEER_IPV4_ADDR="${CONFIG_DDS_PEER}")
+endif()
 # Controller node thread stack. The MPC lateral + PID control cycle is
 # stack-heavy (Eigen matrices + OSQP on the stack); 256 KiB overflowed by a few
 # hundred bytes (saved SP below the stack base, caught by the overflow hook), so
