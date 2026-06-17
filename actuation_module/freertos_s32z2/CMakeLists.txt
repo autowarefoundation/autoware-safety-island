@@ -357,6 +357,12 @@ target_link_options(actuation_freertos_s32z2 PRIVATE
     # dangling orphan exidx makes ld segfault during the final link. Another
     # INSERT fragment so it augments the default script.
     -T${CMAKE_CURRENT_SOURCE_DIR}/discard_unwind.ld
+    # Relocate the NETC BD ring descriptors into the non-cacheable region so they
+    # are DMA-coherent with the D-cache enabled. The driver's _NO_CACHEABLE
+    # MemMap is a Green Hills #pragma that GCC ignores, so without this the
+    # descriptors land in cacheable .sram_data and RX stalls (RBPIR advances but
+    # RBCIR stuck — stale BDs). Another INSERT fragment (augments the default).
+    -T${CMAKE_CURRENT_SOURCE_DIR}/netc_bd_no_cacheable.ld
     # main.cpp is C++, so -Dmain=actuation_main produces the mangled symbol
     # _Z14actuation_mainv. NXP's startup.s and freertos_main.cpp both call
     # `actuation_main` unmangled; expose it as an alias so both reach the
