@@ -75,8 +75,54 @@ int uart9_tx_byte(uint8_t b) {
             == LINFLEXD_UART_IP_STATUS_SUCCESS) ? 0 : -1;
 }
 
+// The S32CT clock config (Clock_Ip_VS_0_PBcfg.c) sets up COREPLL and the
+// P0/P1/P2 partition system clocks but contains NO selector for RTU0_CORE_CLK,
+// so Clock_Ip_Init() never programs the RTU0 core CGM mux
+// (IP_RTU0__MC_CGM->MUX_0, CGM7 @ 0x762C0000) and the R52 we run on stays at its
+// reset default source SELCTL=0 = FIRC = 48 MHz. Confirmed at runtime:
+// Clock_Ip_GetClockFrequency(RTU0_CORE_CLK) == 48 MHz and MUX_0 CSC == 0. That
+// uniform ~16x under-clock — not caches or SIMD — dominated the MPC cycle.
+// COREPLL is already locked by Clock_Ip_Init and COREPLL_DFS0 reads exactly
+// 800 MHz (global CGM selector source index 11). Clock_Ip_Init also already
+// provisioned the RTU0 SRAM wait states for 800 MHz (Clock_Ip_Specific.c reads
+// the RTU0_CORE_CLK=800 MHz ConfiguredFrequencies entry to set RAM IWS), so
+// raising the core clock is safe. Perform the glitchless CGM switch here,
+// mirroring the proven ETH0 RX-clock mux sequence in lwip_bringup.c.
+#define RTU0_MC_CGM_MUX_0_CSC   0x762C0300UL
+#define RTU0_MC_CGM_MUX_0_CSS   0x762C0304UL
+#define RTU0_MC_CGM_MUX_0_DC_0  0x762C0308UL
+#define RTU0_CORE_SRC_COREPLL_DFS0  11U   /* CGM selector source index = 800 MHz */
+#define RTU0_CGM_REG32(a)  (*(volatile uint32_t *)(a))
+
+static void rtu0_core_clock_to_800mhz(void) {
+    /* Already sourced from COREPLL_DFS0 (e.g. boot-over-running)? Nothing to do. */
+    if (((RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSS) >> 24) & 0xFU)
+            == RTU0_CORE_SRC_COREPLL_DFS0) {
+        return;
+    }
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        /* SELCTL = COREPLL_DFS0, CLK_SW = 1 (request the glitchless switch). */
+        RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSC) =
+            (RTU0_CORE_SRC_COREPLL_DFS0 << 24) | (1U << 2);
+        /* Poll switch-in-progress (CSS bit16, SWIP) until it clears. */
+        for (int t = 0; t < 200000; ++t) {
+            if ((RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSS) & 0x10000U) == 0U) {
+                break;
+            }
+        }
+        /* Done once SELSTAT == requested SELCTL. */
+        if (((RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSS) >> 24) & 0xFU)
+                == RTU0_CORE_SRC_COREPLL_DFS0) {
+            break;
+        }
+    }
+    /* Keep the divider at /1 (DE=1, DIV=0): 800 MHz / 1 = 800 MHz. */
+    RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_DC_0) = 0x80000000U;
+}
+
 int board_init(void) {
     (void)Clock_Ip_Init(&Mcu_aClockConfigPB[0U]);
+    rtu0_core_clock_to_800mhz();
     uart9_init_115200_8N1();
     // Mux the NETC ETH0 RGMII + PHY-control pins. Without this the MAC<->PHY
     // RGMII pins stay at their reset function and the Ethernet wire interface is
