@@ -718,9 +718,11 @@ target_sources(actuation_freertos_s32z2 PRIVATE
 # .debug_* out of the link); address-level gdb (arm-none-eabi-nm) works without
 # -g regardless.
 #
-# Not yet hard-real-time: the ~3.5 s cycle is scalar Eigen (NEON is disabled via
-# EIGEN_DONT_VECTORIZE, see above). Closing the gap to the 150 ms control period
-# needs NEON and/or an algorithmic change -- a separate effort.
+# Not yet hard-real-time: even with Eigen NEON enabled (see the M1.2 note above)
+# the ~3.5 s cycle barely moves -- the dense-Cholesky QP solve is already -O2
+# auto-vectorised, so NEON buys only ~8%, not the hoped-for 4x, with identical
+# output. Closing the gap to the 150 ms control period needs an algorithmic change
+# (e.g. a faster QP solver) -- a separate effort.
 target_compile_options(actuation_freertos_s32z2 PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-O2>
     # Enforce "never -g" for C++ (scoped to match -O2, the combination that
