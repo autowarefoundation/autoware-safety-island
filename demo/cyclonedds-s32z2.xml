@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+
+  <!-- Autoware Domain -->
+  <Domain id="1">
+    <General>
+      <AllowMulticast>spdp</AllowMulticast>
+      <MaxMessageSize>1400B</MaxMessageSize>  <!--Accommodate for Zephyr's MTU-->
+        <Interfaces>
+            <NetworkInterface autodetermine="true" priority="default" multicast="default" />
+        </Interfaces>
+    </General>
+
+    <Sizing>
+      <ReceiveBufferSize>16384B</ReceiveBufferSize>
+      <ReceiveBufferChunkSize>2048B</ReceiveBufferChunkSize>
+    </Sizing>
+
+    <Discovery>
+      <ParticipantIndex>none</ParticipantIndex>
+    </Discovery>
+  </Domain>
+
+  <!-- S32Z2 Safety Island Domain -->
+  <!--
+    The S32Z2 board runs a static IP on its Ethernet interface (default 192.168.0.105).
+    Update the NetworkInterface name or IP address below to match the host interface that connects
+    to the S32Z2 board (e.g., eth0, enp3s0, or the IP of the host interface on the same
+    subnet as the board).
+  -->
+  <Domain id="2">
+    <General>
+      <AllowMulticast>spdp</AllowMulticast>
+      <MaxMessageSize>1400B</MaxMessageSize>  <!--Accommodate for Zephyr's MTU-->
+        <Interfaces>
+            <NetworkInterface autodetermine="false" priority="default" multicast="default" name="192.168.0.1"/>
+        </Interfaces>
+    </General>
+
+    <Sizing>
+      <ReceiveBufferSize>16384B</ReceiveBufferSize>
+      <ReceiveBufferChunkSize>2048B</ReceiveBufferChunkSize>
+    </Sizing>
+
+    <Discovery>
+      <ParticipantIndex>none</ParticipantIndex>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

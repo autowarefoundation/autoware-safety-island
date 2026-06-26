@@ -79,9 +79,9 @@ Rates and timing
 
 - Control loop period: **150 ms** (``ctrl_period`` parameter, default
   ``0.15`` seconds).
-- Stale-output timeout: **0.5 s** (``timeout_thr_sec`` parameter).
+- Stale-output timeout parameter: **0.5 s** (``timeout_thr_sec`` default).
 
-The timeout applies to the control command produced by the lateral and
-longitudinal controllers: if the last output is older than
-``timeout_thr_sec``, the tick is skipped. Missing inputs are handled
-separately. See :doc:`architecture`.
+``timeout_thr_sec`` is declared by the controller, and the ``isTimeOut`` helper
+still exists, but the timeout guard is currently disabled in the timer callback.
+Missing inputs are handled separately: if any required input topic has not been
+received, the tick is skipped before the controllers run. See :doc:`architecture`.

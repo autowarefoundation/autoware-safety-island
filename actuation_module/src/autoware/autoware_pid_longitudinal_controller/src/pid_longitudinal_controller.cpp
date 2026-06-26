@@ -273,7 +273,7 @@ trajectory_follower::LongitudinalOutput PidLongitudinalController::run(
     const auto cmd_msg =
       createCtrlCmdMsg(raw_ctrl_cmd, control_data.current_motion.vel);  // create control command
     publishDebugData(raw_ctrl_cmd, control_data);                       // publish debug data
-    trajectory_follower::LongitudinalOutput output;
+    trajectory_follower::LongitudinalOutput output{};
     output.control_cmd = cmd_msg;
     output.control_cmd_horizon.controls.push_back(cmd_msg);
     output.control_cmd_horizon.time_step_ms = 0.0;
@@ -288,7 +288,7 @@ trajectory_follower::LongitudinalOutput PidLongitudinalController::run(
 
   // create control command
   const auto cmd_msg = createCtrlCmdMsg(ctrl_cmd, control_data.current_motion.vel);
-  trajectory_follower::LongitudinalOutput output;
+  trajectory_follower::LongitudinalOutput output{};
   output.control_cmd = cmd_msg;
 
   // create control command horizon
@@ -750,6 +750,9 @@ LongitudinalMsg PidLongitudinalController::createCtrlCmdMsg(
   cmd.stamp = Clock::toRosTime(Clock::now());
   cmd.velocity = static_cast<decltype(cmd.velocity)>(ctrl_cmd.vel);
   cmd.acceleration = static_cast<decltype(cmd.acceleration)>(ctrl_cmd.acc);
+  cmd.jerk = 0.0;
+  cmd.is_defined_acceleration = true;
+  cmd.is_defined_jerk = false;
 
   // store current velocity history
   m_vel_hist.push_back({Clock::now(), current_vel});

@@ -7,6 +7,7 @@
 #  error "network_config.cpp must only be compiled for the Zephyr platform"
 #endif
 
+#include <cerrno>
 #include <vector>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/ethernet.h>
@@ -32,6 +33,14 @@ static int setup_iface(
   struct net_if * iface, const char * addr, const char * gw, const char * netmask, uint16_t tag)
 {
   struct in_addr inaddr;
+
+  if (!net_if_is_up(iface)) {
+    const int ret = net_if_up(iface);
+    if (ret < 0 && ret != -EALREADY) {
+      log_error("Cannot bring up interface %p: %d", iface, ret);
+      return 1;
+    }
+  }
 
   if (net_addr_pton(AF_INET, addr, &inaddr)) {
     log_error("Invalid address: %s", addr);

@@ -7,7 +7,7 @@
 NXP S32Z270DC2 (real HW)
 ##########################
 
-This guide builds the safety island firmware for the NXP S32Z270DC2
+This guide builds the Zephyr ``zephyr-s32z`` runtime target for the NXP S32Z270DC2
 evaluation board (Cortex-R52, RTU0 core) and flashes it using the S32 Debug
 Probe.
 
@@ -23,10 +23,11 @@ Inside the development container:
 
 .. code-block:: console
 
-  $ ./build.sh -t s32z270dc2_rtu0_r52@D
+  $ ./build.sh --platform zephyr-s32z
 
 The ``@D`` variant selects the RTU0 core on domain D, which is the
-configuration the board overlay targets.
+configuration the board overlay targets. ``build.sh`` maps ``zephyr-s32z`` to
+the Zephyr board target ``s32z270dc2_rtu0_r52@D``.
 
 Resulting binary:
 

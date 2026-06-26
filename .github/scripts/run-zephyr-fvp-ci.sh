@@ -4,7 +4,6 @@
 set -euo pipefail
 
 ROOT_DIR="${GITHUB_WORKSPACE:-$(pwd)}"
-ZEPHYR_TARGET="fvp_baser_aemv8r_smp"
 BUILD_ROOT="${ROOT_DIR}/build/zephyr-fvp"
 LOG_DIR="${BUILD_ROOT}/logs"
 FVP_BIN_NAME="FVP_BaseR_AEMv8R"
@@ -59,7 +58,7 @@ build_variant()
   local name="$1"
   shift
 
-  "${ROOT_DIR}/build.sh" -t "${ZEPHYR_TARGET}" -d "${BUILD_ROOT}/${name}" "$@"
+  "${ROOT_DIR}/build.sh" --platform zephyr-fvp -d "${BUILD_ROOT}/${name}" "$@"
 }
 
 # Run FVP with the built ELF and capture output
@@ -119,5 +118,9 @@ echo "Phase 4 - Zephyr FVP CAN loopback build + run"
 build_variant can --can-output-test
 run_fvp_variant can "${LOG_DIR}/can.log" "${FVP_TIMEOUT_SECONDS}"
 require_marker "${LOG_DIR}/can.log" "CAN output tests passed"
+
+echo "Phase 5 - Zephyr FVP TAP network build smoke"
+"${ROOT_DIR}/build.sh" --platform zephyr-fvp --network tap -d "${ROOT_DIR}/build/zephyr-fvp-tap"
+test -f "${ROOT_DIR}/build/zephyr-fvp-tap/zephyr/zephyr.elf"
 
 echo "Zephyr FVP runtime validation OK"

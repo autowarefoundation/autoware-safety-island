@@ -378,7 +378,7 @@ void Controller::publishControlCommand(
   const trajectory_follower::LongitudinalOutput & lon_out,
   const trajectory_follower::LateralOutput & lat_out)
 {
-  ControlMsg out{0};
+  ControlMsg out{};
   out.stamp = Clock::toRosTime(Clock::now());
   out.lateral.steering_tire_angle = lat_out.control_cmd.steering_tire_angle;
   out.lateral.steering_tire_rotation_rate = lat_out.control_cmd.steering_tire_rotation_rate;
