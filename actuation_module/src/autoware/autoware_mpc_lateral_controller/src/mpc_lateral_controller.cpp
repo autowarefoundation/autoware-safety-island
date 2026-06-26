@@ -290,7 +290,7 @@ trajectory_follower::LateralOutput MpcLateralController::run(
     [this](
       const auto & cmd, const bool is_mpc_solved,
       const auto & cmd_horizon) -> trajectory_follower::LateralOutput {
-    trajectory_follower::LateralOutput output;
+    trajectory_follower::LateralOutput output{};
     output.control_cmd = createCtrlCmdMsg(cmd);
     output.control_cmd_horizon = createCtrlCmdHorizonMsg(cmd_horizon);
     // To be sure current steering of the vehicle is desired steering angle, we need to check
@@ -408,6 +408,7 @@ LateralMsg MpcLateralController::getStopControlCommand() const
   LateralMsg cmd{};
   cmd.steering_tire_angle = static_cast<decltype(cmd.steering_tire_angle)>(m_steer_cmd_prev);
   cmd.steering_tire_rotation_rate = 0.0;
+  cmd.is_defined_steering_tire_rotation_rate = false;
   return cmd;
 }
 
@@ -416,6 +417,7 @@ LateralMsg MpcLateralController::getInitialControlCommand() const
   LateralMsg cmd{};
   cmd.steering_tire_angle = m_current_steering.steering_tire_angle;
   cmd.steering_tire_rotation_rate = 0.0;
+  cmd.is_defined_steering_tire_rotation_rate = false;
   return cmd;
 }
 
@@ -453,8 +455,13 @@ bool MpcLateralController::isStoppedState() const
 
 LateralMsg MpcLateralController::createCtrlCmdMsg(const LateralMsg & ctrl_cmd)
 {
-  auto out = ctrl_cmd;
+  LateralMsg out{};
   out.stamp = Clock::toRosTime(Clock::now());
+  out.control_time = ctrl_cmd.control_time;
+  out.steering_tire_angle = ctrl_cmd.steering_tire_angle;
+  out.steering_tire_rotation_rate = ctrl_cmd.steering_tire_rotation_rate;
+  out.is_defined_steering_tire_rotation_rate =
+    ctrl_cmd.is_defined_steering_tire_rotation_rate ? true : false;
   m_steer_cmd_prev = out.steering_tire_angle;
   return out;
 }

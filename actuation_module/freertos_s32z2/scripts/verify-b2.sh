@@ -27,16 +27,9 @@ fi
 source "${ZEPHYR_VENV}/bin/activate"
 
 # Rebuild target firmware.
-rm -rf build-s32z2
-# The firmware CMake configure requires the cross-built CycloneDDS static lib
-# (CMakeLists.txt checks for build-s32z2/cdds_target_out/lib/libddsc.a). The
-# rm -rf above wipes any previous copy, so (re)build it before configuring.
-if [ ! -f build-s32z2/cdds_target_out/lib/libddsc.a ]; then
-    ./actuation_module/freertos_s32z2/scripts/build-cdds-target.sh
-fi
-cmake -S actuation_module/freertos_s32z2 -B build-s32z2 \
-    -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake"
-cmake --build build-s32z2 -j
+BUILD_DIR="${REPO_ROOT}/build/freertos-s32z2"
+rm -rf "${BUILD_DIR}"
+./build.sh --platform freertos-s32z2 -d "${BUILD_DIR}"
 
 # Build the host-side edge ECU peer (dds_pub / dds_sub).
 ./actuation_module/freertos_s32z2/scripts/build-edge-ecu-peer.sh
@@ -61,7 +54,7 @@ trap 'kill ${PUB_PID} ${UART_PID} 2>/dev/null || true' EXIT
 # nxp_s32dbg supports only `debug`; --batch makes the GDB session
 # non-interactive. Retries with the demo-doc cleanup recipe between attempts.
 attempt=0
-until west debug --s32ds-path="${S32DS_PATH}" -d build-s32z2 --tool-opt='--batch'; do
+until west debug --s32ds-path="${S32DS_PATH}" -d "${BUILD_DIR}" --tool-opt='--batch'; do
     attempt=$((attempt+1))
     if [ "${attempt}" -ge 3 ]; then
         echo "west debug failed 3 times; physical layer (power / J6 JTAG / J14 / J17-J18 / S2)?"

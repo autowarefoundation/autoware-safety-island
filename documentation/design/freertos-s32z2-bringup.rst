@@ -1,6 +1,15 @@
 FreeRTOS on the ARM Automotive Kit (NXP S32Z2)
 ===============================================
 
+Status note
+-----------
+
+This page records hardware bring-up design notes for the ``freertos-s32z2``
+target. It is intentionally lower-level than the user guide and may reference
+NXP-generated/private files or bench scripts that are not present in the public
+repository. For the supported build entry point and current user workflow, see
+:doc:`/user_guide/freertos_s32z2`.
+
 This document records the design of Phase 5 of the FreeRTOS port: bringing the
 actuation firmware to the ARM Automotive Kit (X-S32Z27X-DC, NXP S32Z2,
 Cortex-R52). Issue: ``autowarefoundation/autoware-safety-island#1``.
@@ -31,13 +40,15 @@ The Phase 5 build is an additional CMake entry point under
 ``actuation_module/freertos_s32z2/`` that does not modify the existing
 ``actuation_module/freertos/`` POSIX-simulator build, the Zephyr boards under
 ``actuation_module/boards/``, or the PAL backend headers under
-``actuation_module/include/platform/freertos/*.h``. New variant headers live
-under ``actuation_module/include/platform/freertos/s32z2/``.
+``actuation_module/include/platform/freertos/*.h``. The intended hardware path
+may add S32Z2-specific variant headers under
+``actuation_module/include/platform/freertos/s32z2/`` when carrying the lwIP
+bring-up forward.
 
-The single dispatcher edit is ``actuation_module/include/platform/platform_network.h``,
-which gains a ``#elif defined(PLATFORM_FREERTOS_S32Z2)`` branch selecting the
-new variant network header. That dispatcher edit lands with the networking
-stage of the stack (alongside ``freertos_network.h``), not the build-system PR.
+The intended hardware networking path uses an S32Z2-specific FreeRTOS network
+backend. In the public tree, ``platform_network.h`` still dispatches FreeRTOS
+targets through ``platform/freertos/freertos_network.h``; update this dispatcher
+and the matching backend when carrying the S32Z2 lwIP bring-up path forward.
 
 Boot bring-up (B-1)
 -------------------
@@ -85,13 +96,12 @@ Workflow:
 Networking and DDS (B-2)
 ------------------------
 
-``configure_network()`` is selected at compile time by the dispatcher branch
-in ``platform_network.h`` and dispatches to ``lwip_bring_up_blocking()`` from
-``include/platform/freertos/s32z2/freertos_network.h``. ``lwip_bring_up_blocking``
-calls ``tcpip_init()``, registers the NETC driver via ``ethif_ethernetif_init``
-(from the NXP ``eth_port.c`` glue, not the generic upstream ``ethernetif_init``)
-/ ``netif_add``, requests DHCP, and blocks on a semaphore until a lease arrives
-(30 s timeout).
+The intended S32Z2 ``configure_network()`` path dispatches to an lwIP bring-up
+function that calls ``tcpip_init()``, registers the NETC driver via
+``ethif_ethernetif_init`` (from the NXP ``eth_port.c`` glue, not the generic
+upstream ``ethernetif_init``) / ``netif_add``, requests DHCP, and blocks on a
+semaphore until a lease arrives. Keep the dispatcher and backend implementation
+in sync before treating this as current behavior.
 
 CycloneDDS is cross-compiled as a static library for Cortex-R52 with the
 upstream ``WITH_FREERTOS=ON`` and ``WITH_LWIP=ON`` options enabled (CycloneDDS
@@ -99,7 +109,7 @@ ships dedicated ``sync/freertos.h`` and ``sockets/posix.h`` + lwIP backends —
 no patches required). Security, SSL, shared memory, IPv6, source-specific
 multicast, and network partitions are all disabled (see
 ``actuation_module/freertos_s32z2/scripts/build-cdds-target.sh``). The host
-``idlc`` from the POSIX-simulator phase 1 build is reused for IDL → C
+``idlc`` built by ``build.sh --platform freertos-s32z2`` is reused for IDL → C
 generation of ``autoware_msgs``.
 
 The cross-build needs two non-obvious workarounds:

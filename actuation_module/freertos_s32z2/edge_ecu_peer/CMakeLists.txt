@@ -13,12 +13,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(ACTUATION_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set(REPO_ROOT     ${ACTUATION_DIR}/..)
 
-# Reuse the host CycloneDDS already built for the POSIX simulator.
-set(CDDS_HOST_PREFIX ${REPO_ROOT}/build-freertos/cdds_host_out)
+# Reuse the shared host CycloneDDS install from build.sh.
+set(CDDS_HOST_PREFIX ${REPO_ROOT}/build/cyclonedds_host/out)
 if(NOT EXISTS ${CDDS_HOST_PREFIX}/bin/idlc)
     message(FATAL_ERROR
-        "Host CycloneDDS not found at ${CDDS_HOST_PREFIX}. Run the POSIX "
-        "simulator phase 1 build first.")
+        "Host CycloneDDS not found at ${CDDS_HOST_PREFIX}. Run "
+        "./build.sh --platform freertos-posix first.")
 endif()
 set(ENV{PATH} "${CDDS_HOST_PREFIX}/bin:$ENV{PATH}")
 set(CycloneDDS_DIR ${CDDS_HOST_PREFIX}/lib/cmake/CycloneDDS)
