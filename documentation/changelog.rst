@@ -27,20 +27,29 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
-Nothing yet.
+Changed
+-------
 
-*****
+- ``build.sh`` and the documentation now present the supported runtime target
+  matrix: ``zephyr-fvp``, ``zephyr-s32z``, ``freertos-posix``, and
+  ``freertos-s32z2``.
+- Added a first-class ``freertos-posix`` user guide and aligned architecture,
+  troubleshooting, and timing notes with the runtime target matrix.
+- ``freertos-s32z2`` can be selected through ``build.sh --platform``; it remains
+  a hardware-specific target that requires NXP-licensed SDK inputs.
+
+******
 v0.1.0
-*****
+******
 
 First release of *Autoware Safety Island*. Major restructuring from the
 previous project: Autoware components are now vendored directly into the
 application, the separate ``Actuation Service`` / ``Message Converter`` /
 ``Actuation Player`` split has been retired, and a platform abstraction
-layer enables a FreeRTOS POSIX simulator alongside the Zephyr target.
+layer enables a FreeRTOS POSIX runtime alongside the Zephyr target.
 
 New features
-============
+------------
 
 - Direct integration of Autoware modules (MPC lateral, PID longitudinal,
   trajectory follower node) compiled as part of the application.
@@ -51,15 +60,15 @@ New features
 - Simplified top-level ``build.sh`` replacing the previous multi-step build.
 - Platform abstraction layer (``actuation_module/include/platform/``) with
   Zephyr and FreeRTOS backends, keeping controller logic fully shared.
-- FreeRTOS POSIX simulator build (``actuation_module/freertos/``) using
+- FreeRTOS POSIX runtime build (``actuation_module/freertos/``) using
   FreeRTOS-Kernel V11.1.0, buildable on any Linux host.
-- CI pipeline verifying both Zephyr (FVP) and FreeRTOS simulator builds on
+- CI pipeline verifying both Zephyr (FVP) and FreeRTOS POSIX builds on
   every pull request and daily.
 - Release workflow publishing ``zephyr-fvp.elf``, ``zephyr-s32z.elf``,
   ``actuation_freertos``, and ``sha256sums.txt`` on every ``v*.*.*`` tag.
 
 Changed
-=======
+-------
 
 - Removed dependency on a separate Autoware workspace and pre-compiled
   binaries.
@@ -72,7 +81,7 @@ Changed
   ``ghcr.io/autowarefoundation/autoware-safety-island:devcontainer``.
 
 Limitations
-===========
+-----------
 
 - A devicetree overlay at
   ``actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay`` is used as a
@@ -80,11 +89,11 @@ Limitations
   which otherwise reuses the same MAC on every build
   (tracked in `Zephyr Project #61478
   <https://github.com/zephyrproject-rtos/zephyr/issues/61478>`_).
-- FreeRTOS support is currently POSIX simulator only; real hardware port
+- FreeRTOS support is currently POSIX runtime only; real hardware port
   (Phases 5–6) is future work.
 
 Third-party repositories
-========================
+------------------------
 
 .. code-block:: yaml
     :substitutions:
@@ -106,9 +115,9 @@ Third-party repositories
 
 .. _legacy:
 
-*******************************
+********************************************
 Legacy releases (previous project structure)
-*******************************
+********************************************
 
 The releases below predate the rename and restructuring to *Autoware Safety
 Island*. They are preserved here for historical reference only and are not
@@ -119,7 +128,7 @@ v2.0
 ****
 
 New features
-============
+------------
 
 - Lighter deployment mode that does not require the full Autoware pipeline on
   the main compute:
@@ -130,7 +139,7 @@ New features
     recording.
 
 Changed
-=======
+-------
 
 - Simplified the user guide; new Dockerfile replaces the previous
   multi-step reproduce instructions. Board flashing moved from the IDE to the
@@ -144,7 +153,7 @@ Changed
   use distinct ROS domain IDs.
 
 Limitations
-===========
+-----------
 
 - A devicetree overlay at
   ``actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay`` is used as a
@@ -159,14 +168,14 @@ Limitations
   different machine when this occurs.
 
 Resolved issues
-===============
+---------------
 
 - The S32Z no longer needs to be re-flashed between runs.
 - Official Zephyr support for the S32 Debug Probe has landed, so the IDE
   workaround and manual register pokes are no longer required.
 
 Third-party repositories
-========================
+------------------------
 
 .. code-block:: yaml
     :substitutions:
@@ -194,21 +203,21 @@ Initial release: Pure Pursuit controller as the Zephyr application, with
 autoware.universe driving the main pipeline.
 
 Limitations
-===========
+-----------
 
 - No official support for the NXP S32 Debug Probe (debugging the S32Z
   required workarounds).
 - The AVA Developer Platform and the S32Z need to share a sub-network.
 
 Known issues
-============
+------------
 
 - The S32Z must be re-flashed before each run of the demo
   (tracked in `CycloneDDS #1682
   <https://github.com/eclipse-cyclonedds/cyclonedds/issues/1682>`_).
 
 Third-party repositories
-========================
+------------------------
 
 .. code-block:: yaml
     :substitutions:

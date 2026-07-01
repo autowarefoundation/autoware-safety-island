@@ -1,32 +1,38 @@
 # Copyright (c) 2025, Arm Limited.
 # SPDX-License-Identifier: Apache-2.0
 #
-# FreeRTOS POSIX simulator build entry point.
+# FreeRTOS POSIX runtime build entry point.
 #
-# Prerequisites: build CycloneDDS host tools and target library first.
+# Preferred path from the repository root:
+#   ./build.sh --platform freertos-posix -d build/freertos-posix
+#
+# Prerequisites for manual CMake use: build CycloneDDS host tools and target
+# library first. build.sh performs these phases automatically.
 #
 # Phase 1 -- CycloneDDS host tools (provides idlc):
-#   mkdir -p build-freertos/cyclonedds_host && cd build-freertos/cyclonedds_host
-#   cmake ../../cyclonedds -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
-#     -DCMAKE_INSTALL_PREFIX=$(pwd)/../cdds_host_out -DCMAKE_BUILD_TYPE=Release
-#   make -j$(nproc) install
+#   cmake cyclonedds -B build/cyclonedds_host \
+#     -DBUILD_IDLC=ON -DBUILD_SHARED_LIBS=ON \
+#     -DCMAKE_INSTALL_PREFIX=$PWD/build/cyclonedds_host/out \
+#     -DCMAKE_BUILD_TYPE=Release
+#   cmake --build build/cyclonedds_host --target install -j$(nproc)
 #
 # Phase 2 -- CycloneDDS target library. ddsperf must be disabled, otherwise its
 # CMake configuration invokes idlc at configure time and fails in a clean
 # environment where idlc is not on PATH:
-#   cd .. && mkdir cyclonedds_target && cd cyclonedds_target
-#   cmake ../../cyclonedds -DBUILD_SHARED_LIBS=OFF -DENABLE_SECURITY=OFF \
+#   cmake cyclonedds -B build/cyclonedds_target \
+#     -DBUILD_SHARED_LIBS=OFF -DENABLE_SECURITY=OFF \
 #     -DENABLE_SSL=OFF -DENABLE_SHM=OFF -DENABLE_IPV6=OFF -DBUILD_IDLC=OFF \
 #     -DBUILD_DDSPERF=OFF \
-#     -DCMAKE_INSTALL_PREFIX=$(pwd)/../cdds_target_out -DCMAKE_BUILD_TYPE=Debug
-#   make -j$(nproc) install
+#     -DCMAKE_INSTALL_PREFIX=$PWD/build/cyclonedds_target_out -DCMAKE_BUILD_TYPE=Debug
+#   cmake --build build/cyclonedds_target --target install -j$(nproc)
 #
-# Phase 3 -- the simulator. autoware_msgs needs the Phase 1 idlc on PATH:
-#   export PATH=$(pwd)/../cdds_host_out/bin:$PATH
-#   export LD_LIBRARY_PATH=$(pwd)/../cdds_host_out/lib:${LD_LIBRARY_PATH:-}
-#   cd .. && mkdir app && cd app
-#   cmake ../../../actuation_module/freertos
-#   make -j$(nproc)
+# Phase 3 -- the runtime. autoware_msgs needs the Phase 1 idlc on PATH:
+#   export PATH=$PWD/build/cyclonedds_host/out/bin:$PATH
+#   export LD_LIBRARY_PATH=$PWD/build/cyclonedds_host/out/lib:${LD_LIBRARY_PATH:-}
+#   cmake actuation_module/freertos -B build/freertos-posix \
+#     -DCDDS_HOST_PREFIX=$PWD/build/cyclonedds_host/out \
+#     -DCDDS_TARGET_PREFIX=$PWD/build/cyclonedds_target_out
+#   cmake --build build/freertos-posix -j$(nproc)
 
 cmake_minimum_required(VERSION 3.22.1)
 project(actuation_module_freertos LANGUAGES C CXX)
@@ -40,8 +46,8 @@ set(ACTUATION_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # Root of the repository
 set(REPO_ROOT ${ACTUATION_DIR}/..)
 # Pre-built CycloneDDS locations
-set(CDDS_HOST_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/../cdds_host_out CACHE PATH "CycloneDDS host tools install prefix")
-set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/../cdds_target_out CACHE PATH "CycloneDDS target library install prefix")
+set(CDDS_HOST_PREFIX ${REPO_ROOT}/build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
+set(CDDS_TARGET_PREFIX ${REPO_ROOT}/build/cyclonedds_target_out CACHE PATH "CycloneDDS target library install prefix")
 
 # ---- Platform definition ----
 set(PLATFORM_FREERTOS ON)

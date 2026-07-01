@@ -28,10 +28,9 @@ fi
 # shellcheck source=/dev/null
 source "${ZEPHYR_VENV}/bin/activate"
 
-rm -rf build-s32z2
-cmake -S actuation_module/freertos_s32z2 -B build-s32z2 \
-    -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/actuation_module/freertos_s32z2/cmake/arm-cortex-r52.cmake"
-cmake --build build-s32z2 -j
+BUILD_DIR="${REPO_ROOT}/build/freertos-s32z2"
+rm -rf "${BUILD_DIR}"
+./build.sh --platform freertos-s32z2 -d "${BUILD_DIR}"
 
 LOG=/tmp/freertos-s32z2-b1-uart.log
 rm -f "${LOG}"
@@ -45,7 +44,7 @@ trap 'kill ${UART_PID} 2>/dev/null || true' EXIT
 # Retries up to 3x with the cleanup recipe from ces2026-demo.md §6.4 between
 # attempts.
 attempt=0
-until west debug --s32ds-path="${S32DS_PATH}" -d build-s32z2 --tool-opt='--batch'; do
+until west debug --s32ds-path="${S32DS_PATH}" -d "${BUILD_DIR}" --tool-opt='--batch'; do
     attempt=$((attempt+1))
     if [ "${attempt}" -ge 3 ]; then
         echo "west debug failed 3 times; physical layer (power / J6 JTAG / J14 / J17-J18 / S2)?"

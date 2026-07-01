@@ -292,10 +292,10 @@ void Controller::callbackTimerControl()
 {
   // log_debug("Timer control callback");
 
-  // Cycle phase stopwatch (M2.1): one CYCLE line per cycle at the debug level so
-  // the UART log shows where the control period actually goes on hardware
-  // without adding latency/jitter at the default INFO level.
-  const double cyc_t0 = Clock::now();
+  // Cycle phase stopwatch (M2.1): one CYCLE line per cycle so the UART log shows
+  // where the control period actually goes on hardware. Debug-only and compiled
+  // out at the default INFO level (see PROFILE_* in logger.hpp).
+  PROFILE_POINT(cyc_t0);
 
   // 1. create input data
   const auto input_data = createInputData();
@@ -316,7 +316,7 @@ void Controller::callbackTimerControl()
 
   log_debug("Controllers are ready");
 
-  const double cyc_t_ready = Clock::now();
+  PROFILE_POINT(cyc_t_ready);
 
   // 3. run controllers
   stop_watch_.tic("lateral");
@@ -331,7 +331,7 @@ void Controller::callbackTimerControl()
 
   publishProcessingTime(stop_watch_.toc("lateral"), pub_processing_time_lat_ms_);
 
-  const double cyc_t_lat = Clock::now();
+  PROFILE_POINT(cyc_t_lat);
 
   stop_watch_.tic("longitudinal");
   const auto lon_out = longitudinal_controller_->run(*input_data);
@@ -350,7 +350,7 @@ void Controller::callbackTimerControl()
 
   log_debug("Controllers ran");
 
-  const double cyc_t_lon = Clock::now();
+  PROFILE_POINT(cyc_t_lon);
 
   // 4. sync with each other controllers
   longitudinal_controller_->sync(lat_out.sync_data);
@@ -364,13 +364,11 @@ void Controller::callbackTimerControl()
   // 5. publish control command
   publishControlCommand(lon_out, lat_out);
 
-  const double cyc_t_end = Clock::now();
-  // Per-cycle profiling: debug-only so it does not add UART latency/jitter at
-  // the default INFO level (which would itself skew the measurements).
-  log_debug("CYCLE in=%.1f lat=%.1f lon=%.1f pub=%.1f total=%.1f [ms]",
-    (cyc_t_ready - cyc_t0) * 1000.0, (cyc_t_lat - cyc_t_ready) * 1000.0,
-    (cyc_t_lon - cyc_t_lat) * 1000.0, (cyc_t_end - cyc_t_lon) * 1000.0,
-    (cyc_t_end - cyc_t0) * 1000.0);
+  PROFILE_POINT(cyc_t_end);
+  PROFILE_LOG("CYCLE in=%.1f lat=%.1f lon=%.1f pub=%.1f total=%.1f [ms]",
+    PROFILE_MS(cyc_t0, cyc_t_ready), PROFILE_MS(cyc_t_ready, cyc_t_lat),
+    PROFILE_MS(cyc_t_lat, cyc_t_lon), PROFILE_MS(cyc_t_lon, cyc_t_end),
+    PROFILE_MS(cyc_t0, cyc_t_end));
 
   // 6. Reset flags for next cycle
   // TODO: Check if this is required, autoware version keeps publishing even there is no new data
@@ -381,7 +379,7 @@ void Controller::publishControlCommand(
   const trajectory_follower::LongitudinalOutput & lon_out,
   const trajectory_follower::LateralOutput & lat_out)
 {
-  ControlMsg out{0};
+  ControlMsg out{};
   out.stamp = Clock::toRosTime(Clock::now());
   out.lateral.steering_tire_angle = lat_out.control_cmd.steering_tire_angle;
   out.lateral.steering_tire_rotation_rate = lat_out.control_cmd.steering_tire_rotation_rate;

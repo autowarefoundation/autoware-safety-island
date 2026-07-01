@@ -10,8 +10,6 @@ modules/
 
 # build artifacts
 build/
-build-freertos/
-build-s32z2/
 install/
 .west/
 .worktrees/

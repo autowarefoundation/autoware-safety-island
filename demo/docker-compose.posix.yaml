@@ -1,0 +1,18 @@
+services:
+  safety-island-autoware:
+    volumes:
+      - ./cyclonedds.posix.xml:/autoware/cyclonedds.xml
+    environment:
+      SAFETY_ISLAND_DDS_INTERFACE: ${SAFETY_ISLAND_DDS_INTERFACE:-wlp2s0}
+
+  safety-island-bridge:
+    volumes:
+      - ./cyclonedds.posix.xml:/autoware/cyclonedds.xml
+    environment:
+      SAFETY_ISLAND_DDS_INTERFACE: ${SAFETY_ISLAND_DDS_INTERFACE:-wlp2s0}
+
+  safety-island-visualizer:
+    volumes:
+      - ./cyclonedds.posix.xml:/autoware/cyclonedds.xml
+    environment:
+      SAFETY_ISLAND_DDS_INTERFACE: ${SAFETY_ISLAND_DDS_INTERFACE:-wlp2s0}

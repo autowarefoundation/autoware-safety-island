@@ -48,7 +48,18 @@ public:
         // Reliable QoS
         m_dds_qos = dds_create_qos();
         dds_qset_reliability(m_dds_qos, DDS_RELIABILITY_RELIABLE, DDS_MSECS(30));
-        dds_qset_history(m_dds_qos, DDS_HISTORY_KEEP_LAST, 500);    // TODO: TUNE HISTORY BUFFER SIZE IF WE DROP MESSAGES
+        // KEEP_LAST depth 1: the controller only ever consumes the most recent
+        // sample of each input (trajectory, kinematic state, acceleration, ...),
+        // so a deep history just buffers stale samples. The previous depth of 500
+        // was fatal with real (>1400 B) Autoware trajectories: each reader history
+        // cache could hold 500 * ~8.8 KiB ~= 4.4 MiB of serdata, and because the
+        // ~1.7 Hz control cycle consumes slower than the 10 Hz producer, the cache
+        // grew unbounded until pvPortMalloc returned NULL and ddsrt_malloc called
+        // abort() -> _exit() (silent board death seconds after the first large
+        // trajectory arrived). The 10-point bench trajectory (~900 B) stayed under
+        // the heap and hid this. Depth 1 bounds every reader/writer cache to one
+        // sample regardless of message size.
+        dds_qset_history(m_dds_qos, DDS_HISTORY_KEEP_LAST, 1);
         log_info("%s -> DDS QoS created\n", node_name_.c_str());
     }
 

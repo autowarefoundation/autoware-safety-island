@@ -24,9 +24,10 @@ Output modes
 
 Current defaults:
 
-- FVP Zephyr target: ``DDS_ONLY``.
-- S32Z Zephyr target: ``DDS_AND_CAN``.
-- FreeRTOS POSIX simulator: ``DDS_AND_CAN`` so CI exercises the mock CAN path.
+- ``zephyr-fvp``: ``DDS_ONLY``.
+- ``zephyr-s32z``: ``DDS_AND_CAN``.
+- ``freertos-posix``: ``DDS_AND_CAN`` so CI exercises the mock CAN path.
+- ``freertos-s32z2``: ``DDS_ONLY``; CAN is not validated on that hardware path.
 
 **********************
 Frame format
@@ -63,7 +64,7 @@ this to ``&can0`` in ``actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay``.
 Real bus validation requires the board CAN pins to be connected to an external
 CAN transceiver and bus.
 
-FreeRTOS POSIX uses an in-memory mock backend. The test program
+``freertos-posix`` uses an in-memory mock backend. The test program
 ``actuation_module/test/can_output_test.cpp`` validates the encoder, output
 modes, and recorded mock frames. CI builds and runs this as the FreeRTOS CAN
 output test phase.
