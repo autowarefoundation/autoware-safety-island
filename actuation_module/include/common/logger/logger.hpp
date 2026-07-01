@@ -160,4 +160,22 @@ inline void log_warn_throttle_(const char * file, int line, const char * format,
 }
 
 } // namespace common::logger
+
+// --- Per-cycle profiling instrumentation ------------------------------------
+// Compiled out entirely unless CONFIG_LOG_LEVEL >= 2 (debug): the default INFO
+// build takes no timestamps and evaluates none of the log arguments, so the
+// instrumentation adds zero latency/jitter to the control cycle it measures.
+// Uses a monotonic clock (steady_clock) so an SNTP step cannot produce negative
+// or garbled deltas. PROFILE_MS returns milliseconds as a double.
+#if CONFIG_LOG_LEVEL >= 2
+#define PROFILE_POINT(name) const auto name = std::chrono::steady_clock::now()
+#define PROFILE_MS(from, to) \
+    (std::chrono::duration<double, std::milli>((to) - (from)).count())
+#define PROFILE_LOG(...) common::logger::log_debug(__VA_ARGS__)
+#else
+#define PROFILE_POINT(name) ((void)0)
+#define PROFILE_MS(from, to) 0.0
+#define PROFILE_LOG(...) ((void)0)
+#endif
+
 #endif  // COMMON__LOGGER_LOGGER_HPP_
