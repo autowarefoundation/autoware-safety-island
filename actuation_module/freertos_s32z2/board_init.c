@@ -96,7 +96,7 @@ int uart9_tx_byte(uint8_t b) {
 
 static void rtu0_core_clock_to_800mhz(void) {
     /* Already sourced from COREPLL_DFS0 (e.g. boot-over-running)? Nothing to do. */
-    if (((RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSS) >> 24) & 0xFU)
+    if (((RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSS) >> 24) & 0x3FU)
             == RTU0_CORE_SRC_COREPLL_DFS0) {
         return;
     }
@@ -111,7 +111,7 @@ static void rtu0_core_clock_to_800mhz(void) {
             }
         }
         /* Done once SELSTAT == requested SELCTL. */
-        if (((RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSS) >> 24) & 0xFU)
+        if (((RTU0_CGM_REG32(RTU0_MC_CGM_MUX_0_CSS) >> 24) & 0x3FU)
                 == RTU0_CORE_SRC_COREPLL_DFS0) {
             break;
         }
