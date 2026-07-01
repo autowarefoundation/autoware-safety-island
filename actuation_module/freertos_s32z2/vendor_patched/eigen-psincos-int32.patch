@@ -8,8 +8,10 @@ psincos_float declares the huge-argument scratch buffer as plain `int` and then
 calls pstoreu/ploadu<PacketI> on it -> no matching specialization -> the generic
 fallback `*to = from` fails to compile. Every other vectorised transcendental
 (plog/pexp/pldexp/pfrexp) already uses the packet's ScalarI type; psincos is the
-only offender. trig_reduce_huge() still takes int*, so the one in-loop use is
-bridged with a reinterpret_cast (int and int32_t share the same 32-bit layout).
+only offender. trig_reduce_huge() still takes int*, so the one in-loop use writes
+into a plain `int` temporary and then assigns it back into y_int2[k] (a defined
+int -> ScalarI conversion), avoiding a strict-aliasing violation from casting a
+ScalarI* to int*.
 
 Applied at configure time over the host Eigen tree (see freertos_s32z2/
 CMakeLists.txt); not an upstreamed change.
@@ -33,12 +35,16 @@ CMakeLists.txt); not an upstreamed change.
      pstoreu(vals, pabs(_x));
      pstoreu(x_cpy, x);
      pstoreu(y_int2, y_int);
-@@ -693,7 +694,7 @@
+@@ -693,7 +694,11 @@
      {
        float val = vals[k];
        if(val>=huge_th && (numext::isfinite)(val))
 -        x_cpy[k] = trig_reduce_huge(val,&y_int2[k]);
-+        x_cpy[k] = trig_reduce_huge(val,reinterpret_cast<int*>(&y_int2[k]));  // PATCHED: ScalarI* -> int* (same 32-bit layout)
++      {  // PATCHED: trig_reduce_huge wants int*; use an int temporary instead of
++        int y_tmp;  // aliasing a ScalarI(==long) through int* (strict-aliasing UB)
++        x_cpy[k] = trig_reduce_huge(val, &y_tmp);
++        y_int2[k] = y_tmp;  // defined int -> ScalarI conversion
++      }
      }
      x = ploadu<Packet>(x_cpy);
      y_int = ploadu<PacketI>(y_int2);

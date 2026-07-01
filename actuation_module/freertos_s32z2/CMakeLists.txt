@@ -697,7 +697,7 @@ if(NOT EXISTS ${_eigen_patched_dir}/.patched)
     file(REMOVE_RECURSE ${_eigen_patched_dir})
     file(COPY ${EIGEN3_INCLUDE_DIR}/Eigen DESTINATION ${_eigen_patched_dir})
     execute_process(
-        COMMAND patch -p1 -d ${_eigen_patched_dir}
+        COMMAND ${PATCH_EXECUTABLE} -p1 -d ${_eigen_patched_dir}
         INPUT_FILE ${_eigen_patch}
         RESULT_VARIABLE _eigen_patch_rc)
     if(NOT _eigen_patch_rc EQUAL 0)
