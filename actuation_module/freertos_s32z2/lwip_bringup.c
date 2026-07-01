@@ -81,6 +81,8 @@ static void tcpip_init_done(void *arg) {
 #define MC_CGM_1_MUX_7_CSS 0x408304C4U
 #define MC_CGM_1_MUX_7_DC0 0x408304C8U
 static void s32z2_enable_eth0_rx_clock(void) {
+    /* SELCTL is preserved across attempts, so read the configured source once. */
+    const uint32_t selctl = (NETC_REG32(MC_CGM_1_MUX_7_CSC) >> 24) & 0x3FU;
     uint32_t css = 0U;
     for (int attempt = 0; attempt < 100; ++attempt) {
         uint32_t csc = NETC_REG32(MC_CGM_1_MUX_7_CSC);
@@ -89,11 +91,13 @@ static void s32z2_enable_eth0_rx_clock(void) {
             if ((NETC_REG32(MC_CGM_1_MUX_7_CSS) & 0x10000U) == 0U) break;
         }
         css = NETC_REG32(MC_CGM_1_MUX_7_CSS);
-        if (((css >> 24) & 0x3FU) == ((csc >> 24) & 0x3FU)) break;  /* SELSTAT == SELCTL */
+        if (((css >> 24) & 0x3FU) == selctl) break;  /* SELSTAT == SELCTL */
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+    /* Only the configured source (SELSTAT == SELCTL) counts as switched; any
+       other non-zero SELSTAT means the mux settled on the wrong source. */
     printf("lwip: eth0 RX clock mux CSS=0x%08lx (%s)\n", (unsigned long)css,
-           (((css >> 24) & 0x3FU) != 0U) ? "switched" : "FAILED - RX will be dead");
+           (((css >> 24) & 0x3FU) == selctl) ? "switched" : "FAILED - RX will be dead");
     NETC_REG32(MC_CGM_1_MUX_7_DC0) = 0x80000000U; /* DE=1, DIV=0 (/1) */
     for (volatile int i = 0; i < 20000; ++i) { }
 }

@@ -44,8 +44,9 @@ ResultWithReason MPC::calculateMPC(
 {
   log_debug("MPC: Start Calculating");
 
-  // MPC phase stopwatch (M2.1): one "MPC ..." line per cycle on the info level so
-  // the UART log shows which phase dominates the solve on hardware.
+  // MPC phase stopwatch (M2.1): one "MPC ..." line per cycle at the debug level
+  // so the UART log shows which phase dominates the solve on hardware without
+  // adding latency/jitter at the default INFO level.
   const double mpc_t0 = Clock::now();
 
   // since the reference trajectory does not take into account the current velocity of the ego
@@ -118,7 +119,7 @@ ResultWithReason MPC::calculateMPC(
   log_debug("MPC: Optimization Problem Solved");
 
   const double mpc_t_opt = Clock::now();
-  log_info("MPC vel=%.1f data=%.1f rsmp=%.1f mtx=%.1f opt=%.1f [ms]",
+  log_debug("MPC vel=%.1f data=%.1f rsmp=%.1f mtx=%.1f opt=%.1f [ms]",
     (mpc_t_vel - mpc_t0) * 1000.0, (mpc_t_data - mpc_t_vel) * 1000.0,
     (mpc_t_rsmp - mpc_t_data) * 1000.0, (mpc_t_mtx - mpc_t_rsmp) * 1000.0,
     (mpc_t_opt - mpc_t_mtx) * 1000.0);
@@ -659,7 +660,9 @@ std::pair<ResultWithReason, VectorXd> MPC::executeOptimization(
 
   // Clock::now() returns seconds as double, so format the deltas as %f
   // milliseconds (the previous "%ld" of a double delta printed garbage).
-  log_info("OPT cost=%.1f lim=%.1f solve=%.1f [ms]",
+  // Debug-only: keep this per-solve profiling off the default INFO path so
+  // UART latency does not skew the timing it reports.
+  log_debug("OPT cost=%.1f lim=%.1f solve=%.1f [ms]",
     (opt_t_cost - opt_t0) * 1000.0, (t_start - opt_t_cost) * 1000.0,
     (t_end - t_start) * 1000.0);
 
