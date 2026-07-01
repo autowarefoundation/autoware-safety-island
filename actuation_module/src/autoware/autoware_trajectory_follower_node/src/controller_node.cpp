@@ -292,8 +292,9 @@ void Controller::callbackTimerControl()
 {
   // log_debug("Timer control callback");
 
-  // Cycle phase stopwatch (M2.1): one CYCLE line per cycle on the info level so
-  // the UART log shows where the control period actually goes on hardware.
+  // Cycle phase stopwatch (M2.1): one CYCLE line per cycle at the debug level so
+  // the UART log shows where the control period actually goes on hardware
+  // without adding latency/jitter at the default INFO level.
   const double cyc_t0 = Clock::now();
 
   // 1. create input data
@@ -364,7 +365,9 @@ void Controller::callbackTimerControl()
   publishControlCommand(lon_out, lat_out);
 
   const double cyc_t_end = Clock::now();
-  log_info("CYCLE in=%.1f lat=%.1f lon=%.1f pub=%.1f total=%.1f [ms]",
+  // Per-cycle profiling: debug-only so it does not add UART latency/jitter at
+  // the default INFO level (which would itself skew the measurements).
+  log_debug("CYCLE in=%.1f lat=%.1f lon=%.1f pub=%.1f total=%.1f [ms]",
     (cyc_t_ready - cyc_t0) * 1000.0, (cyc_t_lat - cyc_t_ready) * 1000.0,
     (cyc_t_lon - cyc_t_lat) * 1000.0, (cyc_t_end - cyc_t_lon) * 1000.0,
     (cyc_t_end - cyc_t0) * 1000.0);
