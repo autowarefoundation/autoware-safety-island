@@ -13,3 +13,6 @@
 	path = actuation_module/freertos_s32z2/s32ct_config
 	url = https://github.com/autowarefoundation/autoware-safety-island-s32z2-config.git
 	branch = main
+[submodule "actuation_module/freertos_x5h/rcar_bsp"]
+	path = actuation_module/freertos_x5h/rcar_bsp
+	url = https://github.com/renesas-rcar/FreeRTOS.git
