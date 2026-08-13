@@ -97,8 +97,9 @@ The only in-tree OpenAMP-adjacent content is a 6-line CPU-yield shim:
 4. `remoteproc_mmap()` x2 (`platform_rcar.c:62,70`) — invokes `x5h_r_a_proc_ops.mmap = x5h_proc_mmap`
    (`remoteproc_rcar.c:77-122`)
 5. `remoteproc_set_rsc_table(&rproc_inst, ...)` (`platform_rcar.c:76`)
-6. `rpmsg-echo.c:115` — `platform_create_rpmsg_vdev(platform, 0, ...)` ->
-   `platform_rcar.c:120` — `remoteproc_get_io_with_pa()` -> `remoteproc_create_virtio()`
+6. `rpmsg-echo.c:115` — `platform_create_rpmsg_vdev(platform, 0, ...)` (function defined at
+   `platform_rcar.c:121`, return type on the preceding line `:120`) ->
+   `remoteproc_get_io_with_pa()` (`platform_rcar.c:137`) -> `remoteproc_create_virtio()`
    (`platform_rcar.c:148`) -> `rpmsg_init_vdev()` (`platform_rcar.c:161`) ->
    `rpmsg_virtio_get_rpmsg_device()` (`platform_rcar.c:169`)
 7. Runtime: `platform_poll()` (`platform_rcar.c:181-195`) checks `mfis->int_source` and calls
@@ -120,9 +121,28 @@ this sample must treat it as a reference/skeleton, not a working starting point.
 
 ## 3. Does the BSP bundle an lwIP tree or a `sys_arch` port?
 
-No. `find . -iname 'lwip*' -o -iname 'sys_arch*'` run from the `rcar_bsp` submodule root returned
-zero matches (exit code 1, no output). Confirmed: lwIP is not present anywhere in the public BSP
-tree at `rcar-v2.5.0`. A later task must add/vendor lwIP separately.
+**No, not within the CR52/X5H tree.** Scoped correctly to
+`FreeRTOS/Demo/R-Car_Gen5_CR52/` — the directory that actually matters for `x5h_ironhide` — running
+`find . -iname 'lwip*' -o -iname 'sys_arch*'` from inside that directory returns zero matches
+(exit code 0, no output).
+
+**Correction of an earlier version of this claim**: an earlier draft of this document said the
+same command, run from the `rcar_bsp` submodule root, also returned zero matches. That was wrong.
+Run from the submodule root, the same command returns dozens of matches, e.g.
+`FreeRTOS/Demo/lwIP_AVR32_UC3`, `FreeRTOS/Demo/Common/ethernet/lwip-1.4.0`,
+`FreeRTOS/Demo/lwIP_MCF5235_GCC`, `FreeRTOS/Demo/lwIP_Demo_Rowley_ARM7/lwip-1.1.0`,
+`FreeRTOS/Demo/ARM9_STR91X_IAR/lwip`, `FreeRTOS/Demo/CORTEX_A9_Zynq_ZC702/.../lwIP_Demo`,
+`FreeRTOS/Demo/MicroBlaze_Kintex7_EthernetLite/.../lwIP_Demo`, and their respective `sys_arch.c`/
+`sys_arch.h` ports. These are generic upstream FreeRTOS-mainline demo trees for unrelated MCUs
+(AVR32, ColdFire MCF52xx, MicroBlaze, Zynq, AT91SAM7X, STR91X) that happen to be bundled in the
+same `renesas-rcar/FreeRTOS` submodule (it is a fork of the full `FreeRTOS/FreeRTOS` monorepo).
+None of them are wired into `FreeRTOS/Demo/R-Car_Gen5_CR52/CMakeLists.txt`, none target CR52/X5H,
+and none are applicable to `x5h_ironhide`.
+
+**Go-forward conclusion (unchanged)**: there is no lwIP tree or `sys_arch` port anywhere inside
+`FreeRTOS/Demo/R-Car_Gen5_CR52/` — the CR52/X5H demo tree the `x5h_ironhide` build actually
+compiles. A later task (Task 4) must add lwIP as its own dependency; the BSP does not provide one
+usable for this target.
 
 ## 4. Is anything required for the `x5h_ironhide` build absent from the public tree (NDA-gated)?
 
@@ -158,9 +178,24 @@ remote_proc_rsc_table_1 : ORIGIN = 0x96650000, LENGTH = 0x1000
   `.text` (and all other program sections) `> vram2_base_addr`, i.e. at `0x11600000`, matching
   the frozen 10 MiB boot-slot window (`0xA00000` = `0x00A00000`).
 - `common/linker/lscript_rsc_table_vram2.ld` — places `.resource_table` `> remote_proc_rsc_table_1`,
-  i.e. at `0x96650000`. The `0x1000`-byte carveout window is the reserved region; the actual
-  resource-table struct content (below) is smaller and fits well inside it — consistent with the
-  frozen contract's "size `0x100`" describing the struct, not the carveout window.
+  i.e. at `0x96650000`. The `0x1000`-byte carveout window (`lscript_common.ld:11`) is the reserved
+  memory **region**; the `.resource_table` **section** itself is forced to exactly `0x100` bytes,
+  not by the linker script but by the struct definition:
+  `sample_apps/rpmsg_sample/rsc_table.h:29-38` defines `struct remote_resource_table` with
+  `__attribute__((packed, aligned(0x100)))` on its closing brace (line 38). GCC's `aligned(N)`
+  attribute forces `sizeof(struct)` to be rounded up to the next multiple of `N`; with `packed`
+  removing any interior padding, the struct's natural (unrounded) size is the sum of its fields —
+  `version`+`num`+`reserved[2]`+`offset[8]` = `4+4+8+32` = `48` bytes (verified directly from
+  `rsc_table.h:30-33`), plus one `struct fw_rsc_vdev` and two `struct fw_rsc_vdev_vring` entries
+  (`rsc_table.h:35-37`). Those three types are defined in `<openamp/open_amp.h>`, which — like
+  `VIRTIO_RPMSG_F_NS` below — is not vendored in this tree (OpenAMP is fetched at build time, see
+  Section 2), so their exact byte sizes are not independently resolvable from local BSP content.
+  What *is* certain from the attribute alone: as long as the unrounded total (48 bytes plus those
+  three entries) does not exceed `0x100`, `aligned(0x100)` rounds it up to exactly `0x100` — one
+  multiple, not two or more — which is consistent with, and is the actual mechanism producing, the
+  frozen contract's `.resource_table` section size of `0x100`. This is the in-tree proof Task 2's
+  contract check (assert section size `== 0x100`) can rely on: the size is attribute-forced, not
+  incidental to current field values.
 
 These two scripts are the pair selected for `RAM_REGION=2`. In `sample_apps/rpmsg_sample/CMakeLists.txt`,
 `RAM_REGION=2` corresponds to `CORE=1` (`CMakeLists.txt:85-86`: `if(RAM_REGION EQUAL 2) set(CORE 1)`),
@@ -173,7 +208,11 @@ and the default (no `-DMFIS_CHAN` override) build loop pairs `CORE=1` with `MFIS
 - `VIRTIO_ID_RPMSG_` = `7` (line 29) — vdev id 7
 - `NUM_VRINGS` = `0x02` (line 31) — 2 vrings
 - `VRING_ALIGN` = `0x1000` (line 32) — align `0x1000`
-- `RING_TX`/`RING_RX` default to `FW_RSC_U32_ADDR_ANY` (lines 33-38) — `da=0xFFFFFFFF`
+- `RING_TX`/`RING_RX` default to `FW_RSC_U32_ADDR_ANY` (lines 33-38) — `da=0xFFFFFFFF`.
+  `FW_RSC_U32_ADDR_ANY` itself is defined in the externally-fetched OpenAMP header
+  (`<openamp/open_amp.h>`, not vendored in this tree — see Section 2), so its numeric value is
+  not independently resolvable from local BSP content, same caveat as `VIRTIO_RPMSG_F_NS` below.
+  It is conventionally `0xFFFFFFFF` in upstream OpenAMP, which is what the frozen contract expects.
 - `VRING_SIZE` = `256` = `0x100` (line 39) — vring `num=0x100`
 - `RPMSG_VDEV_DFEATURES` = `(1 << VIRTIO_RPMSG_F_NS)` (line 26) — `VIRTIO_RPMSG_F_NS` is defined
   in the externally-fetched OpenAMP header (`open-amp` is not vendored in this tree, see
