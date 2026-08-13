@@ -21,6 +21,7 @@ int main(void) {
     assert(rpmsg_netif_core_tx(&ops, &st, frame, 60) == -2 && st.tx_err == 1);
 
     assert(rpmsg_netif_core_rx(&ops, &st, frame, 60) == 0 && last_rx_len == 60 && st.rx_ok == 1);
+    assert(rpmsg_netif_core_rx(&ops, &st, frame, RPMSG_ETH_MAX_FRAME) == 0 && last_rx_len == RPMSG_ETH_MAX_FRAME && st.rx_ok == 2);
     assert(rpmsg_netif_core_rx(&ops, &st, frame, RPMSG_ETH_MAX_FRAME + 1) == -1 && st.rx_drop_oversize == 1);
     return 0;
 }
