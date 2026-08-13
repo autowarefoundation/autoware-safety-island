@@ -33,7 +33,7 @@ BUILD_PLATFORM_SET=0
 NETWORK_PROFILE="default"
 DDS_NETWORK_INTERFACE=""
 CONTROL_CMD_OUTPUT_MODE=""
-RUNTIME_TARGET_LIST=("zephyr-fvp" "zephyr-s32z" "freertos-posix" "freertos-s32z2")
+RUNTIME_TARGET_LIST=("zephyr-fvp" "zephyr-s32z" "freertos-posix" "freertos-s32z2" "freertos-x5h")
 ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
 ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
 ZEPHYR_TARGET_SET=0
@@ -64,11 +64,13 @@ function usage() {
   echo -e "    zephyr-s32z      Zephyr on S32Z hardware."
   echo -e "    freertos-posix   FreeRTOS POSIX runtime for local validation."
   echo -e "    freertos-s32z2   FreeRTOS on S32Z2 hardware."
+  echo -e "    freertos-x5h     FreeRTOS on R-Car X5H hardware (scaffold: boots and prints only)."
   echo ""
   echo -e "${GREEN}    Examples:${NC}"
   echo -e "    $0 --platform zephyr-fvp --network tap -d build/zephyr-fvp-tap"
   echo -e "    $0 --platform freertos-posix -d build/freertos-posix --dds-interface wlp2s0 --control-output DDS_ONLY"
   echo -e "    $0 --platform freertos-s32z2 -d build/freertos-s32z2 --dds-interface 192.168.0.105"
+  echo -e "    $0 --platform freertos-x5h -d build/freertos-x5h"
 }
 
 function require_arg() {
@@ -213,6 +215,15 @@ function normalize_platform() {
       fi
       if [ "${BUILD_DIR_SET}" = "0" ]; then
         BUILD_DIR="build/freertos-s32z2"
+      fi
+      ;;
+    freertos-x5h)
+      if [ "${ZEPHYR_TARGET_SET}" = "1" ]; then
+        echo -e "${RED}-t is only valid for Zephyr platforms${NC}" 1>&2
+        exit 1
+      fi
+      if [ "${BUILD_DIR_SET}" = "0" ]; then
+        BUILD_DIR="build/freertos-x5h"
       fi
       ;;
     *)
@@ -420,6 +431,42 @@ function build_freertos_s32z2() {
   cmake --build "${app_build_dir}" -j"$(nproc)"
 }
 
+function build_freertos_x5h() {
+  echo -e "${GREEN}Building FreeRTOS X5H target...${NC}"
+  echo -e "${YELLOW}Task 3 scaffold: boots the R-Car BSP and prints a boot banner. No actuation module, lwIP, or RPMsg endpoint yet.${NC}"
+
+  local app_build_dir
+  app_build_dir=$(realpath -m "${BUILD_DIR}")
+
+  local toolchain_bin
+  toolchain_bin=$("${ROOT_DIR}/actuation_module/freertos_x5h/scripts/fetch-toolchain.sh")
+  export PATH="${toolchain_bin}:${PATH}"
+
+  local x5h_dir="${ROOT_DIR}/actuation_module/freertos_x5h"
+  local rcar_bsp_dir="${x5h_dir}/rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52"
+
+  # -S points at the vendor's own BSP directory, not
+  # actuation_module/freertos_x5h: the vendor's CMakeLists.txt derives its
+  # BSP_DIR/FREERTOS_DIR from CMAKE_SOURCE_DIR, which is fixed to whatever
+  # -S names for the whole invocation and cannot be overridden from a child
+  # add_subdirectory() scope. -DCMAKE_PROJECT_INCLUDE pulls
+  # actuation_x5h back in via a deferred include() -- see
+  # actuation_module/freertos_x5h/cmake/inject_actuation_x5h.cmake for the
+  # full rationale. BOARD/RAM_REGION/MFIS_CHAN/UART_ID/CACHE/ENABLE_OPENAMP
+  # match Task 2's scripts/build-bsp-rpmsg-sample.sh (see AUDIT.md Section 6).
+  cmake -S "${rcar_bsp_dir}" \
+    -B "${app_build_dir}" \
+    -DCMAKE_TOOLCHAIN_FILE="${rcar_bsp_dir}/toolchain_arm_none_eabi.cmake" \
+    -DCMAKE_PROJECT_INCLUDE="${x5h_dir}/cmake/inject_actuation_x5h.cmake" \
+    -DBOARD=x5h_ironhide \
+    -DENABLE_OPENAMP=1 \
+    -DRAM_REGION=2 \
+    -DMFIS_CHAN=1 \
+    -DUART_ID=1 \
+    -DCACHE=1
+  cmake --build "${app_build_dir}" --target actuation_x5h -j"$(nproc)"
+}
+
 ## MAIN ##
 parse_args "$@"
 normalize_platform
@@ -438,5 +485,8 @@ case "${BUILD_PLATFORM}" in
     ;;
   freertos-s32z2)
     build_freertos_s32z2
+    ;;
+  freertos-x5h)
+    build_freertos_x5h
     ;;
 esac

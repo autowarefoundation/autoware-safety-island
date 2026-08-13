@@ -8,6 +8,8 @@
   #include "platform/zephyr/zephyr_network.h"
 #elif defined(PLATFORM_FREERTOS_S32Z2)
   #include "platform/freertos/s32z2/freertos_network.h"
+#elif defined(PLATFORM_FREERTOS_X5H)
+  #include "platform/freertos/x5h/freertos_network.h"
 #elif defined(PLATFORM_FREERTOS)
   #include "platform/freertos/freertos_network.h"
 #else
