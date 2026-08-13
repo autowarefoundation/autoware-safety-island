@@ -33,14 +33,18 @@
 #     stays the vendor's own directory here since include() opens no new
 #     one).
 #
-# This is a Task 3 scaffold: it boots the BSP, prints a boot banner, and
-# stops there. It does not start the actuation module (Task 4), bring up
-# lwIP for real (Task 6), or wire an RPMsg transport endpoint (Task 7). The
-# ELF's memory layout is frozen and verified by
+# Task 3 built the boot scaffold (boots the BSP, prints a boot banner,
+# nothing else linked in). Task 4 (below, "Task 4: full-link...") adds the
+# actuation module, CycloneDDS, and lwIP to that same executable so
+# everything compiles and links inside the frozen memory budget -- it does
+# not bring up lwIP for real (Task 6) or wire an RPMsg transport endpoint
+# (Task 7); freertos_main.cpp's main_task() does not call into any of it
+# yet. The ELF's memory layout is frozen and verified by
 # scripts/check-elf-contract.sh: .text at 0x11600000 (the Core1 vram2 slot)
 # and .resource_table at 0x96650000 (the fixed remoteproc resource-table
 # carveout), both produced by the BSP's own unmodified linker scripts
-# referenced below (see AUDIT.md Section 5).
+# referenced below (see AUDIT.md Section 5). Total slot usage is verified
+# against the 10 MiB budget by scripts/check-image-budget.sh.
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -120,6 +124,7 @@ set(X5H_BSP_RPMSG_SOURCES
 # the vendor's own directory here, not this one.
 add_executable(actuation_x5h
     ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/newlib_stubs.c
     ${X5H_BSP_RPMSG_SOURCES}
 )
 
@@ -177,4 +182,331 @@ target_link_libraries(actuation_x5h PRIVATE
 target_link_options(actuation_x5h PRIVATE
     -T${X5H_RCAR_BSP_DEMO_DIR}/common/linker/lscript_rsc_table_vram2.ld
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/actuation_x5h.map
+)
+
+# ---- Task 4: full-link the actuation module + CycloneDDS + lwIP ----
+#
+# Network bring-up stays stubbed (freertos_main.cpp's lwip_bring_up_blocking
+# weak stub, replaced for real in Task 6); this section only has to make
+# everything below compile and link within the frozen 10 MiB Core1 slot
+# budget (scripts/check-image-budget.sh). None of it is called from
+# freertos_main.cpp's main_task() yet -- these are plain target_sources() on
+# actuation_x5h (not members of a static archive), and the base link options
+# above do not use --gc-sections, so every translation unit added here is
+# unconditionally included in the link regardless of whether anything calls
+# into it. That is enough to prove the link fits; it does not run any of
+# this code.
+
+# ---- Configurable values ----
+# Mirrors freertos_s32z2's CONFIG_* CACHE knobs so the shared
+# platform_config.h / common/dds/config.hpp work unchanged. Values differ
+# where the task brief specifies x5h-specific ones (DDS domain 2, the
+# 172.16.52.2 network interface Task 6's RPMsg netif will claim); the rest
+# (log level, control command mode) reuse freertos_s32z2's own defaults,
+# which are themselves generic, not S32Z2-specific.
+set(CONFIG_LOG_LEVEL 1 CACHE STRING "Log level (0=off, 1=info, 2=debug)")
+set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
+set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
+set(CONFIG_DDS_NETWORK_INTERFACE "172.16.52.2" CACHE STRING "DDS network interface name or IP")
+set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
+# Controller node thread stack. autoware_mpc_lateral_controller's Eigen-heavy
+# control cycle overflowed a 256 KiB stack by a few hundred bytes on S32Z2
+# (same component, same Cortex-R52 + NEON ABI); 512 KiB gives ~2x margin.
+# Unlike S32Z2's node_stack_in_sram.ld placement, x5h's K_THREAD_STACK_DEFINE
+# is a plain aligned buffer (see include/platform/freertos/freertos_threading.h)
+# that lands wherever the linker script puts .bss -- inside the same 10 MiB
+# slot window this section's own link is budgeted against.
+set(CONFIG_THREAD_STACK_SIZE 524288 CACHE STRING "Thread stack size in bytes")
+set(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX 0 CACHE STRING "DHCP delay")
+set(CONFIG_ENABLE_SNTP OFF CACHE BOOL "Enable SNTP time sync")
+
+set(CONFIG_CONTROL_CMD_OUTPUT_MODE "DDS_ONLY" CACHE STRING "Control command output mode: DDS_ONLY, CAN_ONLY, DDS_AND_CAN")
+set_property(CACHE CONFIG_CONTROL_CMD_OUTPUT_MODE PROPERTY STRINGS "DDS_ONLY" "CAN_ONLY" "DDS_AND_CAN")
+
+set(CONFIG_CONTROL_CMD_OUTPUT_DDS_ONLY 0)
+set(CONFIG_CONTROL_CMD_OUTPUT_CAN_ONLY 0)
+set(CONFIG_CONTROL_CMD_OUTPUT_DDS_AND_CAN 0)
+set(CONFIG_CONTROL_CMD_CAN_OUTPUT 0)
+set(CONFIG_CONTROL_CMD_DDS_OUTPUT 0)
+
+if(CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "DDS_ONLY")
+    set(CONFIG_CONTROL_CMD_OUTPUT_DDS_ONLY 1)
+    set(CONFIG_CONTROL_CMD_DDS_OUTPUT 1)
+elseif(CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "CAN_ONLY")
+    set(CONFIG_CONTROL_CMD_OUTPUT_CAN_ONLY 1)
+    set(CONFIG_CONTROL_CMD_CAN_OUTPUT 1)
+elseif(CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "DDS_AND_CAN")
+    set(CONFIG_CONTROL_CMD_OUTPUT_DDS_AND_CAN 1)
+    set(CONFIG_CONTROL_CMD_CAN_OUTPUT 1)
+    set(CONFIG_CONTROL_CMD_DDS_OUTPUT 1)
+else()
+    message(FATAL_ERROR "Unsupported CONFIG_CONTROL_CMD_OUTPUT_MODE=${CONFIG_CONTROL_CMD_OUTPUT_MODE}. Use DDS_ONLY, CAN_ONLY, or DDS_AND_CAN.")
+endif()
+
+# ${X5H_ACTUATION_DIR}, not CMAKE_CURRENT_SOURCE_DIR: see the header comment
+# at the top of this file -- CMAKE_CURRENT_SOURCE_DIR is the vendor's own
+# directory under a plain include().
+configure_file(
+    ${X5H_ACTUATION_DIR}/include/platform/freertos/freertos_config_generated.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/freertos_config_generated.h
+    @ONLY
+)
+target_include_directories(actuation_x5h PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
+
+# ---- lwIP (our own submodule + lwip_port/, not NXP-supplied) ----
+# LWIP_DIR (not an X5H_-prefixed name) is the variable name lwip/src/
+# Filelists.cmake's own contract requires -- see that file's header comment.
+set(LWIP_DIR ${CMAKE_CURRENT_LIST_DIR}/lwip)
+include(${LWIP_DIR}/src/Filelists.cmake)
+
+target_sources(actuation_x5h PRIVATE
+    ${lwipcore_SRCS}
+    ${lwipcore4_SRCS}
+    ${lwipapi_SRCS}
+    # Cherry-picked from lwipnetif_SRCS: we only need the Ethernet netif
+    # (Task 6's RPMsg-netif calls into ethernet_input/ethernet_output).
+    # bridgeif.c/bridgeif_fdb.c and (LWIP_EXCLUDE_SLIPIF-gated) slipif.c
+    # are not used by this transport and are left out rather than pulled in
+    # and never called.
+    ${LWIP_DIR}/src/netif/ethernet.c
+    ${CMAKE_CURRENT_LIST_DIR}/lwip_port/sys_arch.c
+)
+target_include_directories(actuation_x5h PRIVATE
+    ${LWIP_DIR}/src/include
+    # Provides both lwipopts.h and arch/{cc.h,sys_arch.h} (lwip/arch.h
+    # #includes "arch/cc.h" and lwip/sys.h #includes "arch/sys_arch.h";
+    # both resolve as this directory's arch/ subdirectory).
+    ${CMAKE_CURRENT_LIST_DIR}/lwip_port
+)
+
+# lwipopts.h sets LWIP_TIMEVAL_PRIVATE=0 (lwip/sockets.h then expects some
+# other header to provide `struct timeval`) and lwip/sockets.h's own
+# `#ifndef FD_SET` guard expects newlib's fd_set to already be visible if it
+# is going to be used instead of lwip's own -- exactly the same
+# fd_set/struct-timeval situation scripts/build-cdds-target.sh's own
+# CMAKE_C_FLAGS already documents and fixes for CycloneDDS's *standalone*
+# cross-build. lwIP's own sources (src/api/sockets.c and friends) need the
+# identical fix here, since they are compiled directly into actuation_x5h in
+# this main build, not through that separate script.
+set_source_files_properties(
+    ${lwipapi_SRCS}
+    PROPERTIES COMPILE_OPTIONS "-include;sys/select.h"
+)
+
+# ---- Pre-built CycloneDDS target library ----
+set(CDDS_HOST_PREFIX   ${X5H_REPO_ROOT}/build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
+set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/cdds_target_out CACHE PATH "CycloneDDS x5h target library install prefix")
+
+if(NOT EXISTS ${CDDS_HOST_PREFIX}/bin/idlc)
+    message(FATAL_ERROR
+        "Host idlc not found at ${CDDS_HOST_PREFIX}/bin/idlc. "
+        "Run ./build.sh --platform freertos-x5h first, or pass CDDS_HOST_PREFIX.")
+endif()
+if(NOT EXISTS ${CDDS_TARGET_PREFIX}/lib/libddsc.a)
+    message(FATAL_ERROR
+        "Cross-built CycloneDDS not found at ${CDDS_TARGET_PREFIX}/lib/libddsc.a. "
+        "Run ./build.sh --platform freertos-x5h first (it calls "
+        "scripts/build-cdds-target.sh), or pass CDDS_TARGET_PREFIX.")
+endif()
+
+add_library(cdds STATIC IMPORTED GLOBAL)
+set_target_properties(cdds PROPERTIES
+    IMPORTED_LOCATION ${CDDS_TARGET_PREFIX}/lib/libddsc.a)
+
+set(CYCLONEDDS_INCLUDE_DIR ${CDDS_TARGET_PREFIX}/include)
+
+# Expose host idlc on PATH so autoware_msgs's configure-time IDL generation
+# finds it.
+set(ENV{PATH}            "${CDDS_HOST_PREFIX}/bin:$ENV{PATH}")
+set(ENV{LD_LIBRARY_PATH} "${CDDS_HOST_PREFIX}/lib:$ENV{LD_LIBRARY_PATH}")
+set(CycloneDDS_DIR ${CDDS_HOST_PREFIX}/lib/cmake/CycloneDDS)
+
+# ---- Eigen3 (host package, header-only) ----
+find_package(Eigen3 REQUIRED)
+find_program(PATCH_EXECUTABLE patch REQUIRED)
+
+# Eigen NEON psincos int32_t==long fix. The R-Car BSP's inherited compile
+# flags enable -mfpu=neon-fp-armv8 for every target in this project
+# (add_compile_options(), see the header comment at the top of this file),
+# so Eigen 3.4's NEON packet specializations are active for actuation_x5h
+# exactly as they were for freertos_s32z2 on the same Cortex-R52 + NEON
+# ABI, linking the same autoware_mpc_lateral_controller component --
+# psincos_float's `int` scratch buffer (vs. arm-none-eabi's int32_t==long)
+# is a COMPILE error, not a latent runtime bug, so this is not optional
+# once NEON is active. See vendor_patched/eigen-psincos-int32.patch's own
+# header comment for the full mechanism (copied verbatim from
+# freertos_s32z2/vendor_patched/ -- the bug and fix are toolchain/Eigen
+# properties, not S32Z2-specific, so this is a new copy, not a reference
+# into that target's directory). EIGEN_FAST_MATH=0 then keeps trig
+# DISPATCH scalar so the now-compilable vectorised psincos path is never
+# actually invoked at runtime (accurate libm trig on a safety island,
+# NEON still vectorises the matrix hot path).
+add_compile_definitions(EIGEN_FAST_MATH=0)
+set(_x5h_eigen_patched_dir ${CMAKE_CURRENT_BINARY_DIR}/eigen-patched)
+set(_x5h_eigen_patch ${CMAKE_CURRENT_LIST_DIR}/vendor_patched/eigen-psincos-int32.patch)
+if(NOT EXISTS ${_x5h_eigen_patched_dir}/.patched)
+    file(REMOVE_RECURSE ${_x5h_eigen_patched_dir})
+    file(COPY ${EIGEN3_INCLUDE_DIR}/Eigen DESTINATION ${_x5h_eigen_patched_dir})
+    execute_process(
+        COMMAND ${PATCH_EXECUTABLE} -p1 -d ${_x5h_eigen_patched_dir}
+        INPUT_FILE ${_x5h_eigen_patch}
+        RESULT_VARIABLE _x5h_eigen_patch_rc)
+    if(NOT _x5h_eigen_patch_rc EQUAL 0)
+        message(FATAL_ERROR "Failed to apply ${_x5h_eigen_patch} to Eigen at ${_x5h_eigen_patched_dir}")
+    endif()
+    file(WRITE ${_x5h_eigen_patched_dir}/.patched "")
+endif()
+target_include_directories(actuation_x5h BEFORE PRIVATE ${_x5h_eigen_patched_dir})
+
+# ---- Autoware Messages (IDL -> C via host idlc) ----
+# NOT add_subdirectory(.../autoware_msgs) and not that file's own project():
+# both are illegal inside cmake_language(DEFER CALL)'d execution
+# ("Subdirectories may not be created during deferred execution" -- see
+# cmake/inject_actuation_x5h.cmake's own header comment for why this whole
+# file runs deferred in the first place, so actuation_x5h inherits the
+# vendor's Cortex-R52 compile/link options). Instead, reproduce
+# actuation_module/src/autoware/autoware_msgs/CMakeLists.txt's own IDL -> C
+# generation and library commands directly here, targeting the same source
+# tree, so no new directory/binary scope is ever created. CycloneDDS_DIR
+# already points at the HOST prefix (set above, alongside the PATH/
+# LD_LIBRARY_PATH exports), so find_package(CycloneDDS) below resolves the
+# host idlc and its architecture-agnostic CMake package -- the same
+# HOST-prefix pattern freertos_s32z2/CMakeLists.txt already uses ahead of its
+# own add_subdirectory(autoware_msgs) call.
+set(AUTOWARE_MSGS_DIR ${X5H_ACTUATION_DIR}/src/autoware/autoware_msgs)
+set(AUTOWARE_MSGS_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/autoware_msgs)
+file(MAKE_DIRECTORY ${AUTOWARE_MSGS_BINARY_DIR})
+
+# idlc is a host tool (architecture-agnostic); temporarily unset
+# CMAKE_SIZEOF_VOID_P so find_package(CycloneDDS) does not reject the host
+# package's pointer width against our target toolchain's, exactly mirroring
+# autoware_msgs/CMakeLists.txt's own workaround.
+set(_x5h_saved_sizeof_void_p ${CMAKE_SIZEOF_VOID_P})
+unset(CMAKE_SIZEOF_VOID_P)
+find_package(CycloneDDS REQUIRED COMPONENTS ddsc idlc)
+set(CMAKE_SIZEOF_VOID_P ${_x5h_saved_sizeof_void_p})
+
+file(GLOB AUTOWARE_MSGS_IDL_FILES ${AUTOWARE_MSGS_DIR}/msg/*.idl)
+set(AUTOWARE_MSGS_SOURCES "")
+set(AUTOWARE_MSGS_HEADERS "")
+foreach(_x5h_idl ${AUTOWARE_MSGS_IDL_FILES})
+    get_filename_component(_x5h_idl_name ${_x5h_idl} NAME_WE)
+    list(APPEND AUTOWARE_MSGS_SOURCES ${AUTOWARE_MSGS_BINARY_DIR}/${_x5h_idl_name}.c)
+    list(APPEND AUTOWARE_MSGS_HEADERS ${AUTOWARE_MSGS_BINARY_DIR}/${_x5h_idl_name}.h)
+endforeach()
+
+add_custom_command(
+    OUTPUT ${AUTOWARE_MSGS_SOURCES} ${AUTOWARE_MSGS_HEADERS}
+    COMMAND /bin/sh -c "find ${AUTOWARE_MSGS_DIR}/msg/ -maxdepth 1 -name '*.idl' -exec idlc {} \\; && sed -i -- 's|/\\(.\\+\\)/\\(.*\\.idl\\)|\\2|' *.h *.c"
+    WORKING_DIRECTORY ${AUTOWARE_MSGS_BINARY_DIR}
+    DEPENDS ${AUTOWARE_MSGS_IDL_FILES}
+    VERBATIM
+)
+
+add_library(autoware_msgs STATIC ${AUTOWARE_MSGS_SOURCES} ${AUTOWARE_MSGS_HEADERS})
+set_target_properties(autoware_msgs PROPERTIES LINKER_LANGUAGE CXX)
+
+get_target_property(_x5h_cdds_pkg_include_dir CycloneDDS::ddsc INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(autoware_msgs SYSTEM BEFORE PUBLIC
+    ${_x5h_cdds_pkg_include_dir}
+    ${AUTOWARE_MSGS_BINARY_DIR}
+    ${AUTOWARE_MSGS_DIR}/include
+)
+
+# ---- Autoware controller core (shared with POSIX/S32Z2 builds) ----
+include(${X5H_ACTUATION_DIR}/cmake/actuation_core.cmake)
+
+target_sources(actuation_x5h PRIVATE
+    ${X5H_ACTUATION_DIR}/src/main.cpp
+    ${APP_SOURCES}
+)
+
+# Rename main() to actuation_main() only inside the Autoware app's main.cpp;
+# freertos_main.cpp keeps its own main() (the FreeRTOS entry point invoked
+# from startup code) and does not call actuation_main() yet -- wiring that
+# call in is not this task's job (see this section's header comment).
+set_source_files_properties(${X5H_ACTUATION_DIR}/src/main.cpp PROPERTIES
+    COMPILE_DEFINITIONS "main=actuation_main"
+)
+
+# ---- Restore hosted libstdc++ for C++ sources ----
+# rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52/CMakeLists.txt's own
+# add_compile_options() (see this file's own header comment) unconditionally
+# passes -ffreestanding to every C *and* C++ source in this directory scope,
+# with no per-language guard and no vendor-file we are allowed to edit to
+# add one (this file is vendor BSP demo code, same category as the S32Z2
+# vendor tree we must not touch). Under -ffreestanding, GCC sets
+# __STDC_HOSTED__=0, and this toolchain's own
+# arm-none-eabi/bits/c++config.h does `#define _GLIBCXX_HOSTED
+# __STDC_HOSTED__` unconditionally -- so <vector>/<string>/<chrono>/<cmath>
+# (transitively pulled in by autoware_universe_utils, main.cpp's
+# common/clock/clock.hpp, etc.) all hit
+# bits/requires_hosted.h's "#error This header is not available in
+# freestanding mode." This is the actuation module's first-ever real C++
+# compile on x5h (Task 3's scaffold never included these headers), so this
+# is a newly-surfaced BSP quirk, not a regression.
+#
+# GCC's C frontend has a -fhosted flag that would undo -ffreestanding, but
+# it is documented (and confirmed by direct experiment) as C/ObjC-only --
+# passing it to g++ is silently ignored (with a warning) and does not
+# restore hosted mode. What *does* work, confirmed by direct experiment:
+# re-defining the __STDC_HOSTED__ builtin macro itself, after the
+# directory-inherited -ffreestanding, so libstdc++ sees hosted=1 again. This
+# only touches our own target's CXX command line (COMPILE_LANGUAGE:CXX)
+# -- lwIP/CycloneDDS (C, genuinely freestanding-appropriate here) are
+# unaffected.
+target_compile_options(actuation_x5h PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-U__STDC_HOSTED__$<SEMICOLON>-D__STDC_HOSTED__=1>
+)
+
+# ---- Optimisation: C++ at -O2 ----
+# Same reason as freertos_s32z2 (see that CMakeLists.txt's own comment):
+# Eigen is pathologically slow at -O0 (~86s per solve there), so the
+# control cycle needs -O2. Unlike S32Z2, this project's base link options
+# do NOT use --gc-sections (confirmed by reading rcar_bsp's own
+# add_link_options() call), so the ld 2.42 --gc-sections+-O2+-g segfault
+# S32Z2 works around with a forced -g0 does not apply here -- the
+# globally-inherited -g (see the header comment at the top of this file)
+# is left alone.
+target_compile_options(actuation_x5h PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-O2>
+)
+
+target_include_directories(actuation_x5h PRIVATE
+    ${CYCLONEDDS_INCLUDE_DIR}
+    ${EIGEN3_INCLUDE_DIR}
+    ${APP_INCLUDE_DIRS}
+)
+target_link_libraries(actuation_x5h PRIVATE
+    cdds
+    autoware_msgs
+)
+
+# rcar_bsp/.../toolchain_arm_none_eabi.cmake (vendor toolchain file, ours
+# not to edit -- same category as the S32Z2 vendor tree) sets CMAKE_LINKER
+# to plain arm-none-eabi-gcc and forces both CMAKE_C_LINK_EXECUTABLE and
+# CMAKE_CXX_LINK_EXECUTABLE to invoke it (<CMAKE_LINKER> ... -- see that
+# file), so every target linked through this project -- including ours --
+# links via gcc, never g++. Confirmed via CMakeFiles/actuation_x5h.dir/
+# link.txt. Plain gcc does not auto-add libstdc++/libsupc++ to the link the
+# way g++'s driver does, so undefined __cxa_*/std::*/operator new symbols
+# appear as soon as a target actually needs them -- which Task 3's scaffold
+# never did (this is the actuation module's first real C++ link on x5h).
+# Listed via target_link_libraries(), not target_link_options(): the
+# vendor's own CMAKE_CXX_LINK_EXECUTABLE template places <LINK_FLAGS>
+# (target_link_options()) *before* <OBJECTS>, where a -l flag cannot
+# satisfy any symbol yet to be referenced, but <LINK_LIBRARIES>
+# (target_link_libraries()) after them, where archive resolution works
+# normally. Wrapped in --start-group/--end-group because libstdc++,
+# libsupc++, libc, and libgcc have circular symbol references that a single
+# left-to-right archive scan cannot resolve.
+target_link_libraries(actuation_x5h PRIVATE
+    -Wl,--start-group
+    stdc++
+    supc++
+    c
+    gcc
+    -Wl,--end-group
 )

@@ -244,13 +244,13 @@ function normalize_platform() {
     exit 1
   fi
 
-  if [ -n "${DDS_NETWORK_INTERFACE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
-    echo -e "${RED}--dds-interface is only valid for --platform freertos-posix or freertos-s32z2${NC}" 1>&2
+  if [ -n "${DDS_NETWORK_INTERFACE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
+    echo -e "${RED}--dds-interface is only valid for --platform freertos-posix, freertos-s32z2, or freertos-x5h${NC}" 1>&2
     exit 1
   fi
 
-  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
-    echo -e "${RED}--control-output is only valid for --platform freertos-posix or freertos-s32z2${NC}" 1>&2
+  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
+    echo -e "${RED}--control-output is only valid for --platform freertos-posix, freertos-s32z2, or freertos-x5h${NC}" 1>&2
     exit 1
   fi
 
@@ -437,7 +437,7 @@ function build_freertos_s32z2() {
 
 function build_freertos_x5h() {
   echo -e "${GREEN}Building FreeRTOS X5H target...${NC}"
-  echo -e "${YELLOW}Task 3 scaffold: boots the R-Car BSP and prints a boot banner. No actuation module, lwIP, or RPMsg endpoint yet.${NC}"
+  echo -e "${YELLOW}Task 4: full-linked actuation module + CycloneDDS + lwIP. Network bring-up (RPMsg netif) stays stubbed until Task 6.${NC}"
 
   local app_build_dir
   app_build_dir=$(realpath -m "${BUILD_DIR}")
@@ -448,6 +448,27 @@ function build_freertos_x5h() {
 
   local x5h_dir="${ROOT_DIR}/actuation_module/freertos_x5h"
   local rcar_bsp_dir="${x5h_dir}/rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52"
+  local cdds_target_build_dir="${FREERTOS_X5H_CDDS_TARGET_BUILD_DIR:-${app_build_dir}/cdds_target}"
+  local cdds_target_prefix="${FREERTOS_X5H_CDDS_TARGET_PREFIX:-${app_build_dir}/cdds_target_out}"
+
+  # autoware_msgs's IDL -> C generation (pulled in transitively via
+  # actuation_x5h's CMakeLists.txt) runs the host idlc, and CycloneDDS's own
+  # target build runs it too (on its own internal .idl files) -- both need
+  # the host tools built first. PATH/LD_LIBRARY_PATH are exported at the
+  # shell level (not just via CMake's ENV{PATH}, which only reaches the
+  # configure-time process) so the generated Makefiles' add_custom_command
+  # invocations of idlc -- run later by `cmake --build`, in a separate
+  # process tree -- can find it too. Mirrors build_freertos_s32z2()'s
+  # identical export pair.
+  build_cyclonedds_host
+  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
+  export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:${LD_LIBRARY_PATH:-}
+
+  FREERTOS_X5H_BUILD_ROOT="${app_build_dir}" \
+  FREERTOS_X5H_CDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}" \
+  FREERTOS_X5H_CDDS_TARGET_BUILD_DIR="${cdds_target_build_dir}" \
+  FREERTOS_X5H_CDDS_TARGET_PREFIX="${cdds_target_prefix}" \
+    "${x5h_dir}/scripts/build-cdds-target.sh"
 
   # -S points at the vendor's own BSP directory, not
   # actuation_module/freertos_x5h: the vendor's CMakeLists.txt derives its
@@ -458,16 +479,29 @@ function build_freertos_x5h() {
   # actuation_module/freertos_x5h/cmake/inject_actuation_x5h.cmake for the
   # full rationale. BOARD/RAM_REGION/MFIS_CHAN/UART_ID/CACHE/ENABLE_OPENAMP
   # match Task 2's scripts/build-bsp-rpmsg-sample.sh (see AUDIT.md Section 6).
-  cmake -S "${rcar_bsp_dir}" \
-    -B "${app_build_dir}" \
-    -DCMAKE_TOOLCHAIN_FILE="${rcar_bsp_dir}/toolchain_arm_none_eabi.cmake" \
-    -DCMAKE_PROJECT_INCLUDE="${x5h_dir}/cmake/inject_actuation_x5h.cmake" \
-    -DBOARD=x5h_ironhide \
-    -DENABLE_OPENAMP=1 \
-    -DRAM_REGION=2 \
-    -DMFIS_CHAN=1 \
-    -DUART_ID=1 \
+  local x5h_args=(
+    -S "${rcar_bsp_dir}"
+    -B "${app_build_dir}"
+    -DCMAKE_TOOLCHAIN_FILE="${rcar_bsp_dir}/toolchain_arm_none_eabi.cmake"
+    -DCMAKE_PROJECT_INCLUDE="${x5h_dir}/cmake/inject_actuation_x5h.cmake"
+    -DBOARD=x5h_ironhide
+    -DENABLE_OPENAMP=1
+    -DRAM_REGION=2
+    -DMFIS_CHAN=1
+    -DUART_ID=1
     -DCACHE=1
+    -DCDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}"
+    -DCDDS_TARGET_PREFIX="${cdds_target_prefix}"
+  )
+
+  if [ -n "${DDS_NETWORK_INTERFACE}" ]; then
+    x5h_args+=(-DCONFIG_DDS_NETWORK_INTERFACE="${DDS_NETWORK_INTERFACE}")
+  fi
+  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
+    x5h_args+=(-DCONFIG_CONTROL_CMD_OUTPUT_MODE="${CONTROL_CMD_OUTPUT_MODE}")
+  fi
+
+  cmake "${x5h_args[@]}"
   # --target actuation_x5h, not a bare `cmake --build`: the vendor -S
   # directory also defines its own hello_world/rpmsg_sample/etc. targets,
   # and a bare build would compile all of them too.
@@ -481,6 +515,10 @@ function build_freertos_x5h() {
   # frozen-layout contract here so that check happens on every build, not
   # only when someone remembers to run it by hand.
   "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf"
+
+  # Task 4's memory-risk gate: the full lwIP + CycloneDDS + actuation module
+  # link must fit the frozen 10 MiB Core1 boot-slot window.
+  "${x5h_dir}/scripts/check-image-budget.sh" "${app_build_dir}/actuation_x5h.elf"
 }
 
 ## MAIN ##
