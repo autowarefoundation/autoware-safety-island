@@ -31,9 +31,26 @@ export PATH="$BIN:$PATH"
 SRC="$ROOT/actuation_module/freertos_x5h/rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52"
 BUILD="$ROOT/build/freertos-x5h-bsp-sample"
 TARGET="rpmsg_mfis1_cluster0_core1"
+TOOLCHAIN_FILE="$SRC/toolchain_arm_none_eabi.cmake"
+
+# CMake caches -DCMAKE_TOOLCHAIN_FILE in CMakeCache.txt at first configure and
+# silently keeps using that cached value on every later `cmake -S/-B` against
+# the same build directory, even if this script's own -DCMAKE_TOOLCHAIN_FILE=
+# argument (below) later changes -- e.g. if the pinned toolchain file's path
+# moves, or a stale build dir survives an unrelated refactor. That would make
+# the toolchain pin advisory rather than enforced. Detect the drift and force
+# a clean reconfigure rather than let a changed pin be silently ignored.
+CACHE="$BUILD/CMakeCache.txt"
+if [ -f "$CACHE" ]; then
+  cached_toolchain="$(sed -n 's/^CMAKE_TOOLCHAIN_FILE:[A-Z]*=//p' "$CACHE" | head -1)"
+  if [ -n "$cached_toolchain" ] && [ "$cached_toolchain" != "$TOOLCHAIN_FILE" ]; then
+    echo "build-bsp-rpmsg-sample: cached CMAKE_TOOLCHAIN_FILE ('$cached_toolchain') differs from the pinned toolchain file ('$TOOLCHAIN_FILE'); removing stale build dir $BUILD to force a clean reconfigure." >&2
+    rm -rf "$BUILD"
+  fi
+fi
 
 cmake -S "$SRC" -B "$BUILD" -G "Unix Makefiles" \
-  -DCMAKE_TOOLCHAIN_FILE="$SRC/toolchain_arm_none_eabi.cmake" \
+  -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
   -DCMAKE_INSTALL_PREFIX="$BUILD/install" \
   -DBOARD=x5h_ironhide \
   -DENABLE_OPENAMP=1 \
