@@ -16,6 +16,6 @@
 [submodule "actuation_module/freertos_x5h/rcar_bsp"]
 	path = actuation_module/freertos_x5h/rcar_bsp
 	url = https://github.com/renesas-rcar/FreeRTOS.git
-[submodule "lwip"]
+[submodule "actuation_module/freertos_x5h/lwip"]
 	path = actuation_module/freertos_x5h/lwip
 	url = https://git.savannah.nongnu.org/git/lwip.git

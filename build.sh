@@ -462,7 +462,17 @@ function build_freertos_x5h() {
   # identical export pair.
   build_cyclonedds_host
   export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
-  export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:${LD_LIBRARY_PATH:-}
+  # Only prepend a ":" separator when LD_LIBRARY_PATH already has a value
+  # (review round 1 fix): the old unconditional
+  # "${CYCLONEDDS_HOST_PREFIX}/lib:${LD_LIBRARY_PATH:-}" left a trailing
+  # colon whenever LD_LIBRARY_PATH was unset (the common case), which the
+  # dynamic loader treats as an empty path component meaning "the current
+  # working directory" -- silently adding CWD to the loader search path.
+  if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:"${LD_LIBRARY_PATH}"
+  else
+    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib
+  fi
 
   FREERTOS_X5H_BUILD_ROOT="${app_build_dir}" \
   FREERTOS_X5H_CDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}" \

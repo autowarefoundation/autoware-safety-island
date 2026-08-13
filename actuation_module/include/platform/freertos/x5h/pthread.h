@@ -14,11 +14,26 @@
 // difference: S32Z2's ARM_CR52_GIC port uses a lazy per-task FPU context
 // scheme that requires threads to be created with special
 // xTaskCreateFpu/xTaskCreateStaticFpu variants (see that file's comment).
-// The R-Car BSP's own common/ARM_CR52/port.c instead saves/restores FPU
-// context automatically for every task whenever
-// configUSE_TASK_FPU_SUPPORT is set (confirmed by grepping rcar_bsp/ for
-// xTaskCreateFpu: zero matches anywhere in the BSP), so this port uses the
-// plain, standard FreeRTOS xTaskCreate/xTaskCreateStatic APIs throughout.
+// The R-Car BSP's own common/ARM_CR52/port.c has no such function at all
+// (confirmed by grepping rcar_bsp/ for xTaskCreateFpu: zero matches
+// anywhere in the BSP), so this port uses the plain, standard FreeRTOS
+// xTaskCreate/xTaskCreateStatic APIs throughout.
+//
+// CORRECTED (review round 1; the previous revision of this comment claimed
+// the R-Car port saves/restores FPU context "automatically for every task
+// whenever configUSE_TASK_FPU_SUPPORT is set" -- that was false as stated:
+// configUSE_TASK_FPU_SUPPORT was not set anywhere in this BSP's
+// FreeRTOSConfig.h, so it silently defaulted to FreeRTOS.h's own value of 1
+// -- lazy, opt-in FPU context via a vPortTaskUsesFPU() call that nothing
+// here ever made, so every task created via plain xTaskCreate/
+// xTaskCreateStatic ran with NO preserved FPU context at all). Plain
+// xTaskCreate/xTaskCreateStatic are correct here ONLY because
+// CMakeLists.txt now explicitly forces configUSE_TASK_FPU_SUPPORT=2 on the
+// freertos_bsp target (see that file's "FPU context for every task"
+// section), which makes pxPortInitialiseStack() unconditionally give every
+// task a live FPU context at creation time -- no xTaskCreateFpu-style
+// variant needed, but also no "automatic for free" property inherent to
+// this port independent of that CMake setting.
 //
 // pthread_t / pthread_mutex_t / pthread_attr_t typedefs come from newlib's
 // <sys/_pthreadtypes.h> so we don't fight the typedefs that <chrono> and

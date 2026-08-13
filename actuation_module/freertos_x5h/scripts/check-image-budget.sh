@@ -87,5 +87,16 @@ done < <(readelf -lW "$ELF" | awk '$1 == "LOAD" {print $3, $6}')
 
 [ "$load_count" -gt 0 ] || fail "no LOAD segments found in '$ELF'"
 
-pct=$((slot_used * 100 / SLOT_SIZE))
-printf 'BUDGET_PASS: slot window used 0x%x of 0x%x (%d%%)\n' "$slot_used" "$SLOT_SIZE" "$pct"
+# One-decimal percentage, not integer division (review round 1 fix): plain
+# `$((slot_used * 100 / SLOT_SIZE))` truncates, so e.g. 99.9% used would
+# have printed "99%" -- indistinguishable at a glance from genuinely
+# comfortable headroom. Scaling by 1000 before the integer divide keeps
+# this in bash arithmetic (no external bc/awk float dependency, matching
+# this script's own header comment about avoiding gawk-only features).
+pct_x10=$((slot_used * 1000 / SLOT_SIZE))
+pct_int=$((pct_x10 / 10))
+pct_frac=$((pct_x10 % 10))
+printf 'BUDGET_PASS: slot window used 0x%x of 0x%x (%d.%d%%)\n' "$slot_used" "$SLOT_SIZE" "$pct_int" "$pct_frac"
+if [ "$pct_x10" -ge 900 ]; then
+  echo "BUDGET_WARN: slot window is above 90% full (${pct_int}.${pct_frac}%); headroom for Task 6's netif bring-up is getting tight." >&2
+fi

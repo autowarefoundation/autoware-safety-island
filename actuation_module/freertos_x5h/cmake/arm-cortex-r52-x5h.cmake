@@ -23,9 +23,34 @@
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR cortex-r52)
 
-set(CMAKE_C_COMPILER arm-none-eabi-gcc)
-set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
-set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
+# Absolute paths derived from fetch-toolchain.sh, not bare compiler names
+# relying on PATH (review round 1 fix): build-cdds-target.sh's own
+# automated invocation already exports PATH from that script's output
+# before running cmake, so bare names resolve correctly there -- but a
+# hand-run `cmake --toolchain=arm-cortex-r52-x5h.cmake ...` (e.g. while
+# debugging the CycloneDDS cross-build directly) would silently pick up
+# whatever `arm-none-eabi-gcc` happens to be first on the ambient PATH,
+# which could be a system-installed cross-compiler of a different version
+# -- violating the toolchain pin with no error, just a differently-compiled
+# CycloneDDS static library. fetch-toolchain.sh is idempotent (skips the
+# download if a valid toolchain is already extracted) and prints the
+# resolved bin/ directory on stdout, so calling it here at configure time
+# gets the same pinned path build-cdds-target.sh's PATH export would have
+# resolved to, without duplicating the version/URL/sha256 pin in a second
+# place.
+execute_process(
+    COMMAND ${CMAKE_CURRENT_LIST_DIR}/../scripts/fetch-toolchain.sh
+    OUTPUT_VARIABLE _x5h_toolchain_bin
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _x5h_toolchain_rc
+)
+if(NOT _x5h_toolchain_rc EQUAL 0)
+    message(FATAL_ERROR "fetch-toolchain.sh failed (rc=${_x5h_toolchain_rc}); cannot resolve the pinned Arm GNU 13.2.Rel1 toolchain.")
+endif()
+
+set(CMAKE_C_COMPILER ${_x5h_toolchain_bin}/arm-none-eabi-gcc)
+set(CMAKE_CXX_COMPILER ${_x5h_toolchain_bin}/arm-none-eabi-g++)
+set(CMAKE_ASM_COMPILER ${_x5h_toolchain_bin}/arm-none-eabi-gcc)
 
 set(CMAKE_C_COMPILER_WORKS 1)
 set(CMAKE_CXX_COMPILER_WORKS 1)

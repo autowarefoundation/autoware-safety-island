@@ -38,7 +38,18 @@
 #define TCP_MSS                     422   /* MTU 462 - 40 */
 #define MEMP_NUM_UDP_PCB              8
 #define MEMP_NUM_NETCONN              16
-#define TCPIP_THREAD_STACKSIZE     4096
+// Bytes, not words (review round 1 fix; was 4096): sys_arch.c's
+// sys_thread_new() -- the only caller of xTaskCreate() for this value --
+// divides its stacksize argument by sizeof(StackType_t) before passing it
+// to xTaskCreate(), which itself takes a word count. lwIP's own
+// tcpip.c passes TCPIP_THREAD_STACKSIZE straight through as that
+// stacksize argument (i.e. this macro is documented by lwIP as bytes), so
+// the previous 4096 gave the single tcpip thread -- which runs every
+// tcpip_callback(), the whole IP stack, and (once Task 6 wires the netif)
+// all inbound/outbound packet processing -- only 4 KiB of stack, not the
+// 4096 words (16 KiB) a byte/word mixup could easily be misread as. Raised
+// to a full 16 KiB to give real headroom for the eventual netif input path.
+#define TCPIP_THREAD_STACKSIZE     16384
 #define TCPIP_MBOX_SIZE              32
 #define DEFAULT_UDP_RECVMBOX_SIZE    32
 #define SO_REUSE                     1

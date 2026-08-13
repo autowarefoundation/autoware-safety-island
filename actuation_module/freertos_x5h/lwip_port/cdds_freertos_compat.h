@@ -11,14 +11,27 @@
 // TLS[0], needed because that port restores FPU state lazily, on first use,
 // from whatever the TLS[0] pointer references -- xTaskCreate() alone leaves
 // it NULL. R-Car BSP's own FreeRTOS port (rcar_bsp/) has no such function at
-// all (grepped -- zero matches) because it does not need one: every task's
-// FPU context is saved/restored unconditionally as part of the normal
-// context switch (configUSE_TASK_FPU_SUPPORT; see
-// actuation_module/include/platform/freertos/x5h/pthread.h's own header
-// comment, which already reached this same conclusion for our hand-written
-// thread wrapper). So on this port, plain xTaskCreate() already gives
-// CycloneDDS's DDS threads a safe FPU context -- no lazy-restore path, no
-// TLS[0] convention, nothing extra to reserve.
+// all (grepped -- zero matches).
+//
+// CORRECTED (review round 1; the previous revision of this comment claimed
+// the R-Car port gives every task an FPU context "for free" -- that was
+// false): common/ARM_CR52/port.c's FPU-context behaviour is controlled by
+// configUSE_TASK_FPU_SUPPORT, which is NOT set anywhere in
+// rcar_bsp/.../FreeRTOSConfig.h, so it silently took FreeRTOS.h's own
+// #ifndef default of 1 -- lazy, opt-in, requiring a vPortTaskUsesFPU() call
+// that nothing in this codebase ever made. Plain xTaskCreate() alone did
+// NOT give CycloneDDS's DDS threads a safe FPU context under that default.
+//
+// This is now correct because CMakeLists.txt explicitly forces
+// configUSE_TASK_FPU_SUPPORT=2 on the freertos_bsp target (see that file's
+// "FPU context for every task" section), which changes
+// pxPortInitialiseStack() -- in the SAME port.c -- to unconditionally
+// reserve FPU register space and mark every newly created task as already
+// having a live FPU context, with no per-task opt-in required. Under that
+// setting, plain xTaskCreate() is a correct, complete replacement for
+// xTaskCreateFpu() for CycloneDDS's threads. This macro alias would be
+// silently wrong again if that CMake definition were ever removed or
+// weakened back to =1.
 //
 // xTaskCreate()'s six parameters (pxTaskCode, pcName, uxStackDepth,
 // pvParameters, uxPriority, pxCreatedTask -- see

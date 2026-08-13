@@ -167,6 +167,94 @@ target_include_directories(actuation_x5h PRIVATE
     ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5/CMSIS/Core_R/Include
 )
 
+# ---- FPU context for every task (review-round fix; see CHANGELOG below) ----
+#
+# CORRECTED UNDERSTANDING (this replaces a false claim made when this
+# section was first written -- see cdds_freertos_compat.h's and
+# platform/freertos/x5h/pthread.h's own header comments, both corrected
+# alongside this change): configUSE_TASK_FPU_SUPPORT is NOT defined anywhere
+# in rcar_bsp/.../FreeRTOSConfig.h, so it silently took FreeRTOS.h's own
+# #ifndef default of 1 (lazy, opt-in FPU context: pxPortInitialiseStack()
+# gives a new task NO FPU register space at all, and the task must call
+# vPortTaskUsesFPU() itself, before touching any FP instruction, to get one
+# -- see common/ARM_CR52/port.c). Nothing anywhere in this codebase calls
+# vPortTaskUsesFPU(), so under the default, EVERY task -- the Eigen/MPC
+# controller math, every CycloneDDS thread, float printf -- runs with no
+# preserved FPU context: any interrupt or context switch during FP work is
+# free to corrupt its registers, silently, with no crash and no diagnostic.
+# This is exactly the "for free" claim the original comments made, inverted.
+#
+# Fix: force configUSE_TASK_FPU_SUPPORT=2 here, which changes
+# pxPortInitialiseStack()'s behaviour (in the SAME port.c) to unconditionally
+# reserve FPU register space and set ulPortTaskHasFPUContext = pdTRUE at
+# task-creation time for every task, with no per-task opt-in call required.
+# The context-switch save/restore assembly itself is unchanged either way --
+# only whether ulPortTaskHasFPUContext starts (and stays) true is different.
+#
+# Rejected alternative: enumerate every FP-using call site and insert
+# vPortTaskUsesFPU() calls (a "trampoline" over xTaskCreate, mirroring
+# S32Z2's xTaskCreateFpu()). Rejected for safety-island math specifically:
+# an exhaustive enumeration is only ever as good as the last audit, and a
+# single missed call site (a future thread, a library call that starts using
+# FP internally) reproduces this exact silent-corruption bug. Forcing =2
+# instead makes every task correct by construction, with no enumeration to
+# keep in sync.
+#
+# freertos_bsp (declared by rcar_bsp's own CMakeLists.txt, NOT edited here)
+# is the single CMake target both tasks.c and port.c compile into (see
+# ${kernel_source}/${bsp_source} in that vendor file) -- reachable from our
+# own deferred file because our cmake_language(DEFER CALL include ...)
+# execution runs strictly after that add_library(freertos_bsp ...) call
+# completes (same directory scope, later in processing order; see the
+# header comment at the top of this file for the DEFER mechanism itself).
+# This reaches both files without ever editing vendor/rcar_bsp source.
+#
+# Verified safe to flip from 1 to 2: vPortTaskUsesFPU()'s only DEFINITION in
+# the whole rcar_bsp/ tree is inside port.c's own
+# `#if (configUSE_TASK_FPU_SUPPORT == 1)` block; grepping the entire
+# rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52/ tree shows nothing else anywhere
+# calls it, so that definition disappearing under =2 creates no dangling
+# reference.
+#
+# portFPU_REGISTER_WORDS=65: a second, previously-latent gap this same fix
+# uncovered at compile time (a genuine build error, not a guess -- this
+# value is verified, not assumed; see below). common/ARM_CR52/port.c's own
+# `#elif (configUSE_TASK_FPU_SUPPORT == 2)` branch (the one this setting now
+# activates) references portFPU_REGISTER_WORDS to size the stack-frame
+# reservation for the FPU register block, but -- unlike this file's two
+# sibling ports in the very same rcar_bsp tree,
+# Source/portable/GCC/ARM_CR5/port.c (`#define portFPU_REGISTER_WORDS
+# ((16*2)+1)`, D16-only) and Source/portable/GCC/ARM_CA9/port.c (`#define
+# portFPU_REGISTER_WORDS ((32*2)+1)`, D32) -- common/ARM_CR52/port.c never
+# defines it itself anywhere. Confirmed by grepping the whole demo tree: the
+# only two references are the two USES already quoted above; nothing
+# defines it. This BSP's own =2 path was never previously exercised (nothing
+# in this vendor tree sets configUSE_TASK_FPU_SUPPORT=2), so this gap never
+# surfaced before.
+#
+# 65, not 33: this build's -mfpu=neon-fp-armv8 implies the D32 (32 double
+# registers) FPU variant -- confirmed via CMSIS_5/.../core_cr52.h, which
+# sets `#define __FPU_D32 1U` whenever __FPU_PRESENT is set for this
+# configuration -- and this port's own context-switch assembly (port.c's
+# portSAVE_CONTEXT/portRESTORE_CONTEXT macros) unconditionally pushes/pops
+# D16-D31 in addition to D0-D15+FPSCR whenever __FPU_D32 is set (the same
+# gate ARM_CA9, also a D32 port, uses). So this target needs the ARM_CA9
+# value -- (32 D-regs * 2 words/D-reg) + 1 FPSCR word = 65 -- not ARM_CR5's
+# 33 (a D16-only value that would under-reserve the stack frame by 32
+# words here and corrupt whatever sits below it on first use).
+#
+# Supplied via -D on the same freertos_bsp target as
+# configUSE_TASK_FPU_SUPPORT itself, not by editing port.c (vendor file,
+# off-limits): the preprocessor cannot tell a #define supplied on the
+# command line from one written in the source, so this is the same
+# reach-into-a-vendor-target-from-our-own-file mechanism already used
+# above, extended to cover the one additional macro this vendor port left
+# out of its own (previously dead) =2 code path.
+target_compile_definitions(freertos_bsp PRIVATE
+    configUSE_TASK_FPU_SUPPORT=2
+    portFPU_REGISTER_WORDS=65
+)
+
 target_link_libraries(actuation_x5h PRIVATE
     freertos_bsp
     openamp
@@ -319,8 +407,19 @@ set(CYCLONEDDS_INCLUDE_DIR ${CDDS_TARGET_PREFIX}/include)
 
 # Expose host idlc on PATH so autoware_msgs's configure-time IDL generation
 # finds it.
-set(ENV{PATH}            "${CDDS_HOST_PREFIX}/bin:$ENV{PATH}")
-set(ENV{LD_LIBRARY_PATH} "${CDDS_HOST_PREFIX}/lib:$ENV{LD_LIBRARY_PATH}")
+set(ENV{PATH} "${CDDS_HOST_PREFIX}/bin:$ENV{PATH}")
+# Only prepend a ":" separator when there is an existing value to separate
+# from (review round 1 fix): when ENV{LD_LIBRARY_PATH} is unset/empty (the
+# common case for a fresh shell), the old unconditional
+# "${CDDS_HOST_PREFIX}/lib:$ENV{LD_LIBRARY_PATH}" left a trailing colon,
+# which the dynamic loader treats as an empty path component meaning "the
+# current working directory" -- silently adding CWD to the search path for
+# every process this configure-time environment propagates to.
+if(DEFINED ENV{LD_LIBRARY_PATH} AND NOT "$ENV{LD_LIBRARY_PATH}" STREQUAL "")
+    set(ENV{LD_LIBRARY_PATH} "${CDDS_HOST_PREFIX}/lib:$ENV{LD_LIBRARY_PATH}")
+else()
+    set(ENV{LD_LIBRARY_PATH} "${CDDS_HOST_PREFIX}/lib")
+endif()
 set(CycloneDDS_DIR ${CDDS_HOST_PREFIX}/lib/cmake/CycloneDDS)
 
 # ---- Eigen3 (host package, header-only) ----
@@ -343,10 +442,28 @@ find_program(PATCH_EXECUTABLE patch REQUIRED)
 # DISPATCH scalar so the now-compilable vectorised psincos path is never
 # actually invoked at runtime (accurate libm trig on a safety island,
 # NEON still vectorises the matrix hot path).
-add_compile_definitions(EIGEN_FAST_MATH=0)
+#
+# target_compile_definitions (not the directory-scoped add_compile_
+# definitions this used to be, review round 1 fix): this directory also
+# holds the vendor's own rcar_bsp sample/BSP targets (e.g. freertos_bsp,
+# dummy -- see rcar_bsp/.../CMakeLists.txt's add_library/add_executable
+# calls processed earlier in this same directory scope), none of which use
+# Eigen at all; add_compile_definitions() would have leaked EIGEN_FAST_MATH
+# into their command lines too for no reason.
+target_compile_definitions(actuation_x5h PRIVATE EIGEN_FAST_MATH=0)
 set(_x5h_eigen_patched_dir ${CMAKE_CURRENT_BINARY_DIR}/eigen-patched)
 set(_x5h_eigen_patch ${CMAKE_CURRENT_LIST_DIR}/vendor_patched/eigen-psincos-int32.patch)
-if(NOT EXISTS ${_x5h_eigen_patched_dir}/.patched)
+# Sentinel keyed to the patch file's own hash (review round 1 fix), not
+# just its bare existence: the previous ${_x5h_eigen_patched_dir}/.patched
+# check would silently keep reusing a stale patched Eigen tree forever if
+# eigen-psincos-int32.patch were ever edited (e.g. widened, or corrected)
+# without also deleting the build directory -- a `patch` re-apply against
+# the same already-patched tree would just fail (already-patched hunks), but
+# nothing here would prompt one to look, since the target still builds fine
+# against the old copy.
+file(SHA256 ${_x5h_eigen_patch} _x5h_eigen_patch_hash)
+set(_x5h_eigen_sentinel ${_x5h_eigen_patched_dir}/.patched-${_x5h_eigen_patch_hash})
+if(NOT EXISTS ${_x5h_eigen_sentinel})
     file(REMOVE_RECURSE ${_x5h_eigen_patched_dir})
     file(COPY ${EIGEN3_INCLUDE_DIR}/Eigen DESTINATION ${_x5h_eigen_patched_dir})
     execute_process(
@@ -356,7 +473,7 @@ if(NOT EXISTS ${_x5h_eigen_patched_dir}/.patched)
     if(NOT _x5h_eigen_patch_rc EQUAL 0)
         message(FATAL_ERROR "Failed to apply ${_x5h_eigen_patch} to Eigen at ${_x5h_eigen_patched_dir}")
     endif()
-    file(WRITE ${_x5h_eigen_patched_dir}/.patched "")
+    file(WRITE ${_x5h_eigen_sentinel} "")
 endif()
 target_include_directories(actuation_x5h BEFORE PRIVATE ${_x5h_eigen_patched_dir})
 
@@ -397,9 +514,18 @@ foreach(_x5h_idl ${AUTOWARE_MSGS_IDL_FILES})
     list(APPEND AUTOWARE_MSGS_HEADERS ${AUTOWARE_MSGS_BINARY_DIR}/${_x5h_idl_name}.h)
 endforeach()
 
+# Absolute path to idlc (CDDS_HOST_PREFIX/bin/idlc, already guarded to exist
+# at line 354 above), not a bare `idlc` relying on PATH: this custom command
+# runs later, inside `cmake --build`'s own generated Makefiles/ninja rules,
+# a separate process tree from configure-time -- the set(ENV{PATH} ...) a
+# few lines up only affects the configure-time process (see that line's own
+# comment), so a bare name here would only resolve when build.sh's shell
+# happens to still have PATH exported (as it does today via
+# build_freertos_x5h()'s own export), silently breaking any `cmake --build`
+# invoked standalone (e.g. from an IDE, or a re-run without build.sh).
 add_custom_command(
     OUTPUT ${AUTOWARE_MSGS_SOURCES} ${AUTOWARE_MSGS_HEADERS}
-    COMMAND /bin/sh -c "find ${AUTOWARE_MSGS_DIR}/msg/ -maxdepth 1 -name '*.idl' -exec idlc {} \\; && sed -i -- 's|/\\(.\\+\\)/\\(.*\\.idl\\)|\\2|' *.h *.c"
+    COMMAND /bin/sh -c "find ${AUTOWARE_MSGS_DIR}/msg/ -maxdepth 1 -name '*.idl' -exec ${CDDS_HOST_PREFIX}/bin/idlc {} \\; && sed -i -- 's|/\\(.\\+\\)/\\(.*\\.idl\\)|\\2|' *.h *.c"
     WORKING_DIRECTORY ${AUTOWARE_MSGS_BINARY_DIR}
     DEPENDS ${AUTOWARE_MSGS_IDL_FILES}
     VERBATIM
@@ -461,7 +587,7 @@ target_compile_options(actuation_x5h PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-U__STDC_HOSTED__$<SEMICOLON>-D__STDC_HOSTED__=1>
 )
 
-# ---- Optimisation: C++ at -O2 ----
+# ---- Optimisation: C and C++ at -O2 ----
 # Same reason as freertos_s32z2 (see that CMakeLists.txt's own comment):
 # Eigen is pathologically slow at -O0 (~86s per solve there), so the
 # control cycle needs -O2. Unlike S32Z2, this project's base link options
@@ -470,8 +596,53 @@ target_compile_options(actuation_x5h PRIVATE
 # S32Z2 works around with a forced -g0 does not apply here -- the
 # globally-inherited -g (see the header comment at the top of this file)
 # is left alone.
+#
+# CORRECTED (review round 1): this used to be CXX-only, leaving this
+# target's own C sources (lwip_port/sys_arch.c, newlib_stubs.c, the CDDS
+# glue) at the vendor directory's implicit -O0 -- inconsistent with both
+# this target's own C++ (-O2) and with CycloneDDS's own standalone build
+# (build-cdds-target.sh's -DCMAKE_BUILD_TYPE=Release, i.e. -O3), and a
+# needless budget/throughput/stack-usage cost for no benefit (none of these
+# C sources need -O0 for debuggability reasons the C++ side doesn't already
+# share). COMPILE_LANGUAGE genex now covers both C and CXX.
 target_compile_options(actuation_x5h PRIVATE
-    $<$<COMPILE_LANGUAGE:CXX>:-O2>
+    $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:-O2>
+)
+
+# ---- rsc_table.c exception: -fno-toplevel-reorder (review round 2 fix) ----
+# The blanket C -O2 above regressed check-elf-contract.sh: it started
+# reporting ".resource_table size is 0x0, expected 0x100". Root-caused by
+# isolated reproduction (compile a minimal stand-in for this file's
+# `static struct remote_resource_table __resource resources = {...};` at
+# -O0 vs -O2 with the same freestanding/-ffunction-sections/-fdata-sections
+# flags this target uses, then `objdump -h` the two .o files): at -O0 the
+# .resource_table section is present at 0x100 bytes; at -O2 it is gone
+# entirely from the object file, before the linker (which does not use
+# --gc-sections here, see the -O2 comment above) ever sees it.
+#
+# The reason: `resources` is written by nobody and read by nobody in C --
+# rsc_table.c's own init_resource_table() copies from the separate `const`
+# `resources_data` instead, and `resources` exists only so its
+# __attribute__((section(".resource_table"))) placement gives that output
+# section its size; __resource_table_start/__resource_table_end (extern,
+# provided by the linker script) are the only things anyone ever reads.
+# A compiler has no way to know a section-placed-but-unreferenced static
+# must survive -- that is exactly what __attribute__((used)) is for, but
+# rsc_table.c is vendor code under rcar_bsp/, off limits to edit directly
+# (see this file's header comment and AUDIT.md). -fno-toplevel-reorder is
+# GCC's own documented escape hatch for precisely this: "output [top-level
+# variables] in the same order as they appear in the input file... When
+# this option is used, unreferenced static variables are not removed."
+# Confirmed by the same isolated repro: adding -fno-toplevel-reorder at -O2
+# restores the .resource_table section at exactly 0x100 bytes.
+#
+# Scoped to this ONE file, not the whole target: no other C source in this
+# target relies on a section-attributed-but-C-unreferenced static, and
+# -fno-toplevel-reorder also disables reordering/DCE of ordinary unreferenced
+# statics tree-wide, which is not a tradeoff worth taking anywhere else.
+set_source_files_properties(
+    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/rsc_table.c
+    PROPERTIES COMPILE_OPTIONS "-fno-toplevel-reorder"
 )
 
 target_include_directories(actuation_x5h PRIVATE

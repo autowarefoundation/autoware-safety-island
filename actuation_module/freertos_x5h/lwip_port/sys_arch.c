@@ -21,6 +21,18 @@
 // that is Task 6's job (see include/platform/freertos/x5h/lwip_init.h). This
 // file only has to satisfy sys.h's link-time contract so the full
 // actuation_x5h image links.
+//
+// ISR-safety note (review round 1, for Task 6): sys_arch_protect()/
+// sys_arch_unprotect() below use taskENTER_CRITICAL()/taskEXIT_CRITICAL(),
+// which common/ARM_CR52/port.c's own vPortEnterCritical() (around line 547)
+// explicitly documents and asserts is never called from an ISR context --
+// "Only API functions that end in FromISR can be used in an interrupt."
+// SYS_ARCH_PROTECT/SYS_ARCH_UNPROTECT
+// are therefore task-context-only on this port. Task 6's netif driver must
+// not free pbufs (or touch any lwIP state guarded by
+// SYS_ARCH_PROTECT/UNPROTECT) directly from the RPMsg receive ISR -- hand
+// received buffers off to task context (e.g. via sys_mbox_trypost_fromisr(),
+// already implemented below) instead.
 
 #include "lwip/sys.h"
 #include "lwip/opt.h"
@@ -120,6 +132,15 @@ err_t sys_mbox_trypost(sys_mbox_t *mbox, void *msg) {
 
 err_t sys_mbox_trypost_fromisr(sys_mbox_t *mbox, void *msg) {
     BaseType_t woken = pdFALSE;
+    // Returns ERR_OK rather than lwIP's canonical ERR_NEED_SCHED on the
+    // success path (review round 1 note, not a logic change): lwIP's own
+    // sys_arch.h documents ERR_NEED_SCHED as an optional signal telling the
+    // ISR caller a context switch is now due, so it can request one itself
+    // after this call returns. We do not use that signal because
+    // portYIELD_FROM_ISR(woken) already requests the switch right here,
+    // synchronously, using the xHigherPriorityTaskWoken value FreeRTOS's
+    // own xQueueSendToBackFromISR() just gave us -- so there is nothing
+    // left for a caller-side ERR_NEED_SCHED branch to do differently.
     err_t ret = (xQueueSendToBackFromISR(*mbox, &msg, &woken) == pdTRUE) ? ERR_OK : ERR_MEM;
     portYIELD_FROM_ISR(woken);
     return ret;
@@ -167,12 +188,26 @@ sys_thread_t sys_thread_new(const char *name, lwip_thread_fn thread, void *arg,
     TaskHandle_t task = NULL;
     // stacksize is given in bytes by lwIP callers; xTaskCreate wants it in
     // StackType_t words (4 bytes each on this ILP32 target).
+    //
+    // configSTACK_DEPTH_TYPE (uint32_t on this port, see FreeRTOSConfig.h),
+    // not a (uint16_t) truncating cast (review round 1 fix): xTaskCreate's
+    // own uxStackDepth parameter is typed configSTACK_DEPTH_TYPE, and a
+    // (uint16_t) cast here silently wrapped any request of 256 KiB or more
+    // (65536 words) down modulo 65536 -- e.g. exactly 256 KiB wrapped to 0,
+    // handing xTaskCreate a zero-word stack instead of asserting or
+    // failing loudly. No caller in this codebase currently requests a
+    // stack that large, but the cast was a latent bug for any future one
+    // (or a future TCPIP_THREAD_STACKSIZE increase) to hit silently.
     BaseType_t ok = xTaskCreate((TaskFunction_t)thread, name,
-                                 (uint16_t)(stacksize / sizeof(StackType_t)),
+                                 (configSTACK_DEPTH_TYPE)(stacksize / (int)sizeof(StackType_t)),
                                  arg, (UBaseType_t)prio, &task);
-    // sys_thread_new() is documented as MUST NOT FAIL; a NULL return here
-    // means the caller (tcpip_init, typically) proceeds with a NULL task
-    // handle instead of us silently pretending success.
+    // sys_thread_new() is documented as MUST NOT FAIL. configASSERT() halts
+    // (it is FreeRTOSConfig.h's own vAssertCalled(), not a `return`), so a
+    // failed xTaskCreate() here stops execution rather than letting the
+    // caller (tcpip_init, typically) silently proceed with a NULL task
+    // handle -- reworded from a previous revision of this comment that
+    // described this as "returning NULL", which does not match what
+    // configASSERT() actually does.
     configASSERT(ok == pdPASS);
     return task;
 }

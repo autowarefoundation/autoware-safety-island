@@ -108,4 +108,36 @@ cmake -S cyclonedds -B "${CDDS_TARGET_BUILD_DIR}" \
 
 cmake --build "${CDDS_TARGET_BUILD_DIR}" --target install -j"$(nproc)"
 test -f "${CDDS_TARGET_PREFIX}/lib/libddsc.a"
+
+# Make the -include cdds_freertos_compat.h wiring's absence loud (review
+# round 1 fix), instead of leaving it a silent, badly-attributed failure
+# deferred to a much later build step: libddsc.a is a static archive, never
+# linked by this script (WITH_FREERTOS's threads.c is only compiled here,
+# not resolved against a real xTaskCreate/xTaskCreateFpu symbol) -- so if
+# the -include flag above were ever dropped (a typo'd edit to the
+# CMAKE_C_FLAGS string, a refactor that reorders/drops one -include),
+# ddsrt_thread_create() would still compile with only an implicit-
+# declaration warning (arm-none-eabi-gcc does not error on this by
+# default), and this whole script would report success -- the missing
+# xTaskCreateFpu symbol would only surface as an "undefined reference" at
+# the final actuation_x5h link, a separate build step and separate command,
+# confusingly far from its actual cause. Check for it here instead, right
+# where the shim is wired: if the alias applied, threads.c's call compiles
+# down to a reference to plain xTaskCreate (resolved later against
+# freertos_bsp); if it did not, the object still references the
+# nonexistent xTaskCreateFpu symbol directly, which nm can see in this
+# archive today without waiting for the final link.
+nm_bin="$(command -v arm-none-eabi-nm || true)"
+if [ -z "${nm_bin}" ]; then
+    echo "ERROR: arm-none-eabi-nm not found on PATH; cannot verify the cdds_freertos_compat.h shim applied." >&2
+    exit 1
+fi
+if "${nm_bin}" -u "${CDDS_TARGET_PREFIX}/lib/libddsc.a" 2>/dev/null | grep -q 'xTaskCreateFpu'; then
+    echo "ERROR: libddsc.a still references xTaskCreateFpu directly." >&2
+    echo "The -include ${LWIP_PORT_DIR}/cdds_freertos_compat.h flag (see this script's" >&2
+    echo "own -DCMAKE_C_FLAGS line and that header's comment) did not take effect --" >&2
+    echo "check it is still present, in order, ahead of any conflicting -include." >&2
+    exit 1
+fi
+
 echo "CycloneDDS target library built: ${CDDS_TARGET_PREFIX}/lib/libddsc.a"
