@@ -21,26 +21,11 @@
 #include "pfc/r_pfc_api.h"
 #include "device_tree_x5h.h"
 
-#include "platform/freertos/x5h/lwip_init.h"
-
-// Task 6 replaces this with the real lwIP-over-RPMsg bring-up. Declared weak
-// so a later task's strong definition silently takes over; until then this
-// stub satisfies configure_network()'s link-time dependency on
-// lwip_bring_up_blocking() (unused by this scaffold's main(), but declared in
-// platform/freertos/x5h/lwip_init.h and reachable once Task 4 wires
-// configure_network() in).
-//
-// If Task 6's real definition fails to link for any reason (wrong source
-// list, wrong archive, an accidentally-copied `weak` attribute), this weak
-// stub silently wins the link and configure_network() would report the
-// network as up when nothing exists. Printing here makes that failure mode
-// observable on the console instead of silent. (Task 6 is expected to
-// delete this stub outright rather than merely override it, once the real
-// definition exists.)
-extern "C" __attribute__((weak)) int lwip_bring_up_blocking(void) {
-    printf("lwip_bring_up_blocking: TASK 3 STUB, no network\n");
-    return 0;
-}
+// Task 6 replaced the Task 3 weak lwip_bring_up_blocking() stub that used to
+// live here with a real definition (freertos_x5h/lwip_bringup.c). Deleted
+// outright rather than merely overridden: a weak symbol that is silently
+// displaced is also silently *kept* if the real definition ever fails to
+// link, which would report the network as up when nothing exists.
 
 // Mirrors sample_apps/hello_world/main.c's prvSetupHardware(). Irq_Setup()
 // brings up the GIC; pfcInitModules(getModuleConfigs()) performs the PFC

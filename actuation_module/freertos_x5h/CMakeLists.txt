@@ -383,6 +383,23 @@ set_source_files_properties(
     PROPERTIES COMPILE_OPTIONS "-include;sys/select.h"
 )
 
+# ---- Task 6: RPMsg-backed lwIP netif + bring-up ----
+# rpmsg_netif_core.c (Task 5, "no lwIP, no OS deps") was up to now only
+# compiled into the host-side rpmsg_netif_core_test (see
+# freertos/CMakeLists.txt) -- this is the first time it is linked into the
+# actual target image. rpmsg_netif.c is the lwIP-facing glue that calls into
+# it; lwip_bringup.c is this platform's real lwip_bring_up_blocking()
+# (replaces the Task 3 weak stub deleted from freertos_main.cpp);
+# rpmsg_transport.c is a stub -- see its own header comment -- standing in
+# for Task 7's real OpenAMP/RPMsg endpoint so this branch builds and the
+# contract/budget checks stay green with no real transport underneath.
+target_sources(actuation_x5h PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
+    ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
+)
+
 # ---- Pre-built CycloneDDS target library ----
 set(CDDS_HOST_PREFIX   ${X5H_REPO_ROOT}/build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
 set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/cdds_target_out CACHE PATH "CycloneDDS x5h target library install prefix")
