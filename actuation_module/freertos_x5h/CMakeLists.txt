@@ -13,29 +13,25 @@
 #   ./build.sh --platform freertos-x5h -d build/freertos-x5h
 #
 # Unlike freertos_s32z2, this file is NOT the top-level -S argument CMake is
-# invoked with, and it is not add_subdirectory()'d either. build.sh points
-# -S directly at the vendor's own rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52
-# directory (matching Task 2's scripts/build-bsp-rpmsg-sample.sh) and passes
-# -DCMAKE_PROJECT_INCLUDE=cmake/inject_actuation_x5h.cmake, which plain
-# include()s this file -- deferred until after the vendor tree's
-# freertos_bsp/openamp/libmetal targets already exist. See
-# cmake/inject_actuation_x5h.cmake for the full rationale: in short, the
-# vendor's own CMakeLists.txt derives its BSP_DIR/FREERTOS_DIR from
-# CMAKE_SOURCE_DIR, which tracks the whole invocation's actual -S argument
-# and cannot be overridden from a child scope, so this file cannot simply
-# add_subdirectory() the vendor tree from underneath itself the way
-# freertos_s32z2/CMakeLists.txt pulls in its own dependencies -- and
-# cmake_language(DEFER ...), the mechanism used to delay pulling this file in
-# until freertos_bsp/openamp/libmetal exist, refuses to create a new
-# subdirectory scope at all ("Subdirectories may not be created during
-# deferred execution"), which is why this file is include()'d in place
-# rather than add_subdirectory()'d. Consequently this file does NOT call
-# project() itself (cmake/inject_actuation_x5h.cmake calls
-# enable_language(CXX) up front instead) and uses CMAKE_CURRENT_LIST_DIR,
-# not CMAKE_CURRENT_SOURCE_DIR, for its own paths -- CMAKE_CURRENT_LIST_DIR
-# tracks the currently-processing FILE even under a plain include(), whereas
-# CMAKE_CURRENT_SOURCE_DIR tracks the enclosing DIRECTORY scope, which stays
-# the vendor's own directory throughout since include() creates no new one.
+# invoked with, and it is not add_subdirectory()'d either: build.sh points
+# -S at the vendor's own rcar_bsp/.../CMakeLists.txt and reaches this file
+# via -DCMAKE_PROJECT_INCLUDE=cmake/inject_actuation_x5h.cmake, deferred with
+# cmake_language(DEFER CALL include ...). Read the header comment in
+# cmake/inject_actuation_x5h.cmake FIRST -- it is the single source of truth
+# for why this indirection exists, why it must be a plain include() rather
+# than add_subdirectory(), and the ordering invariant DEFER protects. Do not
+# duplicate that rationale here; extend it there if it changes.
+#
+# Two consequences that follow directly from running via that plain
+# include() (not a sibling add_subdirectory() scope) and are worth keeping
+# visible at the point they matter, rather than only in the other file:
+#   - This file does not call project() itself (the injected file calls
+#     enable_language(CXX) up front, non-deferred).
+#   - Self-relative paths below use CMAKE_CURRENT_LIST_DIR (tracks the
+#     currently-processing FILE, even under a plain include()), never
+#     CMAKE_CURRENT_SOURCE_DIR (tracks the enclosing DIRECTORY scope, which
+#     stays the vendor's own directory here since include() opens no new
+#     one).
 #
 # This is a Task 3 scaffold: it boots the BSP, prints a boot banner, and
 # stops there. It does not start the actuation module (Task 4), bring up
@@ -54,8 +50,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # relative paths the same way. Not wired in yet -- Task 4 adds the actuation
 # module itself and starts using these. CMAKE_CURRENT_LIST_DIR, not
 # CMAKE_CURRENT_SOURCE_DIR -- see the header comment above.
-set(ACTUATION_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
-set(REPO_ROOT ${ACTUATION_DIR}/..)
+#
+# X5H_-prefixed: this set() runs in the VENDOR's directory scope (see the
+# header comment above), so an unprefixed name here would leak into that
+# scope's variable namespace -- a growing collision surface as Tasks 4-8 add
+# more variables. X5H_BSP_RPMSG_SOURCES below already followed this
+# convention; the rest are brought in line with it here.
+set(X5H_ACTUATION_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+set(X5H_REPO_ROOT ${X5H_ACTUATION_DIR}/..)
 
 # ---- R-Car FreeRTOS BSP (public git submodule) ----
 # BOARD/RAM_REGION/MFIS_CHAN/UART_ID/CACHE/ENABLE_OPENAMP are NOT set here:
@@ -64,12 +66,30 @@ set(REPO_ROOT ${ACTUATION_DIR}/..)
 # file. build.sh passes them as -D cache entries on the cmake command line
 # instead (see build_freertos_x5h()), the same way Task 2's
 # scripts/build-bsp-rpmsg-sample.sh does.
-set(RCAR_BSP_DEMO_DIR ${CMAKE_CURRENT_LIST_DIR}/rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52)
-if(NOT EXISTS "${RCAR_BSP_DEMO_DIR}/CMakeLists.txt")
+set(X5H_RCAR_BSP_DEMO_DIR ${CMAKE_CURRENT_LIST_DIR}/rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52)
+if(NOT EXISTS "${X5H_RCAR_BSP_DEMO_DIR}/CMakeLists.txt")
     message(FATAL_ERROR
-        "R-Car FreeRTOS BSP not found at ${RCAR_BSP_DEMO_DIR}. Initialise the "
-        "submodule with 'git submodule update --init "
+        "R-Car FreeRTOS BSP not found at ${X5H_RCAR_BSP_DEMO_DIR}. Initialise "
+        "the submodule with 'git submodule update --init "
         "actuation_module/freertos_x5h/rcar_bsp'.")
+endif()
+
+# X5H_RCAR_BSP_DEMO_DIR is derived from CMAKE_CURRENT_LIST_DIR (this file's
+# own location); the vendor's own BSP_DIR (used inside freertos_bsp and by
+# the linker scripts we reference below) is derived from CMAKE_SOURCE_DIR
+# (the cmake invocation's -S argument, see the header comment above). Under
+# build.sh these always agree, since build.sh points -S directly at
+# X5H_RCAR_BSP_DEMO_DIR. But this file can also be reached by a hand-run
+# `cmake -S <some other BSP checkout> -DCMAKE_PROJECT_INCLUDE=<this dir>/...`,
+# in which case they would silently disagree: rsc_table.c and the linker
+# scripts would come from X5H_RCAR_BSP_DEMO_DIR while freertos_bsp/libmetal
+# and the rest of the compile/link flags would come from the other
+# checkout's CMAKE_SOURCE_DIR, with no build error pointing at the mismatch.
+if(NOT X5H_RCAR_BSP_DEMO_DIR STREQUAL CMAKE_SOURCE_DIR)
+    message(FATAL_ERROR
+        "actuation_x5h must be configured with -S pointed at "
+        "${X5H_RCAR_BSP_DEMO_DIR} (got CMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}). "
+        "Build via build.sh's build_freertos_x5h(), which sets -S correctly.")
 endif()
 
 # ---- RPMsg resource-table / platform glue ----
@@ -89,9 +109,9 @@ endif()
 # Task 7 swaps this one variable to local, actively-maintained copies; no
 # other change in this file should be required.
 set(X5H_BSP_RPMSG_SOURCES
-    ${RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/platform_rcar.c
-    ${RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/remoteproc_rcar.c
-    ${RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/rsc_table.c
+    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/platform_rcar.c
+    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/remoteproc_rcar.c
+    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/rsc_table.c
 )
 
 # ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp, not a bare relative
@@ -135,11 +155,11 @@ target_compile_definitions(actuation_x5h PRIVATE
 # add_rpmsg_app() macro. These three are PRIVATE to freertos_bsp itself in the
 # vendor tree, so they do not propagate to us via target_link_libraries.
 target_include_directories(actuation_x5h PRIVATE
-    ${ACTUATION_DIR}/include
-    ${ACTUATION_DIR}/include/platform/freertos/x5h
-    ${RCAR_BSP_DEMO_DIR}
-    ${RCAR_BSP_DEMO_DIR}/CMSIS_5
-    ${RCAR_BSP_DEMO_DIR}/CMSIS_5/CMSIS/Core_R/Include
+    ${X5H_ACTUATION_DIR}/include
+    ${X5H_ACTUATION_DIR}/include/platform/freertos/x5h
+    ${X5H_RCAR_BSP_DEMO_DIR}
+    ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5
+    ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5/CMSIS/Core_R/Include
 )
 
 target_link_libraries(actuation_x5h PRIVATE
@@ -155,6 +175,6 @@ target_link_libraries(actuation_x5h PRIVATE
 # add_link_options() above. Reused byte-for-byte, unmodified, from the BSP
 # -- see AUDIT.md Section 5.
 target_link_options(actuation_x5h PRIVATE
-    -T${RCAR_BSP_DEMO_DIR}/common/linker/lscript_rsc_table_vram2.ld
+    -T${X5H_RCAR_BSP_DEMO_DIR}/common/linker/lscript_rsc_table_vram2.ld
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/actuation_x5h.map
 )

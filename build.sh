@@ -245,12 +245,12 @@ function normalize_platform() {
   fi
 
   if [ -n "${DDS_NETWORK_INTERFACE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
-    echo -e "${RED}--dds-interface is only valid for FreeRTOS platforms${NC}" 1>&2
+    echo -e "${RED}--dds-interface is only valid for --platform freertos-posix or freertos-s32z2${NC}" 1>&2
     exit 1
   fi
 
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
-    echo -e "${RED}--control-output is only valid for FreeRTOS platforms${NC}" 1>&2
+    echo -e "${RED}--control-output is only valid for --platform freertos-posix or freertos-s32z2${NC}" 1>&2
     exit 1
   fi
 
@@ -265,10 +265,14 @@ function normalize_platform() {
     esac
   fi
 
-  if [ "${BUILD_PLATFORM}" = "freertos-s32z2" ] && [ "${BUILD_TEST_FLAG}" != "0" ]; then
-    echo -e "${RED}Test build options are not supported for --platform freertos-s32z2${NC}" 1>&2
-    exit 1
-  fi
+  case "${BUILD_PLATFORM}" in
+    freertos-s32z2|freertos-x5h)
+      if [ "${BUILD_TEST_FLAG}" != "0" ]; then
+        echo -e "${RED}Test build options are not supported for --platform ${BUILD_PLATFORM}${NC}" 1>&2
+        exit 1
+      fi
+      ;;
+  esac
 }
 
 function clean() {
@@ -464,7 +468,19 @@ function build_freertos_x5h() {
     -DMFIS_CHAN=1 \
     -DUART_ID=1 \
     -DCACHE=1
+  # --target actuation_x5h, not a bare `cmake --build`: the vendor -S
+  # directory also defines its own hello_world/rpmsg_sample/etc. targets,
+  # and a bare build would compile all of them too.
   cmake --build "${app_build_dir}" --target actuation_x5h -j"$(nproc)"
+
+  # A future rcar_bsp submodule bump is loud in most ways a layout change
+  # could break this target (renamed sources fail to configure, a second
+  # -T fails to link, a new vendor project() call duplicates a target) --
+  # but a bump that silently shifts .text or .resource_table to a different
+  # address is not loud at all unless something checks for it. Run the
+  # frozen-layout contract here so that check happens on every build, not
+  # only when someone remembers to run it by hand.
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf"
 }
 
 ## MAIN ##

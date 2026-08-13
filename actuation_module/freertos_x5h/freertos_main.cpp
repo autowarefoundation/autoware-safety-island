@@ -29,7 +29,16 @@
 // lwip_bring_up_blocking() (unused by this scaffold's main(), but declared in
 // platform/freertos/x5h/lwip_init.h and reachable once Task 4 wires
 // configure_network() in).
+//
+// If Task 6's real definition fails to link for any reason (wrong source
+// list, wrong archive, an accidentally-copied `weak` attribute), this weak
+// stub silently wins the link and configure_network() would report the
+// network as up when nothing exists. Printing here makes that failure mode
+// observable on the console instead of silent. (Task 6 is expected to
+// delete this stub outright rather than merely override it, once the real
+// definition exists.)
 extern "C" __attribute__((weak)) int lwip_bring_up_blocking(void) {
+    printf("lwip_bring_up_blocking: TASK 3 STUB, no network\n");
     return 0;
 }
 

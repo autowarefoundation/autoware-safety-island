@@ -26,19 +26,32 @@
 # CMAKE_SOURCE_DIR is correct throughout the vendor's file. This file is
 # then injected via CMAKE_PROJECT_INCLUDE, which CMake include()s
 # immediately after the outermost project() call -- too early to pull in
-# actuation_module/freertos_x5h/CMakeLists.txt directly, because the
-# freertos_bsp / openamp / libmetal targets our target links against do not
-# exist yet at that point in the vendor file, and target_link_libraries()
-# against a not-yet-existing target name silently degrades to a bare
-# "-l<name>" linker flag instead of a real target dependency (no usage
-# requirements, no ordering guarantee).
+# actuation_module/freertos_x5h/CMakeLists.txt directly.
+#
+# The real reason it is too early (corrected -- an earlier version of this
+# comment claimed target_link_libraries() against a not-yet-existing target
+# silently degrades to a bare linker flag; that claim was checked against a
+# throwaway CMake project and is FALSE: CMake resolves link items at
+# generate time, so it would have worked fine even without the deferral
+# below): the vendor's own CMakeLists.txt calls add_compile_options() at
+# line 101 and add_link_options() at line 111 (the Cortex-R52 ABI flags and
+# the vram2 linker script), and both of those directory-scoped commands
+# apply only to targets created AFTER the call, in the same directory scope.
+# If actuation_x5h were created immediately when CMAKE_PROJECT_INCLUDE runs
+# (right after project(), i.e. before line 101), it would silently get NONE
+# of those flags: no -mcpu=cortex-r52, no -T lscript_vram2.ld, and it would
+# fail to link (or link against the wrong ABI) with no diagnostic pointing
+# at the real cause.
 #
 # cmake_language(DEFER ...) fixes the ordering by deferring execution until
 # the end of processing of the vendor's top-level directory, i.e. after
-# freertos_bsp/openamp/libmetal are already defined later in that file.
-# CMake refuses to create a new source/binary directory during deferred
-# execution ("Subdirectories may not be created during deferred
-# execution"), so the deferred call here is a plain include() of
+# add_link_options() at line 111 (and freertos_bsp/openamp/libmetal, defined
+# later still) have already run. This is the invariant this file protects:
+# actuation_x5h must be add_executable()'d only after that line has executed
+# in the vendor's directory scope. CMake refuses to create a new source/
+# binary directory during deferred execution ("Subdirectories may not be
+# created during deferred execution"), so the deferred call here is a
+# plain include() of
 # actuation_module/freertos_x5h/CMakeLists.txt -- which runs the file's
 # commands directly in the vendor's own (already fully set up) directory
 # scope, rather than add_subdirectory()'ing it into a new child scope.
