@@ -372,6 +372,30 @@ static void rpmsg_poll_task(void *pv) {
 // tcpip thread waking on its own cyclic-timer schedule has nothing to
 // contend with it for.
 #define RPMSG_VDEV_HEARTBEAT_PRIORITY (configMAX_PRIORITIES - 1)
+
+// "Above everything in the image" is a stronger claim than the one it
+// replaced, and this file's whole lesson is that a strengthened claim left
+// as prose is how the last one survived. So assert the half that is
+// checkable from here: this task must outrank the highest-priority task the
+// transport itself creates. freertos_main.cpp's ACTUATION_TASK_PRIORITY
+// assertions hold the other end, pinning the launcher -- and with it the
+// CycloneDDS threads that inherit its priority -- below that same poll task.
+// Chained, the two guards give pthreads (1) < launcher = ddsrt (2) < poll
+// task < this heartbeat, which is every task this firmware creates itself.
+// The two it does not create -- FreeRTOS's idle (0) and timer service
+// (configTIMER_TASK_PRIORITY, 3) -- sit below the poll task by vendor-fixed
+// constants, and below configMAX_PRIORITIES - 1 by definition.
+_Static_assert(RPMSG_VDEV_HEARTBEAT_PRIORITY > RPMSG_POLL_TASK_PRIORITY,
+               "RPMSG_VDEV_HEARTBEAT_PRIORITY must stay strictly above "
+               "RPMSG_POLL_TASK_PRIORITY, and above every other task in the "
+               "image: the vdev DRIVER_OK wait it reports on is a pure busy "
+               "spin (metal_cpu_yield() is empty in this build's libmetal), "
+               "so nothing below the spinning caller runs and only a "
+               "strictly higher-priority task blocking on a real tick-driven "
+               "vTaskDelay() can still print. Drop this below any other task "
+               "and a board session can no longer tell 'still waiting for "
+               "Linux to bind' from 'hung'.");
+
 #define RPMSG_VDEV_HEARTBEAT_STACK_WORDS configMINIMAL_STACK_SIZE
 #define RPMSG_VDEV_HEARTBEAT_PERIOD_TICKS pdMS_TO_TICKS(2000)
 
