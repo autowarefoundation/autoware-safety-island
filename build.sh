@@ -439,6 +439,17 @@ function build_freertos_x5h() {
   echo -e "${GREEN}Building FreeRTOS X5H target...${NC}"
   echo -e "${YELLOW}Task 4: full-linked actuation module + CycloneDDS + lwIP. Network bring-up (RPMsg netif) stays stubbed until Task 6.${NC}"
 
+  # Task 8's frozen wire constants (CR52 172.16.52.2, Linux 172.16.52.1, DDS
+  # domain 2, multicast disabled both sides) are asserted here, before any
+  # compiling starts, precisely because this checker needs no build
+  # artifacts at all -- it only greps/xpaths source files
+  # (CMakeLists.txt, scripts/build-edge-ecu-peer-arm64.sh,
+  # edge_ecu_peer/cyclonedds-x5h.xml). Run unconditionally rather than
+  # gating it on the ELF the way check-elf-contract.sh/check-image-budget.sh
+  # are gated below: a wire-constant regression is worth catching before
+  # spending build time, not after.
+  "${ROOT_DIR}/actuation_module/freertos_x5h/scripts/check-dds-config.sh"
+
   local app_build_dir
   app_build_dir=$(realpath -m "${BUILD_DIR}")
 

@@ -78,6 +78,32 @@ contents — the facts a hardware flash decision depends on. It must not be
 modified; a failure here means the build produced a different memory layout,
 not that the script is wrong.
 
+## Verify the DDS wire config (Task 8)
+
+```bash
+./actuation_module/freertos_x5h/scripts/check-dds-config.sh
+```
+
+Expected: `PASS: check-dds-config.sh`. Needs no build artifacts (it reads
+source files only), so `build.sh --platform freertos-x5h` also runs it
+unconditionally, before compiling anything. It asserts the frozen wire
+constants — DDS domain 2, CR52 172.16.52.2, Linux edge ECU 172.16.52.1,
+multicast disabled on both sides (a point-to-point RPMsg link has no
+multicast to fall back on) — are present, uncommented, on both sides of the
+link:
+
+- FreeRTOS/CR52 side: the `CONFIG_DDS_*` `CACHE` vars and compile
+  definitions in this directory's own `CMakeLists.txt`.
+- Linux/AutoSD side: the `-DCONFIG_DDS_*` flags in
+  `scripts/build-edge-ecu-peer-arm64.sh`'s `cmake` invocation — the actual
+  mechanism that reaches the Linux-side `edge_ecu_pub`/`edge_ecu_sub`
+  binaries, since this codebase's DDS wrapper never parses
+  `CYCLONEDDS_URI`/XML at runtime.
+  `edge_ecu_peer/cyclonedds-x5h.xml` is checked too (via `xmllint --xpath`,
+  so a commented-out node can't produce a false pass), but only as a
+  secondary, documentation-only cross-check of the same constants — see
+  that XML file's own header comment.
+
 ## Design notes
 
 - `build.sh` builds this target by pointing `cmake -S` directly at the
