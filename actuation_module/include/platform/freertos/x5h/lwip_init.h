@@ -12,9 +12,10 @@ extern "C" {
 // static IP, blocking until the TCP/IP stack is ready. Returns 0 on success,
 // non-zero otherwise.
 //
-// Task 3 scaffold note: the RPMsg netif does not exist yet (it lands in
-// Task 6). freertos_main.cpp provides a temporary weak stub returning 0 so
-// this scaffold links; Task 6 replaces it with a real implementation.
+// Implemented in freertos_x5h/lwip_bringup.c (Task 6), against the RPMsg
+// netif glue in freertos_x5h/rpmsg_netif.{h,c}. The RPMsg transport itself
+// (freertos_x5h/rpmsg_transport.{h,c}) is a Task 6 stub that always fails
+// until Task 7 replaces it with the real OpenAMP endpoint.
 int lwip_bring_up_blocking(void);
 
 #ifdef __cplusplus

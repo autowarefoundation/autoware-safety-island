@@ -400,6 +400,18 @@ target_sources(actuation_x5h PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
 )
 
+# actuation_x5h's own target_compile_options() blocks (below, in this same
+# file) do not enable -Wall/-Wextra, and rpmsg_netif_core_test (the host
+# test target in freertos/CMakeLists.txt) does -- these four files get the
+# same treatment here so this new code is held to that bar in-target too.
+set_source_files_properties(
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
+    ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
+    PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
+)
+
 # ---- Pre-built CycloneDDS target library ----
 set(CDDS_HOST_PREFIX   ${X5H_REPO_ROOT}/build/cyclonedds_host/out CACHE PATH "CycloneDDS host tools install prefix")
 set(CDDS_TARGET_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/cdds_target_out CACHE PATH "CycloneDDS x5h target library install prefix")

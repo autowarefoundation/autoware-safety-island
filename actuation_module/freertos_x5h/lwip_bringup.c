@@ -86,18 +86,40 @@ int lwip_bring_up_blocking(void) {
         printf("lwip: invalid static IP configuration\n");
         return -4;
     }
-    if (netif_add(&s_netif, &ipaddr, &netmask, &gw, NULL,
-                  rpmsg_netif_init, tcpip_input) == NULL) {
+    // netif_add()/netif_set_default()/netif_set_up()/etharp_gratuitous() all
+    // mutate netif_list and per-netif state that lwIP's own internals (ARP
+    // timer, tcpip_thread()'s netif->input dispatch, any socket/netconn call
+    // reaching in via tcpip_api_call()) touch only while holding
+    // LOCK_TCPIP_CORE(). LWIP_TCPIP_CORE_LOCKING defaults to 1 in
+    // lwip/src/include/lwip/opt.h and is not overridden by this project's
+    // lwipopts.h, so every one of those other paths already runs locked:
+    // tcpip_thread() (lwip/src/api/tcpip.c) holds the lock for its whole
+    // main loop except while blocked in tcpip_mbox_fetch(), and
+    // tcpip_api_call() locks/calls/unlocks synchronously in the caller's own
+    // thread. This bring-up thread is the one caller that was touching the
+    // same state unlocked -- inherited verbatim from the S32Z2 bring-up
+    // pattern this file is modeled on -- so we take the lock here
+    // explicitly. tcpip_init() (called above) creates lock_tcpip_core
+    // before starting tcpip_thread, and we only reach this point after that
+    // thread has already signalled tcpip_init_done, so the mutex is
+    // guaranteed to exist by now.
+    LOCK_TCPIP_CORE();
+    struct netif *added = netif_add(&s_netif, &ipaddr, &netmask, &gw, NULL,
+                                     rpmsg_netif_init, tcpip_input);
+    char ip_str[16] = {0};
+    if (added != NULL) {
+        netif_set_default(&s_netif);
+        netif_set_up(&s_netif);
+        ip4addr_ntoa_r(netif_ip4_addr(&s_netif), ip_str, sizeof(ip_str));
+        // Announce ourselves so peers learn our IP->MAC without having to solicit.
+        etharp_gratuitous(&s_netif);
+    }
+    UNLOCK_TCPIP_CORE();
+
+    if (added == NULL) {
         printf("lwip: netif_add failed\n");
         return -3;
     }
-    netif_set_default(&s_netif);
-    netif_set_up(&s_netif);
-
-    char ip_str[16];
-    ip4addr_ntoa_r(netif_ip4_addr(&s_netif), ip_str, sizeof(ip_str));
     printf("lwip: static IP %s\n", ip_str);
-    // Announce ourselves so peers learn our IP->MAC without having to solicit.
-    etharp_gratuitous(&s_netif);
     return 0;
 }
