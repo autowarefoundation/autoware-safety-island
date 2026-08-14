@@ -117,18 +117,43 @@
 // starvation this review is about: whichever of them the scheduler picked
 // first could hold the CPU indefinitely.
 //
-// This target's real priority map (see rpmsg_transport.c's own header
-// comment on RPMSG_POLL_TASK_PRIORITY for the full picture and how it was
-// verified):
+// This target's real priority map (see rpmsg_transport.c's own comment on
+// the poll task priority for the full picture and how it was verified):
 //   31  rpmsg_vdev_hb    (transient, deleted after vdev bring-up)
-//   30  actuation_task   (blocked forever in pthread_join once startup runs)
 //    5  rpmsg_poll_task  (TCPIP_THREAD_PRIO + 1, this file's own transport)
 //    4  tcpip_thread     (TCPIP_THREAD_PRIO, set here)
 //    3  FreeRTOS timer service (configTIMER_TASK_PRIORITY, vendor-fixed)
-//    1  DDS/controller pthreads (tskIDLE_PRIORITY + 1, see pthread.h)
+//    2  actuation_task   (ACTUATION_TASK_PRIORITY, freertos_main.cpp) --
+//       and every CycloneDDS ddsrt thread with it, since those inherit the
+//       priority of the task that creates them (the Controller constructor,
+//       on actuation_task) rather than pthread.h's
+//    1  the controller's own pthread and anything else pthread.h creates
+//       (tskIDLE_PRIORITY + 1, see that file)
 //
-// TCPIP_THREAD_PRIO=4: strictly above the DDS/controller pthreads (1) so
-// the tcpip thread is never starved by them under configUSE_TIME_SLICING=0.
+// CORRECTED (this replaces a line of this very map that a later board
+// session found to be false): the entry above actuation_task's used to read
+// "30  actuation_task (blocked forever in pthread_join once startup runs)".
+// The parenthetical is what let a 30 sit above the whole network stack
+// unchallenged through a review, and it is the reason the actuation image
+// never transmitted a frame. actuation_task does block in pthread_join --
+// eventually, at src/main.cpp:57 -- but it first runs configure_network()
+// and the entire Controller constructor (CycloneDDS participant + Eigen MPC)
+// without blocking, and under configUSE_TIME_SLICING == 0 nothing below it
+// can preempt a task that has not blocked yet. So for that whole stretch the
+// tcpip thread at 4 and the poll task at 5 simply did not run: the channel
+// was announced and then nothing was ever transmitted, while Linux logged
+// its virtio_rpmsg send path timing out waiting for the remote to return a
+// tx buffer. "It blocks eventually" was never the property this map needed;
+// "it cannot hold the CPU while the network must run" is, and the launcher
+// now sits at 2 with a compile-time assertion in freertos_main.cpp holding
+// it below both network tasks. Note also that TCPIP_THREAD_PRIO's own job
+// grew as a result: at 4 it is above the DDS threads whether they land at 1
+// (pthread.h) or 2 (inherited from the launcher).
+//
+// TCPIP_THREAD_PRIO=4: strictly above every task that runs application code
+// -- the controller/DDS pthreads at 1, the CycloneDDS ddsrt threads and the
+// actuation launcher at 2 -- so the tcpip thread cannot be starved by any of
+// them under configUSE_TIME_SLICING=0.
 // DEFAULT_THREAD_PRIO=(TCPIP_THREAD_PRIO + 1): mirrors
 // freertos_s32z2/include/.../lwipopts.h's own DEFAULT_THREAD_PRIO-above-
 // TCPIP_THREAD_PRIO placement (there, DEFAULT_THREAD_PRIO is where NXP's
@@ -150,7 +175,10 @@
 // compat shim shared with other platforms, and repricing it is a separate,
 // larger change this lwipopts.h fix does not make. What this fix guarantees
 // is only that the tcpip thread -- and therefore RX delivery into it -- is
-// never starved by the controller/DDS pthreads sitting at priority 1.
+// never starved by the application tasks below it. It guarantees nothing
+// about tasks placed ABOVE it: holding the actuation launcher below this
+// value is freertos_main.cpp's static_assert, not this file's, because the
+// value that can drift is the launcher's.
 #define TCPIP_THREAD_PRIO             4
 #define DEFAULT_THREAD_PRIO          (TCPIP_THREAD_PRIO + 1)
 

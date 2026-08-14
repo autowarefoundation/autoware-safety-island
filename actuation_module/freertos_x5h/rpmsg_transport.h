@@ -23,6 +23,27 @@
 #ifndef RPMSG_TRANSPORT_H
 #define RPMSG_TRANSPORT_H
 
+// TCPIP_THREAD_PRIO, which RPMSG_POLL_TASK_PRIORITY below is derived from.
+// lwip/opt.h is the header that defines it -- it pulls in this port's
+// lwip_port/lwipopts.h and falls back to its own value only where that file
+// is silent -- and it is included here rather than left to each consumer so
+// the derivation can never be evaluated in a translation unit that has not
+// seen lwIP's options, where TCPIP_THREAD_PRIO would quietly be lwIP's own
+// default of 1. That silent default is exactly what lwipopts.h's own
+// thread-priority comment was written about.
+#include "lwip/opt.h"
+
+// Priority of rpmsg_poll_task (created by rpmsg_transport_init(), see
+// rpmsg_transport.c). Defined here, not in rpmsg_transport.c where it used
+// to live, so that the task creation and freertos_main.cpp's compile-time
+// ordering assertions read ONE definition instead of two numbers that can
+// drift apart -- comments describing that relationship are precisely what
+// failed to hold it before (see freertos_main.cpp's ACTUATION_TASK_PRIORITY
+// block). The value and its derivation are unchanged; the full rationale
+// for both of its bounds stays with the task itself, in rpmsg_transport.c's
+// "poll task priority" comment.
+#define RPMSG_POLL_TASK_PRIORITY (TCPIP_THREAD_PRIO + 1)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

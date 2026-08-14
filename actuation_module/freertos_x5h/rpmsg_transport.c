@@ -29,9 +29,12 @@
 #include "platform_info.h"
 #include "rsc_table.h"
 
-#include "lwip/tcpip.h"         /* TCPIP_THREAD_PRIO -- see RPMSG_POLL_TASK_PRIORITY below */
 #include "rpmsg_netif.h"        /* rpmsg_netif_rx() -- our rx callback target */
 #include "rpmsg_netif_core.h"   /* RPMSG_ETH_SERVICE */
+/* RPMSG_POLL_TASK_PRIORITY (moved there so freertos_main.cpp's ordering
+   assertions and this file's xTaskCreate() share one definition), and
+   TCPIP_THREAD_PRIO via the lwip/opt.h that header now includes -- which is
+   why this file no longer includes lwip/tcpip.h for that macro itself. */
 #include "rpmsg_transport.h"
 
 // wrapped in do/while(0) (review finding, Minor): without it, `if (cond)
@@ -153,46 +156,68 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 // s_tx_frame comment).
 #define RPMSG_POLL_TASK_STACK_WORDS (configMINIMAL_STACK_SIZE * 2)
 
-// ---- poll task priority -- review findings (Important #1, this round;
-// originally addressed, with a false premise, as "Important 2" below) ----
+// ---- poll task priority -- review findings (Important #1 of an earlier
+// whole-branch round; then corrected a second time after the Stage 3 board
+// session found the priority map this block asserts was itself wrong) ----
 //
-// CORRECTED (this replaces a stated invariant that a later whole-branch
-// review found to be false): the comment this replaces claimed the poll
-// task sat "strictly BELOW actuation_task (configMAX_PRIORITIES - 2 == 30):
-// the controller must always win CPU contention." That reasoning treated
-// actuation_task's own priority (30) as if it were the controller's
-// priority. It is not: actuation_task() (freertos_main.cpp) calls
-// actuation_main() (src/main.cpp) -> Controller::wait_for_completion() ->
-// pthread_join(), and blocks there permanently within moments of startup.
-// The controller's real work -- the MPC/PID loop, and every CycloneDDS
-// thread -- runs on pthreads spawned by include/platform/freertos/x5h/
-// pthread.h's pthread_create(), which hardcodes tskIDLE_PRIORITY + 1 (== 1)
-// with no way to override it from this file. So the real map, verified
-// against rcar_bsp's own FreeRTOSConfig.h (configMAX_PRIORITIES 32,
-// configUSE_PREEMPTION 1, configUSE_TIME_SLICING 0,
-// configTIMER_TASK_PRIORITY 3):
+// CORRECTED, ROUND 1 (this replaced a stated invariant that a later
+// whole-branch review found to be false): the original comment claimed the
+// poll task sat "strictly BELOW actuation_task (configMAX_PRIORITIES - 2 ==
+// 30): the controller must always win CPU contention." That reasoning
+// treated actuation_task's own priority (30) as if it were the controller's
+// priority. It is not: the controller's real work -- the MPC/PID loop --
+// runs on a pthread spawned by include/platform/freertos/x5h/pthread.h's
+// pthread_create(), which hardcodes tskIDLE_PRIORITY + 1 (== 1) with no way
+// to override it from this file.
+//
+// CORRECTED, ROUND 2 (this round -- the same block, wrong again for a
+// different reason, and this time it cost a board session): round 1 went on
+// to claim that actuation_task "blocks forever in pthread_join once
+// started", and concluded from that the second bound below "buys nothing
+// today". Both halves were false in the way that mattered. actuation_task
+// does reach pthread_join (Controller::wait_for_completion(),
+// src/main.cpp:57) -- but only after running configure_network() AND the
+// entire Controller constructor, CycloneDDS participant creation plus Eigen
+// MPC construction, at priority 30, above every network task in this image.
+// With configUSE_TIME_SLICING == 0 nothing below 30 can preempt a task that
+// has not yet blocked, so for that whole stretch neither this poll task (5)
+// nor the tcpip thread (4) ran at all. The board showed exactly that: the
+// rpmsg-eth channel announced itself (so rpmsg_transport_init() below had
+// run to completion) and then transmitted nothing -- inbound frames counted
+// up on the Linux side, outbound stayed
+// at zero, ARP never resolved, and the Linux side logged its virtio_rpmsg
+// send path giving up waiting for the remote to return a tx buffer, on a
+// 15 s cadence. The netif_only_x5h image, on the identical transport, link
+// and MTU but with its launcher at tskIDLE_PRIORITY + 1, had a clean
+// symmetric link -- which is what isolated the launcher's priority as the
+// entire delta between the two builds.
+//
+// "It blocks in pthread_join" was true and was still the wrong test. The
+// test is whether it holds the CPU while the network has work to do, and
+// everything before src/main.cpp:57 does. freertos_main.cpp now launches it
+// at ACTUATION_TASK_PRIORITY (tskIDLE_PRIORITY + 2 == 2) and asserts the
+// ordering at compile time rather than describing it; see that file for why
+// 2 and not 1 or 3. The corrected map, against rcar_bsp's own
+// FreeRTOSConfig.h (configMAX_PRIORITIES 32, configUSE_PREEMPTION 1,
+// configUSE_TIME_SLICING 0, configTIMER_TASK_PRIORITY 3):
 //
 //   31  rpmsg_vdev_hb        (transient, deleted after vdev bring-up)
-//   30  actuation_task       (blocked forever in pthread_join once started)
 //    5  rpmsg_poll_task      (this task -- TCPIP_THREAD_PRIO + 1)
 //    4  tcpip_thread         (TCPIP_THREAD_PRIO, set in lwipopts.h)
 //    3  FreeRTOS timer service (configTIMER_TASK_PRIORITY, vendor-fixed)
-//    1  tcpip_thread's peers: every DDS thread and the controller's own
-//       pthread (tskIDLE_PRIORITY + 1) -- see pthread.h
+//    2  actuation_task       (ACTUATION_TASK_PRIORITY, freertos_main.cpp)
+//       -- and with it every CycloneDDS ddsrt thread, which inherit this
+//       priority rather than pthread.h's: ddsrt's FreeRTOS threads.c takes
+//       the CALLING task's priority whenever attr->schedPriority is 0 (the
+//       default nothing in ddsi overrides), and they are created inside the
+//       Controller constructor, i.e. on actuation_task
+//    1  the controller's own pthread, and anything else pthread.h creates
+//       (tskIDLE_PRIORITY + 1, hardcoded there)
 //
-// This task therefore preempts the control loop, not the other way around
-// -- the exact inverse of the old comment's claim -- and with
-// configUSE_TIME_SLICING == 0, the priority-1 threads never round-robin
-// against each other: whichever one the scheduler picks holds the CPU until
-// it blocks. lwipopts.h's own TCPIP_THREAD_PRIO/DEFAULT_THREAD_PRIO fix
-// (this same review round) addresses that separately, by giving the tcpip
-// thread a priority strictly above 1 so it is never starved by the DDS/
-// controller pthreads sitting there.
-//
-// Chosen value here is unchanged, TCPIP_THREAD_PRIO + 1 -- what changed is
-// only the justification, and what TCPIP_THREAD_PRIO itself now resolves to
-// (4, not lwIP's undefined-here default of 1; see lwipopts.h). Rationale
-// for both bounds, corrected:
+// Chosen value here is unchanged, TCPIP_THREAD_PRIO + 1; what moved is its
+// definition, now in rpmsg_transport.h so freertos_main.cpp's assertions and
+// this file's xTaskCreate() cannot disagree. Both bounds, restated as the
+// properties that actually hold:
 //   - Strictly ABOVE TCPIP_THREAD_PRIO: the poll task's only real-time job
 //     is draining MFIS/virtqueue notifications promptly so rx frames reach
 //     tcpip_input()'s mailbox with low latency; delivery into that mailbox
@@ -201,22 +226,24 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 //     tcpip thread of CPU -- it only ever preempts it for the short, bounded
 //     duration of one platform_poll()/ept_cb() pass, then blocks again on
 //     vTaskDelay(1).
-//   - Strictly BELOW actuation_task's numeric priority (30): actuation_task
-//     itself is permanently blocked and never contends for the CPU once
-//     startup completes, so this bound buys nothing today -- kept anyway so
-//     the numbering stays monotonic with freertos_main.cpp's own task table
-//     and leaves headroom for any future task placed between this one and
-//     30. It is NOT the safety property the old comment claimed: the
-//     property that actually matters -- the tcpip thread (and by extension
-//     this poll task's downstream delivery target) not being starved by the
-//     DDS/controller pthreads at priority 1 -- is what lwipopts.h's
-//     TCPIP_THREAD_PRIO now provides.
+//   - Strictly ABOVE everything that runs application code: the launcher at
+//     2, the CycloneDDS threads that inherit its priority, and the pthreads
+//     at 1. This bound REPLACES, and inverts, round 1's "strictly BELOW
+//     actuation_task (30)" -- after this change the poll task sits above the
+//     launcher, and that is the point, not an accident of renumbering. The
+//     property is not "the controller must win CPU contention" (it never
+//     was); it is that the two tasks which actually move frames -- this one
+//     and the tcpip thread -- must always be able to preempt whatever the
+//     application is doing, including a startup path that runs for a long
+//     time without blocking. Losing that does not produce a slow link, it
+//     produces a link that never transmits at all. The half of this bound
+//     that can realistically drift is the launcher's value, not this one's,
+//     which is why the compile-time guard lives in freertos_main.cpp.
 //
 // Out of scope for this fix: whether the controller pthread itself
 // (priority 1, set in pthread.h) should be raised. pthread_create() there
 // is a shared POSIX-compat shim, not specific to this transport, and
 // repricing it is a separate change this file does not make.
-#define RPMSG_POLL_TASK_PRIORITY (TCPIP_THREAD_PRIO + 1)
 
 // Review finding (Important 5): rpmsg_netif_get_stats() -- the glue's own
 // rx-drop counters plus the frozen core tx/rx counters -- had no caller
@@ -289,31 +316,61 @@ static void rpmsg_poll_task(void *pv) {
 
 // ---- heartbeat task -- review finding (Important 4) ----
 //
-// platform_create_rpmsg_vdev() (vendor BSP, platform_info_common.c) blocks
-// internally waiting for the Linux-side rpmsg-eth driver to reach
-// VIRTIO_CONFIG_S_DRIVER_OK on the shared vdev status byte, with no timeout
-// and no progress output of its own. Whatever task calls
-// rpmsg_transport_init() (configure_network() -> lwip_bring_up_blocking(),
-// which review confirms runs on actuation_task, priority
-// configMAX_PRIORITIES - 2 == 30) therefore cannot yield this wait down to
-// any task below its own priority in any way a caller could observe: the
-// wait loop's internal taskYIELD()/metal_cpu_yield() calls only let
-// equal-or-higher-priority ready tasks run, and nothing else in this image
-// is registered above priority 30 except this heartbeat task and FreeRTOS's
-// own idle/timer tasks. Without an independent, higher-priority task that
-// blocks on a real timer (not a busy-yield), a board session has no way to
-// tell "still waiting for Linux to bind" from "hung" -- both look like
-// silence on the console.
+// platform_create_rpmsg_vdev() (vendor BSP, platform_rcar.c) reaches
+// OpenAMP's rpmsg_init_vdev(), which for the VIRTIO_DEV_DEVICE role this
+// port uses ends in rpmsg_virtio_wait_remote_ready(): a loop polling the
+// shared vdev status byte until the Linux-side rpmsg-eth driver sets
+// VIRTIO_CONFIG_STATUS_DRIVER_OK, with no timeout and no progress output of
+// its own. Whatever task calls rpmsg_transport_init() (configure_network()
+// -> lwip_bring_up_blocking()) therefore sits in that loop for as long as
+// Linux takes to bind. Without an independent, higher-priority task that
+// blocks on a real timer, a board session has no way to tell "still waiting
+// for Linux to bind" from "hung" -- both look like silence on the console.
 //
-// Fix: spawn a task at configMAX_PRIORITIES - 1 (31, one above
-// actuation_task) that vTaskDelay()s on a real tick-driven timeout and
-// prints progress; vTaskDelay() blocks on the tick interrupt independent of
-// what actuation_task is doing, so -- unlike a same-or-lower-priority
-// task -- it is guaranteed to run periodically regardless of how long
-// platform_create_rpmsg_vdev()'s wait takes. It is deleted the moment
-// platform_create_rpmsg_vdev() returns (success or failure); it does not
-// bound the wait itself (the vendor call still has no timeout), it only
-// makes the wait observable.
+// CORRECTED (the premise the rest of this comment used to rest on): it
+// previously stated that the caller runs "on actuation_task, priority
+// configMAX_PRIORITIES - 2 == 30", and that "nothing else in this image is
+// registered above priority 30 except this heartbeat task". The caller is
+// still actuation_task, but it now runs at ACTUATION_TASK_PRIORITY (== 2,
+// see freertos_main.cpp) -- that 30 was the starvation defect, not a fact to
+// build on -- so both statements are stale. Two things are worth recording
+// rather than just renumbering:
+//
+//   - The wait's only concession to other tasks is metal_yield(), and on
+//     this build that is libmetal's `generic` processor backend, where
+//     metal_cpu_yield() expands to nothing at all (the fetched libmetal has
+//     no arm/ variant, so lib/processor/generic/cpu.h is what gets
+//     installed). It is a pure busy spin -- not even a taskYIELD(). No
+//     choice of caller priority makes it hand the CPU over voluntarily.
+//   - Which is precisely why this task's mechanism still holds, and why its
+//     priority must NOT be lowered to track the caller's. It runs because
+//     (a) it sits at configMAX_PRIORITIES - 1 (31), above every other task
+//     in the image, the spinning caller included, and (b) it blocks in
+//     vTaskDelay() -- a real tick-driven wait serviced by the tick
+//     interrupt, not a busy-yield that depends on the spinner cooperating.
+//     A task at or below the caller's priority would still be invisible for
+//     the whole spin; this one is not.
+//
+// RPMSG_VDEV_HEARTBEAT_PRIORITY therefore stays at 31 and only its
+// justification changes: the requirement is "above everything in the image",
+// and with the launcher down at 2 that margin is wider than before, not
+// narrower. The task is deleted the moment platform_create_rpmsg_vdev()
+// returns (success or failure); it does not bound the wait itself (the
+// vendor call still has no timeout), it only makes the wait observable.
+//
+// One real behaviour change the lower caller priority introduces, recorded
+// here because this is the only place the wait is documented: at 30 the spin
+// froze every task below it, so the tcpip thread (4) and the FreeRTOS timer
+// service (3) made no progress for its whole duration. At 2 both can now
+// preempt it -- preemption is priority-driven here (configUSE_PREEMPTION 1)
+// and does not need the spinning task to yield. That is harmless at this
+// point in the sequence: rpmsg_poll_task does not exist yet (it is created
+// further down, after the endpoint), no CycloneDDS thread exists yet (the
+// Controller is constructed later), no netif has been added yet, and the
+// caller holds no lwIP core lock here -- lwip_bringup.c takes
+// LOCK_TCPIP_CORE() only after rpmsg_transport_init() has returned -- so the
+// tcpip thread waking on its own cyclic-timer schedule has nothing to
+// contend with it for.
 #define RPMSG_VDEV_HEARTBEAT_PRIORITY (configMAX_PRIORITIES - 1)
 #define RPMSG_VDEV_HEARTBEAT_STACK_WORDS configMINIMAL_STACK_SIZE
 #define RPMSG_VDEV_HEARTBEAT_PERIOD_TICKS pdMS_TO_TICKS(2000)
