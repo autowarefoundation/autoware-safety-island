@@ -110,12 +110,19 @@ endif()
 # builds this exact combination -- ENABLE_OPENAMP=1 plus rpmsg_sample --
 # successfully today.)
 #
-# Task 7 swaps this one variable to local, actively-maintained copies; no
-# other change in this file should be required.
+# Task 7 swaps this one variable to local, actively-maintained copies (byte-
+# identical to the BSP sample's own platform_rcar.c/remoteproc_rcar.c/
+# rsc_table.c -- see those files' own header comments) so the resource table
+# they produce stays byte-identical to the sample's while living under our
+# own directory, alongside rpmsg_transport.c/rsc_table.h/platform_info.h/
+# platform_info_common.h (also local copies -- quote-#include resolves
+# "rsc_table.h" etc. against the including file's own directory first, which
+# is what keeps these copies from ever seeing the shadowed drivers/virtio/
+# trio that ENABLE_OPENAMP=1 also puts on this target's include path).
 set(X5H_BSP_RPMSG_SOURCES
-    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/platform_rcar.c
-    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/remoteproc_rcar.c
-    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/rsc_table.c
+    ${CMAKE_CURRENT_LIST_DIR}/platform_rcar.c
+    ${CMAKE_CURRENT_LIST_DIR}/remoteproc_rcar.c
+    ${CMAKE_CURRENT_LIST_DIR}/rsc_table.c
 )
 
 # ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp, not a bare relative
@@ -267,9 +274,20 @@ target_link_libraries(actuation_x5h PRIVATE
 # two link inputs NOT already provided by the inherited directory-scoped
 # add_link_options() above. Reused byte-for-byte, unmodified, from the BSP
 # -- see AUDIT.md Section 5.
+#
+# main.cpp is C++, so -Dmain=actuation_main (below, on src/main.cpp) produces
+# the mangled symbol _Z14actuation_mainv (Itanium ABI: "actuation_main" is 14
+# characters, taking void, so no further parameter encoding), not the plain C
+# symbol `actuation_main` freertos_main.cpp's actuation_task() calls via its
+# own `extern "C" int actuation_main(void);` declaration. Mirrors
+# freertos_s32z2/CMakeLists.txt's own identical --defsym line (same main.cpp,
+# same signature, same mangling) verbatim -- this is not new C++-ABI
+# guesswork, just the same fix ported to the platform that had never actually
+# linked a call to actuation_main() until this task wired one in.
 target_link_options(actuation_x5h PRIVATE
     -T${X5H_RCAR_BSP_DEMO_DIR}/common/linker/lscript_rsc_table_vram2.ld
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/actuation_x5h.map
+    "-Wl,--defsym=actuation_main=_Z14actuation_mainv"
 )
 
 # ---- Task 4: full-link the actuation module + CycloneDDS + lwIP ----
@@ -390,9 +408,10 @@ set_source_files_properties(
 # actual target image. rpmsg_netif.c is the lwIP-facing glue that calls into
 # it; lwip_bringup.c is this platform's real lwip_bring_up_blocking()
 # (replaces the Task 3 weak stub deleted from freertos_main.cpp);
-# rpmsg_transport.c is a stub -- see its own header comment -- standing in
-# for Task 7's real OpenAMP/RPMsg endpoint so this branch builds and the
-# contract/budget checks stay green with no real transport underneath.
+# rpmsg_transport.c is Task 7's real OpenAMP/RPMsg endpoint (replaces the
+# Task 6 stub of the same name; see that file's own header comment) --
+# together with X5H_BSP_RPMSG_SOURCES above, this is what actually announces
+# the rpmsg-eth service and feeds inbound frames to rpmsg_netif_rx().
 target_sources(actuation_x5h PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
@@ -410,6 +429,115 @@ set_source_files_properties(
     ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
+)
+
+# ---- Task 7: netif_only_x5h -- the Stage 2 board artifact ----
+#
+# A SECOND target in this same configure (per the controller's ruling on
+# this task), not a project-wide option that would make actuation_x5h itself
+# conditional: one `cmake --build` of this one configure must produce BOTH
+# actuation_x5h.elf (the full actuation module) and netif_only_x5h.elf (the
+# same board/transport/netif stack with the actuation module, CycloneDDS,
+# Eigen, and autoware_msgs left out entirely -- lwIP answers ICMP natively
+# with nothing on top, so ping alone proves the netif works before ever
+# trusting the full actuation link). Built on request via
+# `cmake --build build/freertos-x5h --target netif_only_x5h` (see the task
+# brief); not part of build.sh's own default target list.
+#
+# Deliberately NOT built from an OBJECT library shared with actuation_x5h:
+# the two targets' compile-definition sets differ (X5H_NETIF_ONLY below,
+# absent from actuation_x5h) and sharing compiled objects across two
+# different definition sets is not how CMake object libraries work anyway
+# (one compilation per OBJECT library, not per consuming target). Re-listing
+# the same small source set here is simpler and keeps each target's
+# provenance (what actually went into THIS elf) legible from its own
+# add_executable() call, matching how actuation_x5h itself is defined above.
+add_executable(netif_only_x5h
+    ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/newlib_stubs.c
+    ${X5H_BSP_RPMSG_SOURCES}
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
+    ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
+    ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
+    ${lwipcore_SRCS}
+    ${lwipcore4_SRCS}
+    ${lwipapi_SRCS}
+    ${LWIP_DIR}/src/netif/ethernet.c
+    ${CMAKE_CURRENT_LIST_DIR}/lwip_port/sys_arch.c
+)
+
+set_target_properties(netif_only_x5h PROPERTIES
+    SUFFIX ".elf"
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    EXCLUDE_FROM_ALL TRUE
+)
+
+target_compile_definitions(netif_only_x5h PRIVATE
+    PLATFORM_FREERTOS=1
+    PLATFORM_FREERTOS_X5H=1
+    MFIS_CHAN=${MFIS_CHAN}
+    X5H_NETIF_ONLY=1
+)
+
+target_include_directories(netif_only_x5h PRIVATE
+    ${X5H_ACTUATION_DIR}/include
+    ${X5H_ACTUATION_DIR}/include/platform/freertos/x5h
+    ${X5H_RCAR_BSP_DEMO_DIR}
+    ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5
+    ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5/CMSIS/Core_R/Include
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+    ${LWIP_DIR}/src/include
+    ${CMAKE_CURRENT_LIST_DIR}/lwip_port
+)
+
+target_link_libraries(netif_only_x5h PRIVATE
+    freertos_bsp
+    openamp
+    libmetal
+    m
+)
+
+target_link_options(netif_only_x5h PRIVATE
+    -T${X5H_RCAR_BSP_DEMO_DIR}/common/linker/lscript_rsc_table_vram2.ld
+    -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/netif_only_x5h.map
+)
+
+# Same fd_set/struct-timeval fix as actuation_x5h's own lwipapi_SRCS
+# treatment above (this is the same underlying source list, just recompiled
+# for this second target).
+set_source_files_properties(
+    ${lwipapi_SRCS}
+    PROPERTIES COMPILE_OPTIONS "-include;sys/select.h"
+)
+
+# Same C/C++ hosted-mode restore as actuation_x5h needs (see that target's
+# own detailed comment below, in this same file): freertos_main.cpp's
+# X5H_NETIF_ONLY branch still reaches configure_network() ->
+# common/logger/logger.hpp, which pulls in <chrono>/<map>/<string> --
+# hosted-only headers under this directory's inherited -ffreestanding.
+target_compile_options(netif_only_x5h PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-U__STDC_HOSTED__$<SEMICOLON>-D__STDC_HOSTED__=1>
+)
+
+# Same -O2 rationale as actuation_x5h: no reason for this target's C sources
+# to sit at the directory's implicit -O0 either.
+target_compile_options(netif_only_x5h PRIVATE
+    $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:-O2>
+)
+
+# Same plain-gcc-link C++ runtime group as actuation_x5h needs (see that
+# target's own detailed comment below) -- freertos_main.cpp is compiled as
+# C++ here too (its X5H_NETIF_ONLY branch), so the same undefined-symbol
+# risk applies even though this target never touches CycloneDDS/Eigen/the
+# actuation module itself.
+target_link_libraries(netif_only_x5h PRIVATE
+    -Wl,--start-group
+    stdc++
+    supc++
+    c
+    gcc
+    -Wl,--end-group
 )
 
 # ---- Pre-built CycloneDDS target library ----
@@ -580,8 +708,11 @@ target_sources(actuation_x5h PRIVATE
 
 # Rename main() to actuation_main() only inside the Autoware app's main.cpp;
 # freertos_main.cpp keeps its own main() (the FreeRTOS entry point invoked
-# from startup code) and does not call actuation_main() yet -- wiring that
-# call in is not this task's job (see this section's header comment).
+# from startup code) and calls actuation_main() from its actuation_task()
+# (Task 7's own wiring -- see that file's header comment). The --defsym alias
+# this rename needs (main.cpp is C++, so the renamed symbol is mangled) lives
+# on actuation_x5h's target_link_options() above, next to the comment
+# explaining why.
 set_source_files_properties(${X5H_ACTUATION_DIR}/src/main.cpp PROPERTIES
     COMPILE_DEFINITIONS "main=actuation_main"
 )
@@ -669,8 +800,12 @@ target_compile_options(actuation_x5h PRIVATE
 # target relies on a section-attributed-but-C-unreferenced static, and
 # -fno-toplevel-reorder also disables reordering/DCE of ordinary unreferenced
 # statics tree-wide, which is not a tradeoff worth taking anywhere else.
+#
+# Path updated for Task 7: rsc_table.c now lives at
+# ${CMAKE_CURRENT_LIST_DIR}/rsc_table.c (our own local copy -- see
+# X5H_BSP_RPMSG_SOURCES above), not under X5H_RCAR_BSP_DEMO_DIR.
 set_source_files_properties(
-    ${X5H_RCAR_BSP_DEMO_DIR}/sample_apps/rpmsg_sample/rsc_table.c
+    ${CMAKE_CURRENT_LIST_DIR}/rsc_table.c
     PROPERTIES COMPILE_OPTIONS "-fno-toplevel-reorder"
 )
 
