@@ -34,8 +34,33 @@
 #include "rpmsg_netif_core.h"   /* RPMSG_ETH_SERVICE */
 #include "rpmsg_transport.h"
 
-#define LPRINTF(format, ...) printf(format, ##__VA_ARGS__); vTaskDelay(10);
+// wrapped in do/while(0) (review finding, Minor): without it, `if (cond)
+// LPRINTF(...);` with no braces only guards the printf() call -- the
+// vTaskDelay(10) after it runs unconditionally, every time, regardless of
+// `cond`. None of today's call sites happen to be written that way, but an
+// unbraced two-statement macro is a latent footgun for the next one that is.
+#define LPRINTF(format, ...) do { printf(format, ##__VA_ARGS__); vTaskDelay(10); } while (0)
 #define LPERROR(format, ...) LPRINTF("ERROR: " format, ##__VA_ARGS__)
+
+// A frame that does not fit inside one RPMsg buffer after OpenAMP's own
+// header would be silently truncated or corrupted by rpmsg_trysend() rather
+// than caught at compile time. RPMSG_ETH_MAX_FRAME (rpmsg_netif_core.h) is a
+// frozen wire constant and RPMSG_BUFFER_SIZE comes from <openamp/open_amp.h>,
+// already included above. A future change to either side -- a larger MTU, a
+// smaller vring buffer -- fails the build here instead of failing silently on
+// the wire.
+//
+// The header size is spelled as a literal rather than sizeof(struct rpmsg_hdr)
+// because that struct is declared in OpenAMP's *internal* header
+// (rpmsg_internal.h), not the public open_amp.h: sizeof() on it is an
+// incomplete type here and does not compile. Reaching into the internal header
+// to recover one integer would couple this target to OpenAMP's private layout
+// for no benefit. 16 is the on-wire RPMsg header size the spec's buffer budget
+// is already derived from (512-byte buffer - 16-byte header = 496 payload),
+// so it is the same number the frozen constants were computed against.
+#define RPMSG_HDR_BYTES 16
+_Static_assert(RPMSG_ETH_MAX_FRAME <= RPMSG_BUFFER_SIZE - RPMSG_HDR_BYTES,
+               "RPMSG_ETH_MAX_FRAME must fit within one RPMsg buffer after the header");
 
 static struct rpmsg_endpoint s_ept;
 static void *s_platform;
@@ -121,44 +146,117 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 // below the *10 this tree reserves for genuinely heavy per-call state (e.g.
 // drivers/virtio/r_virtio.c's Virtio_Task, or sample_apps/smmu_app's
 // smmu_core.c page-table walker), neither of which applies to the shallow
-// chain above. Verified against build.sh's actual link (see task-7-report.md
-// for the -fstack-usage/objdump evidence gathered after the first
-// successful build): this is not a guess left unchecked the way Task 6's
-// 488-byte tx frame was before its own review caught it.
+// chain above. Verified against build.sh's actual link, using
+// -fstack-usage/objdump evidence gathered after the first successful build:
+// this is not a guess left unchecked the way rpmsg_netif.c's own 488-byte
+// tx frame was before an earlier review caught it (see that file's
+// s_tx_frame comment).
 #define RPMSG_POLL_TASK_STACK_WORDS (configMINIMAL_STACK_SIZE * 2)
 
-// ---- poll task priority -- review finding (Important 2) ----
+// ---- poll task priority -- review findings (Important #1, this round;
+// originally addressed, with a false premise, as "Important 2" below) ----
 //
-// Previously tskIDLE_PRIORITY + 1 (== 1) with no justification recorded.
-// That number happens to collide with lwIP's own tcpip thread priority:
-// TCPIP_THREAD_PRIO is not defined in this port's lwipopts.h (grep
-// confirmed), so lwIP's own lwip/opt.h default of 1 applies -- pulled in
-// here via lwip/tcpip.h so the macro is programmatically visible instead of
-// a hardcoded magic number that could silently drift out of sync. With
-// configUSE_TIME_SLICING == 0 (FreeRTOSConfig.h, this target), FreeRTOS does
-// NOT round-robin ready tasks of equal priority on a time-slice tick -- a
-// ready task only yields the CPU to an equal-priority peer when it blocks or
-// explicitly calls taskYIELD(). Sitting the poll task at the same priority
-// as the tcpip thread therefore risked exactly the kind of scheduling
-// starvation this review is about, just on the rx side instead of tx.
+// CORRECTED (this replaces a stated invariant that a later whole-branch
+// review found to be false): the comment this replaces claimed the poll
+// task sat "strictly BELOW actuation_task (configMAX_PRIORITIES - 2 == 30):
+// the controller must always win CPU contention." That reasoning treated
+// actuation_task's own priority (30) as if it were the controller's
+// priority. It is not: actuation_task() (freertos_main.cpp) calls
+// actuation_main() (src/main.cpp) -> Controller::wait_for_completion() ->
+// pthread_join(), and blocks there permanently within moments of startup.
+// The controller's real work -- the MPC/PID loop, and every CycloneDDS
+// thread -- runs on pthreads spawned by include/platform/freertos/x5h/
+// pthread.h's pthread_create(), which hardcodes tskIDLE_PRIORITY + 1 (== 1)
+// with no way to override it from this file. So the real map, verified
+// against rcar_bsp's own FreeRTOSConfig.h (configMAX_PRIORITIES 32,
+// configUSE_PREEMPTION 1, configUSE_TIME_SLICING 0,
+// configTIMER_TASK_PRIORITY 3):
 //
-// Chosen value: TCPIP_THREAD_PRIO + 1 (== 2). Rationale for both bounds:
-//   - Strictly ABOVE TCPIP_THREAD_PRIO (1): the poll task's only real-time
-//     job is draining MFIS/virtqueue notifications promptly so rx frames
-//     reach tcpip_input()'s mailbox with low latency; delivery into that
-//     mailbox is itself non-blocking (sys_mbox_trypost(), see the stack
-//     comment above), so raising this task above the tcpip thread cannot
-//     starve the tcpip thread of CPU -- it only ever preempts it for the
-//     short, bounded duration of one platform_poll()/ept_cb() pass, then
-//     blocks again on vTaskDelay(1).
-//   - Strictly BELOW actuation_task (configMAX_PRIORITIES - 2 == 30, see
-//     freertos_main.cpp): the controller must always win CPU contention
-//     against network/IPC housekeeping; nothing about this transport's rx
-//     path is allowed to delay the control loop. A gap of 28 priority
-//     levels between this task (2) and the controller (30) leaves plenty of
-//     room for any future intermediate task without needing to renumber
-//     this one.
+//   31  rpmsg_vdev_hb        (transient, deleted after vdev bring-up)
+//   30  actuation_task       (blocked forever in pthread_join once started)
+//    5  rpmsg_poll_task      (this task -- TCPIP_THREAD_PRIO + 1)
+//    4  tcpip_thread         (TCPIP_THREAD_PRIO, set in lwipopts.h)
+//    3  FreeRTOS timer service (configTIMER_TASK_PRIORITY, vendor-fixed)
+//    1  tcpip_thread's peers: every DDS thread and the controller's own
+//       pthread (tskIDLE_PRIORITY + 1) -- see pthread.h
+//
+// This task therefore preempts the control loop, not the other way around
+// -- the exact inverse of the old comment's claim -- and with
+// configUSE_TIME_SLICING == 0, the priority-1 threads never round-robin
+// against each other: whichever one the scheduler picks holds the CPU until
+// it blocks. lwipopts.h's own TCPIP_THREAD_PRIO/DEFAULT_THREAD_PRIO fix
+// (this same review round) addresses that separately, by giving the tcpip
+// thread a priority strictly above 1 so it is never starved by the DDS/
+// controller pthreads sitting there.
+//
+// Chosen value here is unchanged, TCPIP_THREAD_PRIO + 1 -- what changed is
+// only the justification, and what TCPIP_THREAD_PRIO itself now resolves to
+// (4, not lwIP's undefined-here default of 1; see lwipopts.h). Rationale
+// for both bounds, corrected:
+//   - Strictly ABOVE TCPIP_THREAD_PRIO: the poll task's only real-time job
+//     is draining MFIS/virtqueue notifications promptly so rx frames reach
+//     tcpip_input()'s mailbox with low latency; delivery into that mailbox
+//     is itself non-blocking (sys_mbox_trypost(), see the stack comment
+//     above), so raising this task above the tcpip thread cannot starve the
+//     tcpip thread of CPU -- it only ever preempts it for the short, bounded
+//     duration of one platform_poll()/ept_cb() pass, then blocks again on
+//     vTaskDelay(1).
+//   - Strictly BELOW actuation_task's numeric priority (30): actuation_task
+//     itself is permanently blocked and never contends for the CPU once
+//     startup completes, so this bound buys nothing today -- kept anyway so
+//     the numbering stays monotonic with freertos_main.cpp's own task table
+//     and leaves headroom for any future task placed between this one and
+//     30. It is NOT the safety property the old comment claimed: the
+//     property that actually matters -- the tcpip thread (and by extension
+//     this poll task's downstream delivery target) not being starved by the
+//     DDS/controller pthreads at priority 1 -- is what lwipopts.h's
+//     TCPIP_THREAD_PRIO now provides.
+//
+// Out of scope for this fix: whether the controller pthread itself
+// (priority 1, set in pthread.h) should be raised. pthread_create() there
+// is a shared POSIX-compat shim, not specific to this transport, and
+// repricing it is a separate change this file does not make.
 #define RPMSG_POLL_TASK_PRIORITY (TCPIP_THREAD_PRIO + 1)
+
+// Review finding (Important 5): rpmsg_netif_get_stats() -- the glue's own
+// rx-drop counters plus the frozen core tx/rx counters -- had no caller
+// anywhere in the tree. An operator on a slow serial console had no way to
+// see, e.g., a steadily climbing rx_drop_input_err (tcpip mailbox full)
+// short of attaching a debugger. Printed here, from this task, on a 5 s
+// throttle, and only when at least one counter has actually moved since the
+// last print -- so a healthy link stays silent and a struggling one is
+// visible without flooding the console every tick.
+#define RPMSG_NETIF_STATS_PRINT_PERIOD_TICKS pdMS_TO_TICKS(5000)
+
+static void rpmsg_netif_print_stats_if_changed(void) {
+    static TickType_t s_last_print_ticks;
+    static rpmsg_netif_glue_stats s_last;
+    static int s_have_last;
+
+    TickType_t now = xTaskGetTickCount();
+    if (s_have_last && (TickType_t)(now - s_last_print_ticks) < RPMSG_NETIF_STATS_PRINT_PERIOD_TICKS) {
+        return;
+    }
+
+    rpmsg_netif_glue_stats cur;
+    rpmsg_netif_get_stats(&cur);
+
+    if (s_have_last && memcmp(&cur, &s_last, sizeof(cur)) == 0) {
+        s_last_print_ticks = now;
+        return;
+    }
+
+    LPRINTF("rpmsg_netif stats: tx_ok=%u tx_drop_oversize=%u tx_err=%u"
+            " rx_ok=%u rx_drop_oversize=%u"
+            " rx_drop_no_netif=%u rx_drop_no_pbuf=%u rx_drop_input_err=%u\r\n",
+            cur.core.tx_ok, cur.core.tx_drop_oversize, cur.core.tx_err,
+            cur.core.rx_ok, cur.core.rx_drop_oversize,
+            cur.rx_drop_no_netif, cur.rx_drop_no_pbuf, cur.rx_drop_input_err);
+
+    s_last = cur;
+    s_have_last = 1;
+    s_last_print_ticks = now;
+}
 
 static void rpmsg_poll_task(void *pv) {
     (void)pv;
@@ -184,6 +282,7 @@ static void rpmsg_poll_task(void *pv) {
         // than one specific notify id, matching platform_poll()'s own call.
         remoteproc_get_notification((struct remoteproc *)s_platform,
                                      RSC_NOTIFY_ID_ANY);
+        rpmsg_netif_print_stats_if_changed();
         vTaskDelay(1);
     }
 }

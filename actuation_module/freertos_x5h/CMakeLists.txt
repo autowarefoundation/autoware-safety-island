@@ -33,13 +33,14 @@
 #     stays the vendor's own directory here since include() opens no new
 #     one).
 #
-# Task 3 built the boot scaffold (boots the BSP, prints a boot banner,
-# nothing else linked in). Task 4 (below, "Task 4: full-link...") adds the
-# actuation module, CycloneDDS, and lwIP to that same executable so
-# everything compiles and links inside the frozen memory budget -- it does
-# not bring up lwIP for real (Task 6) or wire an RPMsg transport endpoint
-# (Task 7); freertos_main.cpp's main_task() does not call into any of it
-# yet. The ELF's memory layout is frozen and verified by
+# This file links the full actuation_x5h image: the R-Car BSP boot scaffold
+# (boots the BSP, prints a boot banner) plus the actuation module,
+# CycloneDDS, and lwIP-over-RPMsg (see the "full-link" section below),
+# everything compiling and linking inside the frozen memory budget. lwIP is
+# brought up for real (freertos_x5h/lwip_bringup.c) against a real RPMsg
+# transport endpoint (freertos_x5h/rpmsg_transport.{h,c}); freertos_main.cpp
+# calls into all of it via actuation_task(). The ELF's memory layout is
+# frozen and verified by
 # scripts/check-elf-contract.sh: .text at 0x11600000 (the Core1 vram2 slot)
 # and .resource_table at 0x96650000 (the fixed remoteproc resource-table
 # carveout), both produced by the BSP's own unmodified linker scripts
@@ -49,16 +50,16 @@
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Mirror the other FreeRTOS targets' anchor variables so a later task's
+# Mirror the other FreeRTOS targets' anchor variables so
 # actuation_core.cmake / autoware component .cmake files resolve their
-# relative paths the same way. Not wired in yet -- Task 4 adds the actuation
-# module itself and starts using these. CMAKE_CURRENT_LIST_DIR, not
-# CMAKE_CURRENT_SOURCE_DIR -- see the header comment above.
+# relative paths the same way; the actuation module section below (and the
+# CycloneDDS/lwIP sections that follow it) use these. CMAKE_CURRENT_LIST_DIR,
+# not CMAKE_CURRENT_SOURCE_DIR -- see the header comment above.
 #
 # X5H_-prefixed: this set() runs in the VENDOR's directory scope (see the
 # header comment above), so an unprefixed name here would leak into that
-# scope's variable namespace -- a growing collision surface as Tasks 4-8 add
-# more variables. X5H_BSP_RPMSG_SOURCES below already followed this
+# scope's variable namespace -- a growing collision surface as more sections
+# below add more variables. X5H_BSP_RPMSG_SOURCES below already followed this
 # convention; the rest are brought in line with it here.
 set(X5H_ACTUATION_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 set(X5H_REPO_ROOT ${X5H_ACTUATION_DIR}/..)
@@ -296,18 +297,17 @@ target_link_options(actuation_x5h PRIVATE
     "-Wl,--defsym=actuation_main=_Z14actuation_mainv"
 )
 
-# ---- Task 4: full-link the actuation module + CycloneDDS + lwIP ----
+# ---- Full-link the actuation module + CycloneDDS + lwIP ----
 #
-# Network bring-up stays stubbed (freertos_main.cpp's lwip_bring_up_blocking
-# weak stub, replaced for real in Task 6); this section only has to make
-# everything below compile and link within the frozen 10 MiB Core1 slot
-# budget (scripts/check-image-budget.sh). None of it is called from
-# freertos_main.cpp's main_task() yet -- these are plain target_sources() on
+# Network bring-up is live: freertos_main.cpp's actuation_task() calls
+# lwip_bring_up_blocking() (freertos_x5h/lwip_bringup.c), which brings up the
+# real RPMsg netif and transport. This section makes everything below
+# compile and link within the frozen 10 MiB Core1 slot budget
+# (scripts/check-image-budget.sh). These are plain target_sources() on
 # actuation_x5h (not members of a static archive), and the base link options
 # above do not use --gc-sections, so every translation unit added here is
 # unconditionally included in the link regardless of whether anything calls
-# into it. That is enough to prove the link fits; it does not run any of
-# this code.
+# into it.
 
 # ---- Configurable values ----
 # Mirrors freertos_s32z2's CONFIG_* CACHE knobs so the shared
@@ -331,10 +331,19 @@ set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)"
 # CONFIG_DDS_DISABLE_MULTICAST). Both constants are the frozen wire values
 # shared with the Linux side's cyclonedds-x5h.xml.
 set(CONFIG_DDS_PEER "172.16.52.1" CACHE STRING "Unicast SPDP peer IPv4 (Linux edge ECU over the RPMsg netif)")
+# target_compile_definitions(actuation_x5h ...), not directory-scoped
+# add_compile_definitions() (review finding, Minor): this file runs inside
+# the VENDOR's own directory scope (see the header comment above), so a
+# directory-scoped add_compile_definitions() here would leak
+# CONFIG_NET_CONFIG_PEER_IPV4_ADDR/CONFIG_DDS_DISABLE_MULTICAST into every
+# target configured in that scope, not just actuation_x5h -- including
+# netif_only_x5h, which does not compile common/dds/config.hpp (the only
+# consumer of either macro) at all. Scoped to actuation_x5h alone, matching
+# the EIGEN_FAST_MATH=0 precedent already in this file.
 if(CONFIG_DDS_PEER)
-    add_compile_definitions(CONFIG_NET_CONFIG_PEER_IPV4_ADDR="${CONFIG_DDS_PEER}")
+    target_compile_definitions(actuation_x5h PRIVATE CONFIG_NET_CONFIG_PEER_IPV4_ADDR="${CONFIG_DDS_PEER}")
 endif()
-add_compile_definitions(CONFIG_DDS_DISABLE_MULTICAST=1)
+target_compile_definitions(actuation_x5h PRIVATE CONFIG_DDS_DISABLE_MULTICAST=1)
 # Controller node thread stack. autoware_mpc_lateral_controller's Eigen-heavy
 # control cycle overflowed a 256 KiB stack by a few hundred bytes on S32Z2
 # (same component, same Cortex-R52 + NEON ABI); 512 KiB gives ~2x margin.
@@ -523,13 +532,13 @@ target_link_options(netif_only_x5h PRIVATE
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/netif_only_x5h.map
 )
 
-# Same fd_set/struct-timeval fix as actuation_x5h's own lwipapi_SRCS
-# treatment above (this is the same underlying source list, just recompiled
-# for this second target).
-set_source_files_properties(
-    ${lwipapi_SRCS}
-    PROPERTIES COMPILE_OPTIONS "-include;sys/select.h"
-)
+# Review finding (Minor): the fd_set/struct-timeval fix for lwipapi_SRCS is
+# NOT repeated here. set_source_files_properties() sets properties on the
+# named source FILES, in the CURRENT DIRECTORY SCOPE -- not per-target -- so
+# the call already made once, above (actuation_x5h's own lwipapi_SRCS
+# treatment), already applies to these same files for every target in this
+# directory scope, netif_only_x5h included. A second, identical call here
+# was a no-op that only obscured that fact.
 
 # Same C/C++ hosted-mode restore as actuation_x5h needs (see that target's
 # own detailed comment below, in this same file): freertos_main.cpp's
@@ -692,7 +701,8 @@ foreach(_x5h_idl ${AUTOWARE_MSGS_IDL_FILES})
 endforeach()
 
 # Absolute path to idlc (CDDS_HOST_PREFIX/bin/idlc, already guarded to exist
-# at line 354 above), not a bare `idlc` relying on PATH: this custom command
+# by the if(NOT EXISTS ...) check in the "Pre-built CycloneDDS target
+# library" section above), not a bare `idlc` relying on PATH: this custom command
 # runs later, inside `cmake --build`'s own generated Makefiles/ninja rules,
 # a separate process tree from configure-time -- the set(ENV{PATH} ...) a
 # few lines up only affects the configure-time process (see that line's own

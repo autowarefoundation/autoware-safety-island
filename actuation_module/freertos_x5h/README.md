@@ -6,23 +6,13 @@ firmware image alongside Linux on the same SoC.
 
 ## Status
 
-`actuation_x5h.elf` **links** the full actuation module — CycloneDDS, the
-controller, Eigen, and lwIP — but does not yet **run** it. Distinguishing the
-two matters here (review finding: an earlier revision of this section said the
-actuation module "lands in Task 4" as if it were still future work, when the
-full link landed in this PR):
-
-- Linked, in this PR: the actuation module, CycloneDDS cross-built as a
-  static library, lwIP, and the frozen resource-table/RPMsg glue. Everything
-  the ELF contract and the image budget are asserted against is therefore
-  real, not a placeholder.
-- Not yet running: `main()` (`freertos_main.cpp`) still starts only the
-  scaffold task, which boots the R-Car BSP, brings up the console, starts the
-  FreeRTOS scheduler and prints `X5H_SCAFFOLD_ALIVE` once per second. It does
-  not call `configure_network()` or the controller.
-- Real lwIP-over-RPMsg bring-up lands in Task 6 (`lwip_bring_up_blocking()`
-  is currently a weak stub returning 0).
-- The RPMsg transport endpoint lands in Task 7.
+`actuation_x5h.elf` boots the R-Car BSP, brings up the console, starts the
+FreeRTOS scheduler, and runs the full actuation module: CycloneDDS, the
+controller, real lwIP-over-RPMsg network bring-up
+(`lwip_bring_up_blocking()`, `freertos_x5h/lwip_bringup.c`), and a real
+RPMsg transport endpoint (`freertos_x5h/rpmsg_transport.{h,c}`) carrying
+Ethernet frames to/from the Linux edge ECU peer over the CR52's `rpmsg-eth`
+channel.
 
 The ELF's memory layout is already frozen and verified by
 `scripts/check-elf-contract.sh`: `.text` at `0x11600000` (the Core1 `vram2`
@@ -65,6 +55,26 @@ no environment variables to export.
 
 Output: `build/freertos-x5h/actuation_x5h.elf`.
 
+## The netif-only board artifact (`netif_only_x5h.elf`)
+
+`./build.sh --platform freertos-x5h` builds this second ELF automatically,
+alongside `actuation_x5h.elf`, in the same CMake configure (it is
+`EXCLUDE_FROM_ALL` in `CMakeLists.txt`, so a bare `cmake --build` of that
+directory does not build it as a side effect — `build.sh` builds it
+explicitly by name, `--target netif_only_x5h`, right after
+`actuation_x5h`). It links the same board/RPMsg-transport/lwIP-netif stack
+as `actuation_x5h.elf` but leaves out the actuation module, CycloneDDS,
+Eigen, and `autoware_msgs` entirely: lwIP answers ICMP natively with
+nothing built on top of it, so a bare `ping` against the CR52's
+172.16.52.2 address proves the RPMsg netif itself is alive before ever
+trusting the full actuation/DDS link on top of it. Both
+`check-elf-contract.sh` and `check-image-budget.sh` (below) run against
+`netif_only_x5h.elf` as well as `actuation_x5h.elf` on every `build.sh` run,
+so it cannot silently bit-rot or drift out of budget between uses. Build it
+on its own with `cmake --build build/freertos-x5h --target netif_only_x5h`
+when narrowing down whether a failure is in the netif or in the actuation
+module above it.
+
 ## Verify the ELF contract
 
 ```bash
@@ -76,9 +86,26 @@ checks the ELF's LOAD segments, `.text` base address, and the
 `.resource_table` section's address, size, and byte-level vdev/vring
 contents — the facts a hardware flash decision depends on. It must not be
 modified; a failure here means the build produced a different memory layout,
-not that the script is wrong.
+not that the script is wrong. `build.sh` runs it against both
+`actuation_x5h.elf` and `netif_only_x5h.elf` on every build.
 
-## Verify the DDS wire config (Task 8)
+## Check the image budget
+
+```bash
+./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h/actuation_x5h.elf
+```
+
+Expected: `BUDGET_PASS ...` (or a `BUDGET_WARN` above 90% full, still a
+zero exit). This is the memory-risk gate for the frozen 10 MiB Core1 boot
+slot window: the full lwIP + CycloneDDS + actuation module link must fit
+inside it alongside the resource table and everything else remoteproc
+carves out of that same window. `build.sh` runs this against both
+`actuation_x5h.elf` and `netif_only_x5h.elf` on every build, so
+`netif_only_x5h.elf` — much smaller today, but still linked from the same
+board/RPMsg/lwIP sources — cannot silently grow past budget unnoticed
+between the times someone happens to check it by hand.
+
+## Verify the DDS wire config
 
 ```bash
 ./actuation_module/freertos_x5h/scripts/check-dds-config.sh
@@ -136,9 +163,12 @@ link:
 - The RPMsg resource-table and platform glue sources
   (`platform_rcar.c`, `remoteproc_rcar.c`, `rsc_table.c`) are the BSP
   sample's own copies (`sample_apps/rpmsg_sample/`), referenced through one
-  `X5H_BSP_RPMSG_SOURCES` CMake variable. Task 7 (the real RPMsg transport
-  endpoint) swaps that one variable to local, actively-maintained copies —
-  no other change to this file should be required.
+  `X5H_BSP_RPMSG_SOURCES` CMake variable. `rpmsg_transport.c` — the real
+  RPMsg transport endpoint, announcing the `rpmsg-eth` service and feeding
+  inbound frames to `rpmsg_netif_rx()` — is a separate, actively-maintained
+  local file added alongside it via `target_sources()`, together with
+  `rpmsg_netif_core.c`, `rpmsg_netif.c`, and `lwip_bringup.c` (see the
+  "RPMsg-backed lwIP netif + bring-up" section of `CMakeLists.txt`).
 - The BSP's `drivers/virtio/` tree contains a different-content trio with
   the same file names and exported symbol names, compiled into
   `freertos_bsp` whenever `ENABLE_OPENAMP=1`. This does not collide at link

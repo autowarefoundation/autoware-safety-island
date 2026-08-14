@@ -26,13 +26,22 @@ static unsigned s_rx_drop_no_netif;
 // bookkeeping, not part of Task 5's frozen rpmsg_netif_stats contract.
 static unsigned s_rx_drop_no_pbuf;
 
+// Counts frames dropped because s_netif->input() rejected the pbuf (review
+// finding, Important). Before this counter existed, glue_rx_deliver() below
+// freed the pbuf on this path with no bookkeeping at all -- a silent drop an
+// operator on a slow serial console had no way to see. Same reasoning as
+// the two counters above: glue-level bookkeeping, not part of Task 5's
+// frozen rpmsg_netif_stats contract.
+static unsigned s_rx_drop_input_err;
+
 // Outbound frame staging buffer. File-scope static, not a linkoutput()
 // stack-local: RPMSG_ETH_MAX_FRAME is 476 bytes, and every task on this port
 // (including the socket-send caller under LOCK_TCPIP_CORE(), see
 // lwip_bringup.c) runs on a 1 KiB-class FreeRTOS stack. A 476-byte
-// stack-local here previously stacked on top of the caller's own frame on
-// the same path -- see the fix report in task-6-report.md for the
-// objdump-measured worst case. linkoutput() is only ever called with
+// stack-local here would have stacked on top of the caller's own frame on
+// the same path -- confirmed via -fstack-usage/objdump measurement of the
+// worst-case call chain (see rpmsg_transport.c's own stack-sizing comment
+// for the equivalent measurement on that side). linkoutput() is only ever called with
 // LOCK_TCPIP_CORE() held (directly by tcpip_thread(), or synchronously by
 // tcpip_api_call() from the caller's own thread -- see lwip_bringup.c's
 // core-locking comment for the citations), so a single shared buffer here
@@ -66,13 +75,17 @@ static void glue_rx_deliver(void *ctx, const void *frame, unsigned len) {
         pbuf_free(p);
         return;
     }
-    if (s_netif->input(p, s_netif) != ERR_OK) pbuf_free(p);
+    if (s_netif->input(p, s_netif) != ERR_OK) {
+        s_rx_drop_input_err++;
+        pbuf_free(p);
+    }
 }
 
 void rpmsg_netif_get_stats(rpmsg_netif_glue_stats *out) {
     out->core = s_stats;
     out->rx_drop_no_netif = s_rx_drop_no_netif;
     out->rx_drop_no_pbuf = s_rx_drop_no_pbuf;
+    out->rx_drop_input_err = s_rx_drop_input_err;
 }
 
 static const rpmsg_netif_ops s_ops = { glue_tx, glue_rx_deliver, 0 };

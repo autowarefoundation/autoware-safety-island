@@ -40,14 +40,18 @@ concurrency:
 jobs:
   build-x5h:
     name: freertos-x5h firmware + checkers
-    # ubicloud-standard-16 (x64): this cross-compiles CycloneDDS twice (host
-    # idlc/tools, then the arm-none-eabi target library), fetches and builds
-    # OpenAMP/libmetal via ExternalProject_Add, and links both
-    # actuation_x5h.elf and netif_only_x5h.elf -- more compile work than the
-    # host-unit-test job below, but a single native x64 toolchain build, not
-    # a from-scratch OS image or a cross-arch job, so the top -30 tier is not
-    # warranted.
-    runs-on: ubicloud-standard-16
+    # ubuntu-latest, not a ubicloud-standard-* label (review finding,
+    # Important): this workflow's own `on:` trigger includes
+    # `pull_request: branches: [main]`, so it runs against the upstream repo
+    # once a PR from this branch targets main there -- and ubicloud runner
+    # groups are a fork-only add-on (this repo's youtalk fork routes heavy
+    # jobs to them; see the CI-routing commit history), not something
+    # upstream's runner fleet has. A ubicloud-standard-* label upstream has
+    # no matching runner group at all, so the job would queue forever, not
+    # fail loudly. Every other workflow in this repo (build-ci.yml,
+    # release.yml, docs.yml) already uses ubuntu-latest/ubuntu-24.04-arm for
+    # exactly this reason; this workflow now matches that convention.
+    runs-on: ubuntu-latest
     container:
       image: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
 
@@ -150,12 +154,14 @@ jobs:
 
   host-unit-test:
     name: FreeRTOS POSIX host unit test (rpmsg_netif_core)
-    # ubicloud-standard-4 (x64): a POSIX-simulator build (one host-native
-    # CycloneDDS compile, one small C/C++ link) -- build-ci.yml's existing
-    # build-freertos job does comparable work on a plain ubuntu-latest
-    # (2 vCPU) runner. 4 is a modest bump for headroom, not the 16/30 tiers
-    # reserved for the cross-compile and cross-arch jobs in this workflow.
-    runs-on: ubicloud-standard-4
+    # ubuntu-latest (review finding, Important -- see the same fix's
+    # rationale on the cross-compile job above): a ubicloud-standard-* label
+    # has no matching runner group upstream, where this workflow's own
+    # pull_request trigger also runs. build-ci.yml's existing
+    # build-freertos job already does comparable work (a POSIX-simulator
+    # build: one host-native CycloneDDS compile, one small C/C++ link) on
+    # plain ubuntu-latest, so this job matches that established baseline.
+    runs-on: ubuntu-latest
     container:
       image: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
 
@@ -195,14 +201,15 @@ jobs:
 
   edge-ecu-peer-arm64:
     name: arm64 edge_ecu_peer bundle (native)
-    # ubicloud-standard-8-arm: this job's entire reason to exist is running
-    # natively on arm64, not the vCPU count -- it must be an `-arm` runner.
-    # 8 is chosen because the job natively compiles CycloneDDS once inside a
-    # nested podman container and links two small C executables against it,
-    # comparable in weight to the host-unit-test job above; the top -30-arm
-    # tier is reserved for heavier jobs elsewhere in this repo (the x5h
-    # kernel build) and is not needed here.
-    runs-on: ubicloud-standard-8-arm
+    # ubuntu-24.04-arm, not ubicloud-standard-8-arm (review finding,
+    # Important -- see the same fix's rationale on the cross-compile job
+    # above): this job's entire reason to exist is running natively on
+    # arm64, not a particular vCPU count, and ubicloud-standard-8-arm has no
+    # matching runner group upstream, where this workflow's own
+    # pull_request trigger also runs. docker-build-push.yml's own
+    # matrix.runner already establishes ubuntu-24.04-arm as this repo's
+    # GitHub-hosted native-arm64 convention; this job now matches it.
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout repository
@@ -287,6 +294,33 @@ jobs:
             # line its name implies, not the full `readelf -d` dump.
             readelf -d "${BIN_DIR}/${bin}" | grep -i runpath | tee "/tmp/${bin}-runpath.txt"
             grep -q '\$ORIGIN/lib' "/tmp/${bin}-runpath.txt"
+          done
+
+      # Review finding (Important 6): build-edge-ecu-peer-arm64.sh now
+      # asserts this internally too (both right after the copy loop and
+      # again as an independent post-check), so this step is deliberately
+      # redundant in the same spirit as the RUNPATH step above -- a
+      # concrete, named CI check for "every libddsc* NEEDED entry the
+      # binaries actually reference landed in the shipped bundle's lib/",
+      # not just "the build script's own internal assertion didn't fire".
+      - name: Assert bundle lib/ contains every libddsc NEEDED entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN_DIR=build/edge-ecu-peer-arm64/build/peer-build
+          BUNDLE_LIB=build/edge-ecu-peer-arm64/bundle/lib
+          for bin in edge_ecu_pub edge_ecu_sub; do
+            needed=$(readelf -d "${BIN_DIR}/${bin}" | awk -F'[][]' '/NEEDED/{print $2}')
+            for lib in ${needed}; do
+              case "${lib}" in
+                libddsc*)
+                  test -e "${BUNDLE_LIB}/${lib}" || {
+                    echo "ERROR: ${bin} needs ${lib}, missing from ${BUNDLE_LIB}/" >&2
+                    exit 1
+                  }
+                  ;;
+              esac
+            done
           done
 
       - name: Upload arm64 edge_ecu_peer bundle

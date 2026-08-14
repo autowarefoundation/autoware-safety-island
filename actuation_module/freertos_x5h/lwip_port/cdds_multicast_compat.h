@@ -5,9 +5,9 @@
 // target library (scripts/build-cdds-target.sh's standalone cross-build).
 //
 // lwipopts.h sets LWIP_IGMP=0 (and, following from that, the default
-// LWIP_MULTICAST_TX_OPTIONS=0) -- correct for this transport, since Task 6's
-// RPMsg netif has no multicast-capable link layer (see lwipopts.h's own
-// comment). With those off, lwip/sockets.h does not define
+// LWIP_MULTICAST_TX_OPTIONS=0) -- correct for this transport, since the
+// RPMsg netif (rpmsg_netif.{h,c}) has no multicast-capable link layer (see
+// lwipopts.h's own comment). With those off, lwip/sockets.h does not define
 // IP_MULTICAST_TTL / IP_MULTICAST_IF / IP_MULTICAST_LOOP /
 // IP_ADD_MEMBERSHIP / IP_DROP_MEMBERSHIP / struct ip_mreq at all -- but
 // CycloneDDS's src/core/ddsi/src/ddsi_udp.c
@@ -27,8 +27,9 @@
 // setsockopt() calls using these values still resolve through
 // lwip_setsockopt()'s own IGMP-disabled code path at runtime (a graceful
 // no-op/ENOPROTOOPT, not a crash) -- acceptable because this transport
-// genuinely has no multicast group to join, and network bring-up stays
-// stubbed until Task 6 regardless of this shim.
+// genuinely has no multicast group to join: it is a point-to-point RPMsg
+// link between exactly two peers, not a broadcast medium, so multicast has
+// nothing to address regardless of this shim.
 #ifndef CDDS_MULTICAST_COMPAT_H_
 #define CDDS_MULTICAST_COMPAT_H_
 

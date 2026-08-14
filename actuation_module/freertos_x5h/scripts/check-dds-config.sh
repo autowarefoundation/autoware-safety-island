@@ -37,8 +37,21 @@
 # XML checks now go through `xmllint --xpath`, which evaluates the parsed
 # DOM: comments are invisible to the DOM the same way they are invisible to
 # any real XML consumer (including this project's own CycloneDDS-if-XML-were
-# ever read), so this is structurally immune to the comment-evasion bug,
-# not just patched against today's one known shape of it.
+# ever read), so this fixes the comment-evasion bug for the case that
+# motivated it.
+#
+# CORRECTED (review finding, Important #7): a previous revision of this
+# comment claimed that switching to `xmllint --xpath` made these checks
+# "structurally immune" to comment-evasion in general -- that overclaimed.
+# `xmllint --xpath 'string(...)'` reads only the FIRST node the path
+# resolves to; a document with a second, uncommented `<Peer Address="...">`
+# added after the correct one would still make `string(...)` return the
+# first (correct) value and PASS, even though a real CycloneDDS parser
+# reading the same file could behave differently with two peers present.
+# The require_xpath calls below now also assert `count(...)=1` on every
+# path where more than one match would be a real ambiguity (the `<Peer>`
+# node), so a duplicate is caught as its own failure rather than silently
+# passing because the first match happened to be right.
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
@@ -91,9 +104,24 @@ require_match() {
     # readers/writers, no race. (Caught via repeated re-runs of this script
     # during round-1 perturbation testing producing a different, incorrect
     # extra failure each time.)
+    # Comment syntax is per-language, and getting this wrong is not a
+    # theoretical risk: the `#` rule below is correct for CMake/shell but
+    # catastrophic for C, where it strips every `#define` -- i.e. exactly the
+    # lines these checks exist to find. Not hypothetical either: it made all
+    # six C-side assertions unsatisfiable the first time they ran, reporting
+    # "not found" for constants that were present and correct.
+    #
+    # C sources therefore get `//` stripping instead. Block comments (/* */)
+    # are deliberately NOT handled -- doing that correctly needs multi-line
+    # state, and a `#define` of a wire constant sitting inside a block comment
+    # is a shape this codebase does not have. Said plainly so nobody reads
+    # this helper as more general than it is.
     local file="$1" desc="$2" pattern="$3"
     local stripped
-    stripped=$(sed -E 's/(^|[[:space:]])#.*$//' "${file}")
+    case "${file}" in
+        *.c|*.h) stripped=$(sed -E 's://.*$::' "${file}") ;;
+        *)       stripped=$(sed -E 's/(^|[[:space:]])#.*$//' "${file}") ;;
+    esac
     if ! grep -Eq -- "${pattern}" <<<"${stripped}"; then
         record_fail "${desc}: pattern not found in an active (non-comment) line of ${file#${REPO_ROOT}/} (looked for: ${pattern})"
     fi
@@ -185,12 +213,63 @@ for xml in "${xml_configs[@]}"; do
     if [[ "${xml}" == *"cyclonedds-x5h.xml" ]]; then
         require_xpath "${xml}" "Linux side (XML doc): DDS domain is not 2" \
             'string(/CycloneDDS/Domain/@Id)' '2'
+        # count()=1 (review finding, Important #7): string(...) alone only
+        # ever reads the FIRST matching <Peer>, so a second, uncommented
+        # <Peer> node added after a correct one would still PASS the value
+        # check below even though it makes the document genuinely
+        # ambiguous. Asserted before the value check so a duplicate is
+        # reported as its own distinct failure.
+        require_xpath "${xml}" "Linux side (XML doc): expected exactly one <Peer> node" \
+            'string(count(/CycloneDDS/Domain/Discovery/Peers/Peer))' '1'
         require_xpath "${xml}" "Linux side (XML doc): unicast SPDP peer is not 172.16.52.2 (CR52)" \
             'string(/CycloneDDS/Domain/Discovery/Peers/Peer/@Address)' '172.16.52.2'
         require_xpath "${xml}" "Linux side (XML doc): multicast is not disabled" \
             'string(/CycloneDDS/Domain/General/AllowMulticast/text())' 'false'
     fi
 done
+
+# ---- 4. CR52 side, lwIP static netif address (Important #7) ----
+# lwip_bringup.c's LWIP_STATIC_IP/LWIP_STATIC_NETMASK/LWIP_STATIC_GW are the
+# actual constants that set the CR52's netif address at runtime -- previously
+# never cross-checked here at all, despite this script's own header claiming
+# to verify the wire config "on both sides".
+LWIP_BRINGUP="${X5H_DIR}/lwip_bringup.c"
+if [ ! -f "${LWIP_BRINGUP}" ]; then
+    record_fail "missing FreeRTOS-side lwIP bring-up: ${LWIP_BRINGUP#${REPO_ROOT}/}"
+else
+    require_match "${LWIP_BRINGUP}" "FreeRTOS side (lwIP): static IP is not 172.16.52.2" \
+        'LWIP_STATIC_IP[[:space:]]+"172\.16\.52\.2"'
+    require_match "${LWIP_BRINGUP}" "FreeRTOS side (lwIP): static netmask is not 255.255.255.0" \
+        'LWIP_STATIC_NETMASK[[:space:]]+"255\.255\.255\.0"'
+    require_match "${LWIP_BRINGUP}" "FreeRTOS side (lwIP): static gateway is not 172.16.52.1" \
+        'LWIP_STATIC_GW[[:space:]]+"172\.16\.52\.1"'
+fi
+
+# ---- 5. RPMsg wire-format constants (Important #7) ----
+# rpmsg_netif_core.h's RPMSG_ETH_SERVICE/RPMSG_ETH_MTU/RPMSG_ETH_MAX_FRAME and
+# rpmsg_netif.c's CR52 MAC literal are frozen wire constants both sides must
+# agree on (the Linux peer's side of the MTU/frame-size agreement is
+# implicit in the tap0 MTU it is brought up with; the service name and MAC
+# are consumed on the Linux side via the rpmsg-eth chardev and the kernel's
+# own ARP resolution of whatever the CR52 announces). Previously unchecked.
+RPMSG_NETIF_CORE_H="${X5H_DIR}/rpmsg_netif_core.h"
+RPMSG_NETIF_C="${X5H_DIR}/rpmsg_netif.c"
+if [ ! -f "${RPMSG_NETIF_CORE_H}" ]; then
+    record_fail "missing RPMsg wire-format header: ${RPMSG_NETIF_CORE_H#${REPO_ROOT}/}"
+else
+    require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: service name is not rpmsg-eth" \
+        'RPMSG_ETH_SERVICE[[:space:]]+"rpmsg-eth"'
+    require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: MTU is not 462" \
+        'RPMSG_ETH_MTU[[:space:]]+462'
+    require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: max frame is not (RPMSG_ETH_MTU + 14)" \
+        'RPMSG_ETH_MAX_FRAME[[:space:]]+\(RPMSG_ETH_MTU \+ 14\)'
+fi
+if [ ! -f "${RPMSG_NETIF_C}" ]; then
+    record_fail "missing RPMsg netif glue: ${RPMSG_NETIF_C#${REPO_ROOT}/}"
+else
+    require_match "${RPMSG_NETIF_C}" "RPMsg side: CR52 MAC is not 02:5c:52:00:00:02" \
+        '0x02, 0x5c, 0x52, 0x00, 0x00, 0x02'
+fi
 
 if [ "${fail}" -ne 0 ]; then
     echo "FAIL: check-dds-config.sh" >&2
@@ -204,4 +283,7 @@ echo "PASS: check-dds-config.sh"
 echo "  XML validated: ${#xml_configs[@]} file(s)"
 echo "  FreeRTOS side (${X5H_CMAKE#${REPO_ROOT}/}): interface=172.16.52.2 peer=172.16.52.1 domain=2 multicast=disabled"
 echo "  Linux side    (${ARM64_BUILD_SCRIPT#${REPO_ROOT}/}): interface=tap0 peer=172.16.52.2 domain=2 multicast=disabled"
-echo "  Linux side    (edge_ecu_peer/cyclonedds-x5h.xml, doc cross-check): domain=2 peer=172.16.52.2 multicast=disabled"
+echo "  Linux side    (edge_ecu_peer/cyclonedds-x5h.xml, doc cross-check): domain=2 peer=172.16.52.2 multicast=disabled (exactly one <Peer>)"
+echo "  FreeRTOS side (${LWIP_BRINGUP#${REPO_ROOT}/}): ip=172.16.52.2 netmask=255.255.255.0 gw=172.16.52.1"
+echo "  RPMsg side    (${RPMSG_NETIF_CORE_H#${REPO_ROOT}/}): service=rpmsg-eth mtu=462 max_frame=(mtu+14)"
+echo "  RPMsg side    (${RPMSG_NETIF_C#${REPO_ROOT}/}): CR52 mac=02:5c:52:00:00:02"

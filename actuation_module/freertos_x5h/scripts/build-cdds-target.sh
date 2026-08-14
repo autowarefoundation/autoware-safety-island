@@ -83,9 +83,19 @@ fi
 #
 # -include lwip_port/cdds_freertos_compat.h: see that file's own header
 # comment -- ddsrt/src/threads/freertos/threads.c calls xTaskCreateFpu(),
-# an NXP-RTD-specific FreeRTOS API this R-Car BSP port does not have (and
-# does not need -- its FPU context is saved/restored unconditionally on
-# every context switch, unlike NXP RTD's lazy-restore scheme).
+# an NXP-RTD-specific FreeRTOS API this R-Car BSP port does not have.
+# CORRECTED (review finding, Important): a previous revision of this comment
+# claimed the R-Car port's FPU context is "saved/restored unconditionally on
+# every context switch" and therefore needs no such call -- that was false.
+# common/ARM_CR52/port.c's FPU-context behaviour is controlled by
+# configUSE_TASK_FPU_SUPPORT, which CMakeLists.txt explicitly forces to =2 on
+# the freertos_bsp target (see that file's "FPU context for every task"
+# section); it is that =2 setting, not some port-wide unconditional
+# save/restore, that makes plain xTaskCreate() (aliased to xTaskCreateFpu()
+# here) a safe, complete replacement. This flag is load-bearing: if
+# configUSE_TASK_FPU_SUPPORT ever regressed back to its default of 1
+# (lazy, opt-in FPU context, requiring a vPortTaskUsesFPU() call nothing
+# here makes), this alias alone would no longer be correct.
 cmake -S cyclonedds -B "${CDDS_TARGET_BUILD_DIR}" \
     -DCMAKE_TOOLCHAIN_FILE="${X5H_DIR}/cmake/arm-cortex-r52-x5h.cmake" \
     -DBUILD_SHARED_LIBS=OFF \
