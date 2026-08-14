@@ -132,6 +132,41 @@ set(X5H_BSP_RPMSG_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/rsc_table.c
 )
 
+# ---- Task 18: diagnostic instrumentation for the silent CR52 wedge ----
+#
+# Listed in BOTH targets' own add_executable() calls below rather than added
+# afterwards through target_sources(), so each target's provenance stays
+# legible from its own definition -- the same reasoning netif_only_x5h's
+# source list already carries.
+#
+# x5h_diag_vectors.S is this target's first .S source. The vendor's own
+# project() call enables ASM alongside C (rcar_bsp/.../CMakeLists.txt's
+# `enable_language(C ASM)`), and because our targets are defined in that
+# same directory scope they inherit its CMAKE_ASM_FLAGS and its
+# directory-scoped add_compile_options() -- the same treatment that already
+# builds the BSP's own boot.S and asm_vectors.S. The capital-S suffix is
+# required, not cosmetic: it is what makes GCC run the C preprocessor over
+# the file, which is how it picks up the X5H_DIAG_EXC_* codes it shares with
+# x5h_diag.c out of x5h_diag.h.
+#
+# Neither file is behind a compile definition or a CMake option. This is a
+# diagnostic image whose whole purpose is to always talk; a flag that could
+# default off would defeat it.
+set(X5H_DIAG_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_diag.c
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_diag_vectors.S
+)
+
+# The same -Wall/-Wextra treatment the Task 6/7 network sources get further
+# down this file, and for the same reason: neither target's own
+# target_compile_options() block enables them, and new code in this
+# directory is held to the host test target's bar. C only -- these are not
+# flags the assembler consumes.
+set_source_files_properties(
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_diag.c
+    PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
+)
+
 # ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp, not a bare relative
 # "freertos_main.cpp": a plain include() (see the header comment above)
 # resolves relative source paths against CMAKE_CURRENT_SOURCE_DIR, which is
@@ -139,6 +174,7 @@ set(X5H_BSP_RPMSG_SOURCES
 add_executable(actuation_x5h
     ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp
     ${CMAKE_CURRENT_LIST_DIR}/newlib_stubs.c
+    ${X5H_DIAG_SOURCES}
     ${X5H_BSP_RPMSG_SOURCES}
 )
 
@@ -484,6 +520,7 @@ set_source_files_properties(
 add_executable(netif_only_x5h
     ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp
     ${CMAKE_CURRENT_LIST_DIR}/newlib_stubs.c
+    ${X5H_DIAG_SOURCES}
     ${X5H_BSP_RPMSG_SOURCES}
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
