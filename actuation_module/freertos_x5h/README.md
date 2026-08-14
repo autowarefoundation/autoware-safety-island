@@ -131,6 +131,53 @@ link:
   secondary, documentation-only cross-check of the same constants — see
   that XML file's own header comment.
 
+## Diagnostics: reading the console (`x5h_diag.c`)
+
+Both ELFs carry an always-on diagnostic surface (`x5h_diag.h`,
+`x5h_diag.c`, `x5h_diag_vectors.S`). It is not behind any build flag, and
+none of it allocates — output goes through the BSP's polled
+`R_SERIAL_PutChar()` rather than `printf()`, because two of the failure
+modes it exists to catch are reached from inside the allocator. What a
+board session should look for, in the order it appears:
+
+- **First line of all, before `FreeRTOS X5H … starting…`:**
+  `x5h-diag: exception vectors installed, VBAR 0x… -> 0x…`. If this line is
+  missing, `main()` was never reached and nothing below applies. If it
+  reports `ERROR … not 32-byte aligned`, the diagnostic vectors were *not*
+  installed and the vendor's silent `b <self>` fault vectors are still in
+  place.
+- **Every 5 s, forever:** `x5h-diag: beacon #N uptime_ms=… launcher=… stack_hwm_words=… heap_brk=… heap_used=… sbrk_free=… heap_free=…`.
+  This task is never deleted, so **silence now means dead** — before this
+  image, a quiet console was ambiguous between "wedged" and "nothing was
+  logging". Watch `stack_hwm_words` (words of headroom left on the task
+  running the DDS chain — falling towards 0 means an imminent overflow) and
+  `heap_free` (the number a failing `malloc()` competes for).
+- **Immediately before the DDS domain call:**
+  `x5h-diag: mark pre-dds_create_domain_with_rawconfig …` with the same
+  fields. Compare it against the last beacon line before the console went
+  quiet.
+- **On a CPU fault:** `*** X5H EXCEPTION: <name> ***` followed by the
+  offset-corrected faulting `PC`, `SPSR`, `DFSR`/`DFAR`/`IFSR`/`IFAR` and
+  the running task's name, then `*** halted ***`. All four fault registers
+  are printed on every exception; only the pair that matches the exception
+  is meaningful (`DFSR`/`DFAR` for a Data Abort, `IFSR`/`IFAR` for a
+  Prefetch Abort), the others hold whatever the last fault of their kind
+  left there.
+- **On an allocation-failure death:** `*** X5H: abort() called -- halting ***`
+  or `*** X5H: _exit(status=N) -- halting ***`. As shipped, `-lnosys`'s
+  `_exit` is a bare `while(1)` with no output, which is what made
+  `ddsrt_malloc()`'s failure path silent.
+
+The one failure mode the beacon cannot narrate is a `vTaskSuspendAll()` that
+is never resumed (`heap_useNewlib.c`'s `__malloc_lock` is exactly that): a
+suspended scheduler runs no task at any priority, this one included. It
+shows up as the beacon simply stopping.
+
+`x5h_diag_vectors.S` installs its table by programming `VBAR` from
+`main()`; nothing under `rcar_bsp/` is modified, and the table's SVC and IRQ
+slots are replicated instruction-for-instruction from the vendor's
+`asm_vectors.S` so the FreeRTOS context switch and the tick are unchanged.
+
 ## Design notes
 
 - `build.sh` builds this target by pointing `cmake -S` directly at the

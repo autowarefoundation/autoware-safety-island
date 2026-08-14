@@ -40,6 +40,16 @@
 // copied into this file is exactly the failure being fixed.
 #include "rpmsg_transport.h"
 
+// Task 18's diagnostic surface: the replacement exception vector table
+// (installed at the top of main() below), the never-deleted liveness
+// beacon, and the launcher-handle registration those two share. See
+// x5h_diag.h for what each piece exists to catch. Compiled into BOTH
+// targets, for the same reason the priority assertions below are outside
+// the X5H_NETIF_ONLY split: netif_only_x5h is the cheap isolation build
+// reached for first whenever the board misbehaves, and it should not be the
+// one image that cannot say why it stopped.
+#include "x5h_diag.h"
+
 // ---- task priorities ----
 //
 // CORRECTED (this replaces a stated invariant an earlier whole-branch review
@@ -252,6 +262,13 @@ static void actuation_task(void *pvParameters) {
     // priority (see ACTUATION_TASK_PRIORITY above).
     int ret = actuation_main();
     printf("actuation_main returned %d\n", ret);
+    // Before vTaskDelete(nullptr), not after: the beacon holds this task's
+    // handle to report its stack high-water mark, and once this task is
+    // deleted the idle task frees the TCB and stack that handle points at.
+    // Reading a high-water mark from a freed TCB is a use-after-free, so the
+    // handle has to be dropped while it is still valid -- and only this
+    // task can do that, since nothing else knows when it is about to go.
+    x5h_diag_clear_launcher();
     vTaskDelete(nullptr);
 }
 
@@ -266,6 +283,16 @@ extern "C" void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskNa
 }
 
 int main(void) {
+    // First statement of main(), before setup_hardware() and before the
+    // first printf: this is the earliest point in the boot path that is
+    // ours to write. Everything before it belongs to the frozen vendor BSP
+    // -- boot.S programs VBAR to the vendor table and calls SystemInit(),
+    // which sets up the MPU, runs __libc_init_array() and brings up the
+    // console, then boot.S calls here. Installing the diagnostic table here
+    // covers the whole of setup_hardware(), every task creation, the
+    // scheduler, and all of actuation_main(); it does NOT cover SystemInit()
+    // itself, which is the price of not editing rcar_bsp/.
+    x5h_diag_install_vectors();
     setup_hardware();
 #ifdef X5H_NETIF_ONLY
     printf("FreeRTOS X5H (netif-only) starting...\n");
@@ -321,6 +348,21 @@ int main(void) {
     if (rc != pdPASS) {
         printf("xTaskCreate failed: %ld\n", (long)rc);
         for (;;) {}
+    }
+
+    // The liveness beacon (Task 18 / R3), created before the scheduler
+    // starts so its first line lands as early as the tick allows and so no
+    // window exists in which the image is running but unmonitored. It takes
+    // the launcher's handle because the stack it reports on is the one that
+    // runs the DDS creation chain; task_handle is that task on either
+    // branch above. Deliberately never deleted -- see x5h_diag.c.
+    //
+    // A failure here is reported but not fatal, matching how
+    // rpmsg_transport.c treats its own diagnostics-only task: an image that
+    // boots without a beacon is exactly as useful as this image was before
+    // Task 18, whereas refusing to boot over it would be strictly worse.
+    if (x5h_diag_start_beacon(task_handle) != pdPASS) {
+        printf("x5h_diag_start_beacon failed; continuing without a beacon\n");
     }
 
     vTaskStartScheduler();
