@@ -6,6 +6,7 @@
 #define RPMSG_NETIF_H
 
 #include "lwip/err.h"
+#include "rpmsg_netif_core.h"
 
 struct netif;
 
@@ -22,6 +23,21 @@ err_t rpmsg_netif_init(struct netif *nif);
 // see rpmsg_netif.c's own comment on this function for why task context is
 // required and ISR context is not safe here.
 void rpmsg_netif_rx(const void *msg, unsigned len);
+
+// Read-only snapshot of this glue's counters: Task 5's frozen core stats
+// (rpmsg_netif_core.h's rpmsg_netif_stats -- tx_ok/tx_drop_oversize/tx_err/
+// rx_ok/rx_drop_oversize) plus two glue-level rx drop counters the core
+// cannot see on its own. The core's rx_ok counts a frame as soon as it is
+// handed to rx_deliver -- that means "accepted for delivery", not
+// "delivered to lwIP". rx_drop_no_netif and rx_drop_no_pbuf below are what
+// tell the difference; see glue_rx_deliver() in rpmsg_netif.c.
+typedef struct {
+    rpmsg_netif_stats core;
+    unsigned rx_drop_no_netif;  /* frame arrived before netif_add() installed the netif */
+    unsigned rx_drop_no_pbuf;   /* pbuf_alloc() failed (PBUF_POOL_SIZE exhausted) */
+} rpmsg_netif_glue_stats;
+
+void rpmsg_netif_get_stats(rpmsg_netif_glue_stats *out);
 
 #ifdef __cplusplus
 }

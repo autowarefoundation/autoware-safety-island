@@ -35,7 +35,23 @@ int rpmsg_transport_init(void);
 // is ever called) over the RPMsg endpoint. Returns 0 on success, non-zero
 // otherwise. Task 7 implements this for real; the Task 6 stub always
 // returns -1.
+//
+// Buffer ownership: the caller (rpmsg_netif.c's glue_tx(), backed by a
+// single file-scope static frame buffer -- see rpmsg_netif.c's s_tx_frame
+// comment) retains ownership of buf. The implementation must have fully
+// consumed buf -- copied it into the OpenAMP vring, or otherwise finished
+// reading it -- before returning; it must not retain the pointer or read
+// from it asynchronously afterwards, since the caller is free to overwrite
+// s_tx_frame's contents on its very next call.
 int rpmsg_transport_send(const void *buf, unsigned len);
+
+// Symmetric note on the inbound side, which has no function pointer of its
+// own in this header: rpmsg_netif_rx() (rpmsg_netif.h) is called directly by
+// Task 7's rpmsg endpoint rx callback with a buffer the callback owns.
+// rpmsg_netif_rx()'s call chain (rpmsg_netif_core_rx() -> glue_rx_deliver())
+// copies that data synchronously via pbuf_take() before returning, so the
+// caller is free to release or reuse its rx buffer as soon as
+// rpmsg_netif_rx() returns -- no asynchronous access is made to it.
 
 #ifdef __cplusplus
 }
