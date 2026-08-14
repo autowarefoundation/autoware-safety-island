@@ -1,22 +1,14 @@
 name: FreeRTOS X5H CI
 
-# Review finding: this target's own gates were not reachable from CI at all.
-# build-ci.yml builds the Zephyr FVP and FreeRTOS POSIX targets only, so
-# everything this PR adds -- the freertos-x5h cross-build, the frozen ELF
-# contract (`check-elf-contract.sh`) and the Core1 slot budget
-# (`check-image-budget.sh`) -- was verified only by hand on a developer
-# machine. The design's completion criterion 1 explicitly requires "a
-# freertos-x5h build target produces a Core1-slot-compatible ELF from public
-# sources (public BSP + pinned public toolchain) in CI", which is exactly
-# what this workflow does.
-#
-# `push:` on the feature branches in addition to `pull_request:` -- the
-# freertos-x5h work is a stack of branches, and a PR-only trigger would leave
-# this workflow having never run on the branches where the target is actually
-# being developed. Both fire once a PR against main exists; `github.ref`
-# differs between the two events (branch ref vs. `refs/pull/N/merge`) so the
-# `concurrency:` group below cannot dedupe them. Accepted as a known,
-# self-resolving tradeoff for the lifetime of the PR.
+# Task 8b: the design's completion criterion 1 requires "a freertos-x5h
+# build target produces a Core1-slot-compatible ELF from public sources
+# (public BSP + pinned public toolchain) in CI", but build-ci.yml never
+# builds this target and only triggers on `pull_request: branches: [main]`.
+# The freertos-x5h netif work lives on feat/freertos-x5h-target and
+# feat/freertos-x5h-netif, which have no PR against main yet, so a
+# PR-only trigger would leave this workflow never having run. `push:` on
+# those two branches plus `workflow_dispatch:` make it fire now;
+# `pull_request:` keeps it working once a PR against main exists.
 on:
   push:
     branches:
@@ -39,15 +31,14 @@ concurrency:
 jobs:
   build-x5h:
     name: freertos-x5h firmware + checkers
-    # ubuntu-latest, not a ubicloud-standard-* label: this workflow's `on:`
-    # trigger includes `pull_request: branches: [main]`, so it runs against
-    # the upstream repo once a PR from this branch targets main there -- and
-    # ubicloud runner groups are a fork-only add-on, not something upstream's
-    # runner fleet has. A ubicloud-standard-* label upstream has no matching
-    # runner group at all, so the job would queue forever rather than fail
-    # loudly. Every other workflow in this repo (build-ci.yml, release.yml,
-    # docs.yml) uses ubuntu-latest/ubuntu-24.04-arm for the same reason.
-    runs-on: ubuntu-latest
+    # ubicloud-standard-16 (x64): this cross-compiles CycloneDDS twice (host
+    # idlc/tools, then the arm-none-eabi target library), fetches and builds
+    # OpenAMP/libmetal via ExternalProject_Add, and links both
+    # actuation_x5h.elf and netif_only_x5h.elf -- more compile work than the
+    # host-unit-test job below, but a single native x64 toolchain build, not
+    # a from-scratch OS image or a cross-arch job, so the top -30 tier is not
+    # warranted.
+    runs-on: ubicloud-standard-16
     container:
       image: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
 
@@ -61,21 +52,21 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      # Only the submodules this target needs, and `--recursive` because
-      # rcar_bsp carries the FreeRTOS kernel as its own nested submodule at
-      # FreeRTOS/Source (see README.md's Prerequisites). s32ct_config is a
-      # PRIVATE submodule (NXP Confidential) the repo-scoped CI token cannot
-      # clone and this target does not reference; zephyr and freertos-kernel
-      # are not needed here either.
+      # Only the submodules the freertos-x5h target needs. s32ct_config is a
+      # PRIVATE submodule (NXP Confidential) that the repo-scoped CI token
+      # cannot clone and this target does not reference; zephyr and
+      # freertos-kernel are not needed either.
       - name: Initialize build submodules (public rcar_bsp + lwip + cyclonedds)
         shell: bash
         run: git submodule update --init --recursive cyclonedds actuation_module/freertos_x5h/rcar_bsp actuation_module/freertos_x5h/lwip
 
-      - name: Restore CycloneDDS host tool cache
+      - name: Restore CycloneDDS build cache
         uses: actions/cache@v4
         with:
-          path: build/cyclonedds_host
-          key: cdds-host-x5h-${{ hashFiles('.gitmodules') }}
+          path: |
+            build/cyclonedds_host
+            build/cyclonedds_target_out
+          key: cdds-x5h-${{ hashFiles('.gitmodules') }}
 
       - name: Restore pinned arm-none-eabi toolchain cache
         uses: actions/cache@v4
@@ -83,48 +74,68 @@ jobs:
           path: build/toolchain
           key: arm-gnu-toolchain-13.2.rel1-${{ hashFiles('actuation_module/freertos_x5h/scripts/fetch-toolchain.sh') }}
 
-      # The one build a developer would actually run: public BSP + pinned
-      # public toolchain, no vendor portal, no NDA-gated SDK path. Needs
-      # network egress -- fetch-toolchain.sh downloads the pinned Arm GNU
+      # This is the one build a developer would actually run: public BSP +
+      # pinned public toolchain, no vendor portal, no NDA-gated SDK path.
+      # Needs network egress: fetch-toolchain.sh downloads the pinned Arm GNU
       # 13.2.Rel1 toolchain from developer.arm.com (sha256-verified), and
       # ENABLE_OPENAMP=1 makes CMake fetch OpenAMP/libmetal from public
       # GitHub at configure time. build_freertos_x5h() already runs
-      # check-elf-contract.sh and check-image-budget.sh internally, and
-      # `set -e` at the top of build.sh means either of them failing aborts
-      # this step non-zero.
+      # check-dds-config.sh, check-elf-contract.sh (x2), and
+      # check-image-budget.sh (x2) internally and `set -e`/`set -u` at the
+      # top of build.sh means any of them failing aborts this step non-zero.
       - name: Build freertos-x5h (public BSP + pinned public toolchain)
         shell: bash
         run: ./build.sh --platform freertos-x5h -d build/freertos-x5h
 
-      # Re-run both gates as their own named steps, on top of the ones
-      # build.sh already ran internally above. Redundant by design:
-      # defense-in-depth, and named steps make a regression in either gate
-      # show up as its own red X in the Checks tab instead of being buried
-      # inside the build step's log.
+      # Re-run the same three checkers as their own named steps, on top of
+      # the ones build.sh already ran internally above. Redundant with the
+      # previous step by design: defense-in-depth, and named steps make a
+      # regression in any one gate show up as its own red X in the Checks
+      # tab instead of being buried inside the "Build freertos-x5h" step's
+      # log. The rpmsg-eth service-name argument matches build.sh's own
+      # invocation -- that argument is what confirms the RPMsg transport
+      # endpoint's service string made it into .rodata; Task 8's report
+      # documents this path used to be broken (SIGPIPE-under-pipefail false
+      # failure) and is now fixed, and CI is where it stays fixed.
+      - name: Re-verify DDS wire config
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-dds-config.sh
+
       - name: Re-verify ELF contract - actuation_x5h.elf
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf rpmsg-eth
+
+      - name: Re-verify ELF contract - netif_only_x5h.elf
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/netif_only_x5h.elf rpmsg-eth
 
       - name: Re-verify image budget - actuation_x5h.elf
         shell: bash
         run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h/actuation_x5h.elf
+
+      - name: Re-verify image budget - netif_only_x5h.elf
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h/netif_only_x5h.elf
 
       - name: Upload freertos-x5h ELF artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: freertos-x5h-elfs
-          path: build/freertos-x5h/actuation_x5h.elf
+          path: |
+            build/freertos-x5h/actuation_x5h.elf
+            build/freertos-x5h/netif_only_x5h.elf
           if-no-files-found: ignore
           retention-days: 7
 
   host-unit-test:
     name: FreeRTOS POSIX host unit test (rpmsg_netif_core)
-    # ubuntu-latest for the same reason as the cross-compile job above.
-    # build-ci.yml's existing build-freertos job already does comparable
-    # work (a POSIX-simulator build: one host-native CycloneDDS compile, one
-    # small C/C++ link) on plain ubuntu-latest.
-    runs-on: ubuntu-latest
+    # ubicloud-standard-4 (x64): a POSIX-simulator build (one host-native
+    # CycloneDDS compile, one small C/C++ link) -- build-ci.yml's existing
+    # build-freertos job does comparable work on a plain ubuntu-latest
+    # (2 vCPU) runner. 4 is a modest bump for headroom, not the 16/30 tiers
+    # reserved for the cross-compile and cross-arch jobs in this workflow.
+    runs-on: ubicloud-standard-4
     container:
       image: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
 
@@ -151,14 +162,86 @@ jobs:
           key: cdds-posix-${{ hashFiles('.gitmodules') }}
 
       # actuation_module/freertos/CMakeLists.txt's BUILD_TEST=1 path builds
-      # BOTH unit_test.cpp (actuation_freertos) and rpmsg_netif_core_test
-      # from actuation_module/freertos_x5h/rpmsg_netif_core.c, and runs
-      # rpmsg_netif_core_test as a POST_BUILD custom command in the same
+      # BOTH unit_test.cpp (actuation_freertos) and, since Task 5,
+      # rpmsg_netif_core_test from actuation_module/freertos_x5h's own
+      # rpmsg_netif_core.c against actuation_module/test's test harness, and
+      # runs rpmsg_netif_core_test as a POST_BUILD custom command in the same
       # `cmake --build` invocation. `set -e` in build.sh means a failing
       # POST_BUILD test command aborts this step non-zero before the build
-      # can report success. This is the only gate on the framing core's
-      # boundary arithmetic, which is why it belongs in CI next to the
-      # cross-build rather than being run by hand.
+      # can report success.
       - name: Build and run rpmsg_netif_core host unit test
         shell: bash
         run: ./build.sh --platform freertos-posix --unit-test
+
+  edge-ecu-peer-arm64:
+    name: arm64 edge_ecu_peer bundle (native)
+    # ubicloud-standard-8-arm: this job's entire reason to exist is running
+    # natively on arm64, not the vCPU count -- it must be an `-arm` runner.
+    # 8 is chosen because the job natively compiles CycloneDDS once inside a
+    # nested podman container and links two small C executables against it,
+    # comparable in weight to the host-unit-test job above; the top -30-arm
+    # tier is reserved for heavier jobs elsewhere in this repo (the x5h
+    # kernel build) and is not needed here.
+    runs-on: ubicloud-standard-8-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Initialize cyclonedds submodule
+        shell: bash
+        run: git submodule update --init --recursive cyclonedds
+
+      - name: Ensure podman is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v podman >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y podman
+          fi
+          podman --version
+
+      # This is the first time this script has ever run on a genuinely
+      # native arm64 host. Every prior verification (Task 8's own report)
+      # ran under x86_64->aarch64 qemu-user emulation via `podman --arch
+      # arm64`; on a native arm64 runner that same flag is a no-op (it
+      # already matches the host), so this is real native execution, not
+      # emulation-shaped-like-native. Needs network egress: podman pulls the
+      # digest-pinned arm64v8/ubuntu and ubuntu base images from docker.io,
+      # and the reused freertos_s32z2/edge_ecu_peer/CMakeLists.txt fetches
+      # its own CycloneDDS dependencies the same way build.sh does elsewhere.
+      - name: Build the arm64 edge_ecu_peer bundle natively
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/build-edge-ecu-peer-arm64.sh
+
+      # build-edge-ecu-peer-arm64.sh already asserts both of these internally
+      # (readelf -d ... | grep -q '$ORIGIN/lib', file ... | grep -q "ARM
+      # aarch64") right after the patchelf fix-up step, so this step is
+      # deliberately redundant: it is the concrete, named CI check for the
+      # thing this job exists to verify -- that
+      # CMAKE_BUILD_WITH_INSTALL_RPATH=ON / CMAKE_INSTALL_RPATH='$ORIGIN/lib'
+      # actually produce a $ORIGIN/lib RUNPATH on genuine aarch64 output, not
+      # just "reasoned correct" as the design doc puts it.
+      - name: Assert native arm64 output and $ORIGIN/lib RUNPATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN_DIR=build/edge-ecu-peer-arm64/build/peer-build
+          for bin in edge_ecu_pub edge_ecu_sub; do
+            file "${BIN_DIR}/${bin}" | tee "/tmp/${bin}-file.txt"
+            grep -q "ARM aarch64" "/tmp/${bin}-file.txt"
+            readelf -d "${BIN_DIR}/${bin}" | tee "/tmp/${bin}-runpath.txt" | grep -i runpath
+            grep -q '\$ORIGIN/lib' "/tmp/${bin}-runpath.txt"
+          done
+
+      - name: Upload arm64 edge_ecu_peer bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-ecu-peer-arm64
+          path: build/edge-ecu-peer-arm64.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
