@@ -64,7 +64,7 @@ function usage() {
   echo -e "    zephyr-s32z      Zephyr on S32Z hardware."
   echo -e "    freertos-posix   FreeRTOS POSIX runtime for local validation."
   echo -e "    freertos-s32z2   FreeRTOS on S32Z2 hardware."
-  echo -e "    freertos-x5h     FreeRTOS on R-Car X5H hardware (scaffold: boots and prints only)."
+  echo -e "    freertos-x5h     FreeRTOS on R-Car X5H hardware (full actuation module + CycloneDDS + lwIP-over-RPMsg)."
   echo ""
   echo -e "${GREEN}    Examples:${NC}"
   echo -e "    $0 --platform zephyr-fvp --network tap -d build/zephyr-fvp-tap"
@@ -437,7 +437,7 @@ function build_freertos_s32z2() {
 
 function build_freertos_x5h() {
   echo -e "${GREEN}Building FreeRTOS X5H target...${NC}"
-  echo -e "${YELLOW}Task 4: full-linked actuation module + CycloneDDS + lwIP. Network bring-up (RPMsg netif) stays stubbed until Task 6.${NC}"
+  echo -e "${YELLOW}Full-linked actuation module + CycloneDDS + lwIP-over-RPMsg. Network bring-up (RPMsg netif) is live, not stubbed.${NC}"
 
   # Task 8's frozen wire constants (CR52 172.16.52.2, Linux 172.16.52.1, DDS
   # domain 2, multicast disabled both sides) are asserted here, before any

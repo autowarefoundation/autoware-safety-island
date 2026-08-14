@@ -1,16 +1,16 @@
 // Copyright (c) 2026, Arm Limited and contributors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// lwIP configuration for the R-Car X5H Core1 RPMsg-netif transport (Task 6
-// wires the real netif; this task only needs the stack to compile and link
-// within the 10 MiB Core1 slot budget -- see
-// actuation_module/freertos_x5h/scripts/check-image-budget.sh).
+// lwIP configuration for the R-Car X5H Core1 RPMsg-netif transport (see
+// rpmsg_netif.{h,c}/lwip_bringup.c for the real netif this stack runs; this
+// file only has to keep the stack within the 10 MiB Core1 slot budget --
+// see actuation_module/freertos_x5h/scripts/check-image-budget.sh -- and
+// give it a correct, live-verified thread-priority layout).
 //
 // PBUF_POOL_BUFSIZE/TCP_MSS/MTU below are all sized around the 462-byte
-// RPMsg/OpenAMP payload budget the transport will use once Task 6 brings up
-// the netif: MTU 462, TCP_MSS = MTU - 40 (IPv4 20 + TCP 20) = 422,
-// PBUF_POOL_BUFSIZE = one full 462-byte frame plus lwIP's own pbuf/ETH/IP
-// header overhead, rounded up.
+// RPMsg/OpenAMP payload budget the transport uses: MTU 462, TCP_MSS =
+// MTU - 40 (IPv4 20 + TCP 20) = 422, PBUF_POOL_BUFSIZE = one full 462-byte
+// frame plus lwIP's own pbuf/ETH/IP header overhead, rounded up.
 #ifndef PLATFORM_FREERTOS_X5H_LWIP_PORT_LWIPOPTS_H_
 #define PLATFORM_FREERTOS_X5H_LWIP_PORT_LWIPOPTS_H_
 
@@ -60,6 +60,15 @@
 #define PBUF_POOL_SIZE               64
 #define PBUF_POOL_BUFSIZE           520   /* one full frame + pbuf overhead */
 #define TCP_MSS                     422   /* MTU 462 - 40 */
+// 8, not the S32Z2 bench's 16: CycloneDDS opens up to 5 UDP sockets for a
+// single participant with multicast (unicast disc+data, multicast
+// disc+data, one transmit conn), but CONFIG_DDS_DISABLE_MULTICAST=1 on this
+// point-to-point RPMsg link (CMakeLists.txt's Task 8 comment) removes both
+// multicast sockets, leaving at most ~3 in real use; S32Z2 also pads its 16
+// for DHCP/DNS headroom that this port does not need (LWIP_DHCP=0 above,
+// and no DNS resolver is used here either). 8 keeps a comfortable margin
+// over the ~3 actually needed without carrying the sibling's multicast/DHCP
+// headroom this target has no use for.
 #define MEMP_NUM_UDP_PCB              8
 #define MEMP_NUM_NETCONN              16
 // Bytes, not words (review round 1 fix; was 4096): sys_arch.c's
@@ -69,15 +78,81 @@
 // tcpip.c passes TCPIP_THREAD_STACKSIZE straight through as that
 // stacksize argument (i.e. this macro is documented by lwIP as bytes), so
 // the previous 4096 gave the single tcpip thread -- which runs every
-// tcpip_callback(), the whole IP stack, and (once Task 6 wires the netif)
-// all inbound/outbound packet processing -- only 4 KiB of stack, not the
-// 4096 words (16 KiB) a byte/word mixup could easily be misread as. Raised
-// to a full 16 KiB to give real headroom for the eventual netif input path.
+// tcpip_callback(), the whole IP stack, and all inbound/outbound packet
+// processing through the RPMsg netif -- only 4 KiB of stack, not the 4096
+// words (16 KiB) a byte/word mixup could easily be misread as. Raised to a
+// full 16 KiB to give real headroom for the netif input path.
 #define TCPIP_THREAD_STACKSIZE     16384
 #define TCPIP_MBOX_SIZE              32
 #define DEFAULT_UDP_RECVMBOX_SIZE    32
+// DEFAULT_TCP_RECVMBOX_SIZE/DEFAULT_ACCEPTMBOX_SIZE/DEFAULT_RAW_RECVMBOX_SIZE
+// (review finding, Minor): lwIP's own lwip/opt.h defaults every one of these
+// to 0 when not set here. sys_arch.c's sys_mbox_new() (this port) passes
+// that `size` argument straight to xQueueCreate(), whose own contract
+// asserts uxQueueLength > 0 (configASSERT -> __BKPT on this port, an
+// immediate hard fault, not a graceful failure). Nothing on this transport
+// creates a TCP/raw/accept netconn today -- CycloneDDS here only ever opens
+// UDP sockets -- so this path is unreachable in the current image, exactly
+// as unreachable as it was on freertos_s32z2 before that target's own
+// lwipopts.h set all five of these for the identical reason. Set now, before
+// it is needed, rather than left as a latent __BKPT waiting for the first
+// TCP/raw/accept caller.
+#define DEFAULT_TCP_RECVMBOX_SIZE    32
+#define DEFAULT_ACCEPTMBOX_SIZE      16
+#define DEFAULT_RAW_RECVMBOX_SIZE    16
 #define SO_REUSE                     1
 #define LWIP_SO_RCVTIMEO             1
+
+// ---- Thread priorities (review finding, Important #1) ----
+//
+// Previously unset here, so both TCPIP_THREAD_PRIO and DEFAULT_THREAD_PRIO
+// silently took lwIP's own lwip/opt.h default of 1 -- the exact priority
+// FreeRTOS gives every DDS/controller pthread on this port (tskIDLE_
+// PRIORITY + 1; see include/platform/freertos/x5h/pthread.h). With
+// configUSE_TIME_SLICING == 0 for this target (rcar_bsp's own
+// FreeRTOSConfig.h), FreeRTOS never round-robins ready tasks of equal
+// priority on a tick -- a ready task only yields to an equal-priority peer
+// when it blocks or calls taskYIELD(). Tying the tcpip thread to the same
+// priority as the DDS/controller pthreads therefore risked exactly the
+// starvation this review is about: whichever of them the scheduler picked
+// first could hold the CPU indefinitely.
+//
+// This target's real priority map (see rpmsg_transport.c's own header
+// comment on RPMSG_POLL_TASK_PRIORITY for the full picture and how it was
+// verified):
+//   31  rpmsg_vdev_hb    (transient, deleted after vdev bring-up)
+//   30  actuation_task   (blocked forever in pthread_join once startup runs)
+//    5  rpmsg_poll_task  (TCPIP_THREAD_PRIO + 1, this file's own transport)
+//    4  tcpip_thread     (TCPIP_THREAD_PRIO, set here)
+//    3  FreeRTOS timer service (configTIMER_TASK_PRIORITY, vendor-fixed)
+//    1  DDS/controller pthreads (tskIDLE_PRIORITY + 1, see pthread.h)
+//
+// TCPIP_THREAD_PRIO=4: strictly above the DDS/controller pthreads (1) so
+// the tcpip thread is never starved by them under configUSE_TIME_SLICING=0.
+// DEFAULT_THREAD_PRIO=(TCPIP_THREAD_PRIO + 1): mirrors
+// freertos_s32z2/include/.../lwipopts.h's own DEFAULT_THREAD_PRIO-above-
+// TCPIP_THREAD_PRIO placement (there, DEFAULT_THREAD_PRIO is where NXP's
+// eth_port.c RX-poll thread actually runs). Nothing in this lwIP tree
+// spawns a thread at DEFAULT_THREAD_PRIO today (SNMP, its only in-tree
+// consumer, is not built here), so this is currently unused, defence-in-
+// depth sizing -- but it is derived from, not independent of,
+// TCPIP_THREAD_PRIO, so it cannot silently drift back to lwIP's own
+// default-1 if TCPIP_THREAD_PRIO is ever changed here without a matching
+// edit. The value happens to equal RPMSG_POLL_TASK_PRIORITY (5): both
+// represent "one priority level above the tcpip thread, for whatever
+// services this netif's I/O promptly," so sharing the number is
+// intentional, not a coincidence to be tidied away.
+//
+// Scoped to this project's own concern only -- whether the controller
+// pthread itself (priority 1) should instead be raised above the tcpip
+// thread is explicitly OUT OF SCOPE here: that pthread is spawned via
+// include/platform/freertos/x5h/pthread.h's pthread_create(), a POSIX-
+// compat shim shared with other platforms, and repricing it is a separate,
+// larger change this lwipopts.h fix does not make. What this fix guarantees
+// is only that the tcpip thread -- and therefore RX delivery into it -- is
+// never starved by the controller/DDS pthreads sitting at priority 1.
+#define TCPIP_THREAD_PRIO             4
+#define DEFAULT_THREAD_PRIO          (TCPIP_THREAD_PRIO + 1)
 
 // ---- Additions beyond the task brief's list, found necessary while
 // writing this port (both required by lwip/sys.h's own contract, not

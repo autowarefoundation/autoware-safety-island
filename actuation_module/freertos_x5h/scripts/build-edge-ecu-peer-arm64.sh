@@ -4,17 +4,20 @@
 # This is the ONLY script that produces the AutoSD edge_ecu_peer bundle.
 # freertos_s32z2/scripts/build-edge-ecu-peer.sh builds the S32Z2 bench's own
 # x86_64 peer and must not be repurposed for X5H/AutoSD (off-limits file;
-# also wrong target arch and wrong wire constants). Task 13 (or any future
-# consumer) must invoke *this* script.
+# also wrong target arch and wrong wire constants). Any AutoSD deployment
+# consumer must invoke *this* script.
 #
 # Reuses freertos_s32z2/edge_ecu_peer/CMakeLists.txt AS-IS (the S32Z2 target
-# is off-limits to modify) inside an emulated arm64v8/ubuntu:22.04 container
-# via podman --arch arm64, and overrides its CONFIG_DDS_* CACHE vars at cmake
-# configure time to the frozen X5H wire constants:
+# is off-limits to modify) inside an arm64v8/ubuntu:22.04 container via
+# podman --arch arm64 (qemu/binfmt-emulated on an x86_64 host, native on an
+# arm64 host -- see the "Running arm64 build in..." echo below, which
+# reports which one this run actually is), and overrides its CONFIG_DDS_*
+# CACHE vars at cmake configure time to the frozen X5H wire constants:
 #   - CONFIG_DDS_DOMAIN_ID=2
 #   - CONFIG_DDS_NETWORK_INTERFACE=tap0   (Linux's own RPMsg-netif device,
-#     see task-9/task-10: `ip tuntap add dev tap0 ... && ip addr add
-#     172.16.52.1/24 dev tap0`)
+#     brought up out-of-band on the AutoSD host, e.g.
+#     `ip tuntap add dev tap0 mode tap && ip addr add
+#     172.16.52.1/24 dev tap0`; this script does not bring it up itself)
 #   - CONFIG_DDS_PEER=172.16.52.2         (CR52 unicast SPDP peer)
 # plus CONFIG_DDS_DISABLE_MULTICAST=1 via CMAKE_C_FLAGS/CMAKE_CXX_FLAGS (the
 # reused CMakeLists.txt has no CACHE var for this -- see common/dds/
@@ -142,9 +145,9 @@ export PATH="${CDDS_HOST_PREFIX}/bin:${PATH}"
 #
 # This is belt-and-suspenders with the host-side patchelf step further down
 # (Important #3, part 2): that step is the one actually verified via
-# readelf -d before/after (see task-8-report.md), and remains authoritative
-# even if some future CMake/toolchain change quietly stops honoring these
-# two flags.
+# readelf -d before/after, further down in this same script, and remains
+# authoritative even if some future CMake/toolchain change quietly stops
+# honoring these two flags.
 cmake -S /build-arm64/actuation_module/freertos_s32z2/edge_ecu_peer -B /build-arm64/build/peer-build \
     -DCONFIG_DDS_DOMAIN_ID=2 \
     -DCONFIG_DDS_NETWORK_INTERFACE=tap0 \
@@ -164,7 +167,16 @@ file /build-arm64/build/peer-build/edge_ecu_sub
 INNER
 chmod +x "${WORK}/in-container-build.sh"
 
-echo "Running arm64 build in an emulated arm64v8/ubuntu:22.04 container (podman --arch arm64)..."
+# Review finding (Minor): `podman run --arch arm64` only invokes qemu/binfmt
+# emulation when the host itself is not already arm64 -- on a native arm64
+# host (e.g. this repo's arm64 CI runner), --arch arm64 is a plain native
+# run with no emulation at all, and a message that unconditionally says
+# "emulated" is simply untrue there.
+if [ "$(uname -m)" = "aarch64" ]; then
+    echo "Running arm64 build in a native arm64v8/ubuntu:22.04 container (host is already aarch64, no emulation)..."
+else
+    echo "Running arm64 build in an emulated arm64v8/ubuntu:22.04 container (podman --arch arm64, host is $(uname -m))..."
+fi
 podman run --rm --arch arm64 \
     -v "${REPO_ROOT}/actuation_module:/build-arm64/actuation_module:ro,Z" \
     -v "${REPO_ROOT}/cyclonedds:/build-arm64/cyclonedds:ro,Z" \
@@ -184,9 +196,9 @@ grep -q "ARM aarch64" "${WORK}/file-edge_ecu_sub.txt"
 # Runs in a NATIVE (host-arch) container -- no --arch flag, so no
 # qemu/binfmt emulation at all, since patchelf only rewrites ELF metadata
 # bytes and never executes the aarch64 target. This is the step actually
-# proven correct via readelf -d before/after in task-8-report.md; the cmake
-# flags above are a secondary, best-effort defense, not the assertion this
-# script relies on.
+# proven correct via the readelf -d before/after check right below; the
+# cmake flags above are a secondary, best-effort defense, not the assertion
+# this script relies on.
 echo "--- RUNPATH before patchelf fix-up ---"
 readelf -d "${WORK}/build/peer-build/edge_ecu_pub" | grep -i runpath || echo "(none)"
 podman run --rm \
@@ -226,6 +238,16 @@ for lib in ${needed}; do
             found="${CACHE_DIR}/out/lib/${lib}"
             if [ -e "${found}" ]; then
                 cp -L "${found}" "${BUNDLE}/lib/${lib}"
+            else
+                # Review finding (Important 6): without this branch, a
+                # missing source lib was a silent no-op -- the loop would
+                # exit 0 either way, and the bundle would ship with a NEEDED
+                # entry it cannot actually satisfy, failing only later, at
+                # runtime on the board, with a bare "cannot open shared
+                # object file" from the dynamic loader instead of failing
+                # here, at build time, with the missing path spelled out.
+                echo "ERROR: NEEDED entry '${lib}' not found at ${found}" >&2
+                exit 1
             fi
             ;;
     esac
@@ -233,6 +255,24 @@ done
 # Also grab the unversioned/major-versioned symlink targets so the bundle's
 # lib/ dir is self-sufficient regardless of which SONAME the loader asks for.
 cp -L "${CACHE_DIR}/out/lib"/libddsc.so* "${BUNDLE}/lib/" 2>/dev/null || true
+
+# Review finding (Important 6): assert every libddsc* NEEDED entry actually
+# landed in the bundle, as a second, independent check after both copy
+# steps above -- not just "the per-entry copy above didn't fail", but "the
+# bundle this tarball ships is actually complete". A future readelf/awk
+# parsing change, or a CACHE_DIR layout change, could otherwise slip a
+# bundle out the door that looks fine (`cp` succeeded, `tar` succeeded) but
+# is missing a library the binaries need at runtime.
+for lib in ${needed}; do
+    case "${lib}" in
+        libddsc*)
+            if [ ! -e "${BUNDLE}/lib/${lib}" ]; then
+                echo "ERROR: required NEEDED entry '${lib}' is missing from ${BUNDLE}/lib/" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
 
 rm -rf "${BUNDLE}"/lib/*.a 2>/dev/null || true
 
