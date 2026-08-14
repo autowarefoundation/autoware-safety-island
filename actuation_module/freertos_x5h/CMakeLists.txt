@@ -321,6 +321,20 @@ set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
 set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
 set(CONFIG_DDS_NETWORK_INTERFACE "172.16.52.2" CACHE STRING "DDS network interface name or IP")
 set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
+# Task 8: unicast SPDP peer + full multicast disable. Task 6's RPMsg-backed
+# lwIP netif is a point-to-point link -- it carries no multicast at all,
+# unlike the S32Z2 bench (a switched segment where multicast is merely
+# IGMP-snooped, not absent), so unlike S32Z2's CONFIG_DDS_PEER default of ""
+# (multicast-only unless overridden), the CR52 must always discover its one
+# possible peer -- the Linux edge ECU -- by unicast, and never attempt
+# multicast in the first place (see common/dds/config.hpp's
+# CONFIG_DDS_DISABLE_MULTICAST). Both constants are the frozen wire values
+# shared with the Linux side's cyclonedds-x5h.xml.
+set(CONFIG_DDS_PEER "172.16.52.1" CACHE STRING "Unicast SPDP peer IPv4 (Linux edge ECU over the RPMsg netif)")
+if(CONFIG_DDS_PEER)
+    add_compile_definitions(CONFIG_NET_CONFIG_PEER_IPV4_ADDR="${CONFIG_DDS_PEER}")
+endif()
+add_compile_definitions(CONFIG_DDS_DISABLE_MULTICAST=1)
 # Controller node thread stack. autoware_mpc_lateral_controller's Eigen-heavy
 # control cycle overflowed a 256 KiB stack by a few hundred bytes on S32Z2
 # (same component, same Cortex-R52 + NEON ABI); 512 KiB gives ~2x margin.
