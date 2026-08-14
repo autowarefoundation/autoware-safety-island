@@ -104,8 +104,16 @@ static int ept_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
 // write progress, so that its service manager restarts it and it rebinds --
 // its only recovery from a wedged link. The Linux rpmsg stack announces
 // both halves of that over name service: a DESTROY when the endpoint goes
-// away, which is what invokes this callback (verified below), and a CREATE
-// when the restarted daemon binds again.
+// away, and a CREATE when the restarted daemon binds again.
+//
+// Note the asymmetry in what can be checked from here, because this block
+// exists to stop exactly that kind of claim from passing unmarked. The
+// DESTROY half is verified below -- it is what invokes this callback at
+// all. The CREATE half is a statement about the LINUX side's behaviour and
+// is NOT readable from this tree: everything below establishes only that
+// IF a CREATE arrives, this port now handles it. Step 4 of the board
+// checklist -- the link returning with no CR52 reset -- is what actually
+// tests that half.
 //
 // CORRECTED (this replaces a stated invariant a later review found false --
 // the same convention, and for the same reason, as the two priority blocks
@@ -138,8 +146,9 @@ static int ept_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
 //     RPMSG_ETH_SERVICE and dest_addr is RPMSG_ADDR_ANY, so the surviving
 //     endpoint is returned and :698 sets dest_addr = dest. The link is back
 //     with no action from this file.
-//   - Destroying it forecloses that. rpmsg_destroy_ept() ->
-//     rpmsg_unregister_endpoint() (rpmsg.c:379-392) unlinks s_ept from
+//   - Destroying it forecloses that. rpmsg_destroy_ept() (rpmsg.c:379-392)
+//     calls rpmsg_unregister_endpoint() (rpmsg.c:289-300), whose
+//     metal_list_del(&ept->node) (rpmsg.c:297) unlinks s_ept from
 //     rdev->endpoints, so the lookup returns NULL, the NS CREATE takes the
 //     `if (!_ept)` branch (rpmsg_virtio.c:687), and the only recovery left
 //     there is rdev->ns_bind_cb -- NULL in this port, because
@@ -163,8 +172,10 @@ static int ept_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
 // failure rather than a hazard: rpmsg_trysend() (rpmsg.h:275) passes
 // ept->dest_addr as the destination, and rpmsg_send_offchannel_raw()
 // (rpmsg.c:126) rejects dst == RPMSG_ADDR_ANY with RPMSG_ERR_PARAM (-2003)
-// before touching a vring. rpmsg_transport_send() maps that to -1,
-// rpmsg_netif_core_tx() counts tx_err++ and returns ERR_IF, and lwIP drops
+// before touching a vring. rpmsg_transport_send() maps that to -1;
+// rpmsg_netif_core_tx() counts tx_err++ and returns -2
+// (rpmsg_netif_core.c:14-15); rpmsg_netif_linkoutput()'s switch turns that
+// into ERR_IF on its `default:` arm (rpmsg_netif.c:122), and lwIP drops
 // that one frame -- the same outcome as a full tx ring, with no blocking
 // and no access to released state. That tx_err climb is what distinguishes
 // this window on the console from the priority-starvation defect it
