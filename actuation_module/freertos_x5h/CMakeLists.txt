@@ -110,11 +110,17 @@ endif()
 # builds this exact combination -- ENABLE_OPENAMP=1 plus rpmsg_sample --
 # successfully today.)
 #
-# Task 7 swaps this one variable to local, actively-maintained copies (byte-
-# identical to the BSP sample's own platform_rcar.c/remoteproc_rcar.c/
-# rsc_table.c -- see those files' own header comments) so the resource table
-# they produce stays byte-identical to the sample's while living under our
-# own directory, alongside rpmsg_transport.c/rsc_table.h/platform_info.h/
+# Task 7 swaps this one variable to local, actively-maintained copies of the
+# BSP sample's own platform_rcar.c/remoteproc_rcar.c/rsc_table.c. Review
+# checked this claim by diffing all three against the vendor tree: rsc_table.c
+# is byte-identical; platform_rcar.c and remoteproc_rcar.c each differ from
+# the vendor original by exactly one trailing-whitespace character trimmed
+# from a comment line (verified via `diff -u` against
+# rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52/sample_apps/rpmsg_sample/, no other
+# differences). None of this affects the resource table those files produce
+# -- the trimmed bytes are inside C comments, not in any resource-table
+# initializer -- so it stays byte-identical to the sample's while living
+# under our own directory, alongside rpmsg_transport.c/rsc_table.h/platform_info.h/
 # platform_info_common.h (also local copies -- quote-#include resolves
 # "rsc_table.h" etc. against the including file's own directory first, which
 # is what keeps these copies from ever seeing the shadowed drivers/virtio/
