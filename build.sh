@@ -517,18 +517,38 @@ function build_freertos_x5h() {
   # and a bare build would compile all of them too.
   cmake --build "${app_build_dir}" --target actuation_x5h -j"$(nproc)"
 
+  # Review finding (Minor #1): netif_only_x5h is EXCLUDE_FROM_ALL (see its
+  # CMakeLists.txt block) precisely so a bare `cmake --build` of this same
+  # configure does not compile it as a side effect of building
+  # actuation_x5h -- but that also meant nothing ever built or contract/
+  # budget-checked it automatically; it silently bit-rotted between manual
+  # `--target netif_only_x5h` invocations. Build it explicitly here, in the
+  # same configure (per the controller's ruling that this must be a second
+  # target, not a second configure), so every build.sh run proves both
+  # artifacts still build and pass both gates.
+  cmake --build "${app_build_dir}" --target netif_only_x5h -j"$(nproc)"
+
   # A future rcar_bsp submodule bump is loud in most ways a layout change
   # could break this target (renamed sources fail to configure, a second
   # -T fails to link, a new vendor project() call duplicates a target) --
   # but a bump that silently shifts .text or .resource_table to a different
   # address is not loud at all unless something checks for it. Run the
   # frozen-layout contract here so that check happens on every build, not
-  # only when someone remembers to run it by hand.
-  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf"
+  # only when someone remembers to run it by hand. Pass RPMSG_ETH_SERVICE's
+  # literal ("rpmsg-eth", rpmsg_netif_core.h) so the contract also confirms
+  # the service-name string made it into .rodata on both ELFs -- safe to
+  # rely on now that check-elf-contract.sh's SVC check no longer has the
+  # SIGPIPE-under-pipefail false-failure bug (see that script's own
+  # top-of-file comment).
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf" rpmsg-eth
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/netif_only_x5h.elf" rpmsg-eth
 
   # Task 4's memory-risk gate: the full lwIP + CycloneDDS + actuation module
-  # link must fit the frozen 10 MiB Core1 boot-slot window.
+  # link must fit the frozen 10 MiB Core1 boot-slot window. Checked on both
+  # ELFs for the same reason as above: netif_only_x5h must not silently grow
+  # past budget just because nothing was watching it.
   "${x5h_dir}/scripts/check-image-budget.sh" "${app_build_dir}/actuation_x5h.elf"
+  "${x5h_dir}/scripts/check-image-budget.sh" "${app_build_dir}/netif_only_x5h.elf"
 }
 
 ## MAIN ##

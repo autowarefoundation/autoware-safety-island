@@ -4,9 +4,8 @@
 // Brings up lwIP on the RPMsg-backed Ethernet netif for the R-Car X5H Core1
 // actuation module. Modeled on freertos_s32z2/lwip_bringup.c's tcpip_init +
 // semaphore-wait pattern verbatim; that file's NETC controller bring-up
-// block is replaced here with rpmsg_transport_init() (Task 7's OpenAMP
-// endpoint; Task 6 ships a stub that always returns -1 -- see
-// rpmsg_transport.c). Called from configure_network() in
+// block is replaced here with rpmsg_transport_init() (Task 7's real OpenAMP
+// endpoint -- see rpmsg_transport.c). Called from configure_network() in
 // include/platform/freertos/x5h/freertos_network.h.
 
 #include <stdio.h>
