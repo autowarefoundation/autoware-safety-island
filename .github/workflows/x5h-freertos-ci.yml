@@ -9,6 +9,15 @@ name: FreeRTOS X5H CI
 # PR-only trigger would leave this workflow never having run. `push:` on
 # those two branches plus `workflow_dispatch:` make it fire now;
 # `pull_request:` keeps it working once a PR against main exists.
+#
+# Review round 2 (Minor): once a PR against main exists from one of these
+# branches, both `push` and `pull_request` fire on every push to it --
+# `github.ref` differs between the two events (branch ref vs. `refs/pull/
+# N/merge`), so the `concurrency:` group below does not dedupe them and this
+# doubles CI cost for the lifetime of the PR. Accepted as a known,
+# self-resolving tradeoff: it only applies while a PR is open against main,
+# and dropping `push:` once that PR exists (rather than leaving both) would
+# be the cleanup, not a change made preemptively here.
 on:
   push:
     branches:
@@ -60,13 +69,24 @@ jobs:
         shell: bash
         run: git submodule update --init --recursive cyclonedds actuation_module/freertos_x5h/rcar_bsp actuation_module/freertos_x5h/lwip
 
-      - name: Restore CycloneDDS build cache
+      # Review round 2 (Important): the x5h cross-build's own CycloneDDS
+      # target output lives at build/freertos-x5h/cdds_target_out (written by
+      # build-cdds-target.sh, invoked from build_freertos_x5h() in build.sh)
+      # and that script `rm -rf`s its build dir on every invocation unless
+      # FREERTOS_X5H_CDDS_NO_CLEAN is set, which this job does not set --
+      # caching that path here would not survive a restore anyway. The path
+      # actually below (build/cyclonedds_target_out) is written only by
+      # build_cyclonedds_target_posix(), which is never called from the
+      # freertos-x5h build path, so it was dead weight: nothing in this job
+      # ever populates or reads it. No cache is wired up for the x5h
+      # cross-build's CycloneDDS output for now; revisit only alongside
+      # setting FREERTOS_X5H_CDDS_NO_CLEAN, which is a separate, untested
+      # behavior change this fix round intentionally does not make.
+      - name: Restore CycloneDDS host tool cache
         uses: actions/cache@v4
         with:
-          path: |
-            build/cyclonedds_host
-            build/cyclonedds_target_out
-          key: cdds-x5h-${{ hashFiles('.gitmodules') }}
+          path: build/cyclonedds_host
+          key: cdds-host-x5h-${{ hashFiles('.gitmodules') }}
 
       - name: Restore pinned arm-none-eabi toolchain cache
         uses: actions/cache@v4
@@ -194,7 +214,7 @@ jobs:
         shell: bash
         run: git submodule update --init --recursive cyclonedds
 
-      - name: Ensure podman is available
+      - name: Ensure podman is available and configure a compatible OCI runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -203,6 +223,35 @@ jobs:
             sudo apt-get install -y podman
           fi
           podman --version
+
+          # This job's first run on a genuinely native (non-qemu) arm64
+          # runner failed every `podman run` below with "Error: OCI runtime
+          # error: crun: unknown version specified" (exit 126). Root cause,
+          # confirmed against upstream reports (containers/podman#27272 and
+          # multiple Red Hat KBs describing the identical message): Podman
+          # 5.x writes an OCI runtime spec declaring ociVersion 1.2.1, which
+          # crun only parses correctly from v1.14.3 onward -- an
+          # older/mismatched crun on the runner's image rejects it with
+          # exactly this message. Rather than guess at which package channel
+          # is stale (apt's crun vs. however podman itself got onto the
+          # image), switch podman's default low-level OCI runtime to runc --
+          # a separate implementation unaffected by this crun-specific
+          # parsing gap -- via a containers.conf drop-in. This needs no
+          # change to build-edge-ecu-peer-arm64.sh's `podman run`
+          # invocations: the drop-in applies to every podman invocation made
+          # afterward in this job.
+          if ! command -v runc >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y runc
+          fi
+          sudo mkdir -p /etc/containers/containers.conf.d
+          printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf.d/99-runc.conf >/dev/null
+          runtime_name="$(podman info --format '{{.Host.OCIRuntime.Name}}')"
+          echo "podman OCI runtime: ${runtime_name}"
+          if [ "${runtime_name}" != "runc" ]; then
+            echo "ERROR: expected podman to use the runc OCI runtime after the containers.conf.d override, got '${runtime_name}'." >&2
+            exit 1
+          fi
 
       # This is the first time this script has ever run on a genuinely
       # native arm64 host. Every prior verification (Task 8's own report)
@@ -233,7 +282,10 @@ jobs:
           for bin in edge_ecu_pub edge_ecu_sub; do
             file "${BIN_DIR}/${bin}" | tee "/tmp/${bin}-file.txt"
             grep -q "ARM aarch64" "/tmp/${bin}-file.txt"
-            readelf -d "${BIN_DIR}/${bin}" | tee "/tmp/${bin}-runpath.txt" | grep -i runpath
+            # Review round 2 (Minor): tee moved to *after* the runpath filter
+            # (was before) so this file actually contains only the RUNPATH
+            # line its name implies, not the full `readelf -d` dump.
+            readelf -d "${BIN_DIR}/${bin}" | grep -i runpath | tee "/tmp/${bin}-runpath.txt"
             grep -q '\$ORIGIN/lib' "/tmp/${bin}-runpath.txt"
           done
 
