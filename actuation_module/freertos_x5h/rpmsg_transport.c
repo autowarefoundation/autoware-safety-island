@@ -95,22 +95,110 @@ static int ept_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
     return RPMSG_SUCCESS;
 }
 
+// ---- remote unbind -- review finding (cross-repo, final round) ----
+//
+// The Linux side tore down its endpoint. That is a routine event, not a
+// terminal one: besides module unload, reboot and crash, it now covers the
+// ordinary case of the Linux rpmsg-eth daemon exiting and being restarted.
+// That daemon deliberately exits non-zero when its endpoint stops making
+// write progress, so that its service manager restarts it and it rebinds --
+// its only recovery from a wedged link. The Linux rpmsg stack announces
+// both halves of that over name service: a DESTROY when the endpoint goes
+// away, which is what invokes this callback (verified below), and a CREATE
+// when the restarted daemon binds again.
+//
+// CORRECTED (this replaces a stated invariant a later review found false --
+// the same convention, and for the same reason, as the two priority blocks
+// further down): this function used to end with rpmsg_destroy_ept(&s_ept),
+// justified as "there is no reconnect protocol on this link, so a
+// subsequent rpmsg_transport_send() will simply fail rather than silently
+// going nowhere". Both halves were wrong. OpenAMP's name service does have
+// a reconnect path; destroying the endpoint is precisely what put this port
+// out of reach of it, converting a transient outage into a permanent one
+// recoverable only by resetting the CR52 -- on this board, a full SoC
+// reboot. The old comment even argued, two sentences before that call, that
+// rpmsg_poll_task must keep serving "a future re-bind after Linux reloads
+// its driver" -- the exact outcome the call on its own next line made
+// impossible. That paragraph is kept, further down, now that it holds.
+//
+// What the vendored OpenAMP actually does -- read in this tree (open-amp
+// 2024.10.0), not assumed, since a false premise in a comment block is what
+// cost this branch a board session already. lib/rpmsg/rpmsg_virtio.c,
+// rpmsg_virtio_ns_callback():
+//
+//   - RPMSG_NS_DESTROY (:671): it resets our endpoint's dest_addr to
+//     RPMSG_ADDR_ANY (:673) and only then calls ns_unbind_cb (:677-678),
+//     i.e. this function. So on entry here the endpoint is already in
+//     exactly the state rpmsg_create_ept() leaves a fresh one in -- this
+//     file creates s_ept with dest == RPMSG_ADDR_ANY (see below).
+//   - A later NS CREATE looks the endpoint up via
+//     rpmsg_get_endpoint(rdev, name, RPMSG_ADDR_ANY, dest) (:663), and
+//     lib/rpmsg/rpmsg.c:283-284 has a clause for this exact case ("ept is
+//     registered but not associated to remote ept"): the name matches
+//     RPMSG_ETH_SERVICE and dest_addr is RPMSG_ADDR_ANY, so the surviving
+//     endpoint is returned and :698 sets dest_addr = dest. The link is back
+//     with no action from this file.
+//   - Destroying it forecloses that. rpmsg_destroy_ept() ->
+//     rpmsg_unregister_endpoint() (rpmsg.c:379-392) unlinks s_ept from
+//     rdev->endpoints, so the lookup returns NULL, the NS CREATE takes the
+//     `if (!_ept)` branch (rpmsg_virtio.c:687), and the only recovery left
+//     there is rdev->ns_bind_cb -- NULL in this port, because
+//     rpmsg_transport_init() passes NULL, NULL to
+//     platform_create_rpmsg_vdev(). The CREATE is silently dropped.
+//
+// Keeping the endpoint is therefore neither a leak nor a stale-state
+// hazard: nothing is allocated per bind (s_ept is file-scope storage and
+// its local address stays reserved in rdev's bitmap, which is what we
+// want), and dest_addr -- the only per-peer field -- has already been
+// cleared by OpenAMP before we run. It is what makes rebinding possible at
+// all.
+//
+// Two things re-latch the endpoint, both already in the vendored code: the
+// NS CREATE above, and the first inbound frame (rpmsg_virtio.c:592-598 sets
+// dest_addr from the frame's src whenever it is RPMSG_ADDR_ANY). Inbound
+// delivery survives the gap because that path resolves the endpoint by our
+// LOCAL address (rpmsg_get_ept_from_addr(), :586), which never changes.
+//
+// Between unbind and re-bind, rpmsg_transport_send() is a clean bounded
+// failure rather than a hazard: rpmsg_trysend() (rpmsg.h:275) passes
+// ept->dest_addr as the destination, and rpmsg_send_offchannel_raw()
+// (rpmsg.c:126) rejects dst == RPMSG_ADDR_ANY with RPMSG_ERR_PARAM (-2003)
+// before touching a vring. rpmsg_transport_send() maps that to -1,
+// rpmsg_netif_core_tx() counts tx_err++ and returns ERR_IF, and lwIP drops
+// that one frame -- the same outcome as a full tx ring, with no blocking
+// and no access to released state. That tx_err climb is what distinguishes
+// this window on the console from the priority-starvation defect it
+// otherwise resembles: here rpmsg_poll_task is running, so the periodic
+// stats line below keeps printing with tx_err rising; under starvation the
+// poll task itself never ran, so no stats line appeared at all.
+//
+// Dropping the destroy also drops a hazard it carried: rpmsg_destroy_ept()
+// announces an NS DESTROY of its own (rpmsg.c:388-390) through
+// rpmsg_send_ns_message(), which uses wait=true -- OpenAMP's blocking tx
+// path, up to RPMSG_TICK_COUNT/RPMSG_TICKS_PER_INTERVAL == 15000 rounds of
+// metal_sleep_usec(1000), i.e. 15 s, when the ring is full
+// (rpmsg_virtio.c:376-400; see rpmsg_transport_send()'s own comment for why
+// this path is avoided there too). That ran on rpmsg_poll_task, inside
+// platform_poll(), to announce a teardown to a peer that had just announced
+// its own -- and a peer that has stopped draining the tx ring is exactly
+// the condition under which that wait runs to its full length.
+//
+// Unlike the vendor sample's rpmsg_service_unbind() (which sets a
+// shutdown_req flag that its own task loop polls and then exits to an idle
+// spin), this port has no equivalent "stop everything" state to enter:
+// rpmsg_poll_task must keep calling platform_poll() regardless, since
+// MFIS/virtqueue-level traffic -- the re-bind above included -- is
+// channel-level, independent of any one endpoint's lifetime. That was
+// already the intent; the code now matches it.
+//
+// Not covered by any host test, and it cannot be: exercising this needs a
+// real NS DESTROY/CREATE pair from a Linux peer, which no build or gate in
+// this repository can produce. The board session is the only evidence --
+// restart the Linux daemon and the link must come back on its own.
 static void ept_unbind(struct rpmsg_endpoint *ept) {
     (void)ept;
-    // The Linux-side rpmsg-eth driver tore down its endpoint (module unload,
-    // reboot, crash). rpmsg_destroy_ept() below releases our local endpoint
-    // state; there is no reconnect protocol on this link (none is specified
-    // by the frozen contract this task inherits -- see rpmsg_transport.h),
-    // so a subsequent rpmsg_transport_send() will simply fail (s_ept is
-    // destroyed) rather than silently going nowhere. Unlike the vendor
-    // sample's rpmsg_service_unbind() (which sets a shutdown_req flag that
-    // its own task loop polls and then exits to an idle spin), this port has
-    // no equivalent "stop everything" state to enter: rpmsg_poll_task must
-    // keep calling platform_poll() regardless, since MFIS/virtqueue-level
-    // traffic (e.g. a future re-bind after Linux reloads its driver) is
-    // channel-level, independent of any one endpoint's lifetime.
-    LPERROR("rpmsg-eth endpoint unbound by remote\r\n");
-    rpmsg_destroy_ept(&s_ept);
+    LPERROR("rpmsg-eth endpoint unbound by remote;"
+            " endpoint kept for re-bind\r\n");
 }
 
 // ---- poll task ----
