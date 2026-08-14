@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Linux-side (AutoSD edge ECU) CycloneDDS config for the X5H RPMsg-backed
+  DDS link (Task 8). Frozen wire constants, shared with the CR52 firmware
+  side (actuation_module/freertos_x5h/CMakeLists.txt's CONFIG_DDS_* block):
+    - domain 2
+    - CR52 unicast SPDP peer: 172.16.52.2 (tap0 carries the RPMsg netif;
+      see task-9/task-10's `ip tuntap add ... && ip addr add
+      172.16.52.1/24 dev tap0`)
+    - multicast disabled: the RPMsg link is point-to-point, so there is no
+      multicast to fall back on in either direction.
+
+  NOTE (Task 8 self-review): the actuation_module DDS wrapper
+  (common/dds/dds.hpp / config.hpp) calls dds_create_domain_with_rawconfig()
+  with a programmatic ddsi_config, then dds_create_participant() on the same
+  domain id; CycloneDDS reuses the already-created domain and its raw
+  config in that case and never parses CYCLONEDDS_URI. This file is not
+  consulted at runtime by dds_pub/dds_sub built from
+  freertos_s32z2/edge_ecu_peer/CMakeLists.txt; it exists as the documented,
+  checkable record of the Linux-side wire constants (validated by
+  check-dds-config.sh) and for any future CycloneDDS consumer on this host
+  that does honor CYCLONEDDS_URI. The peer binaries get these same values
+  baked in at build time via -DCONFIG_DDS_DOMAIN_ID / -DCONFIG_DDS_NETWORK_INTERFACE
+  / -DCONFIG_DDS_PEER and a CONFIG_DDS_DISABLE_MULTICAST compile definition
+  (see scripts/build-edge-ecu-peer-arm64.sh).
+-->
+<CycloneDDS>
+  <Domain Id="2">
+    <General>
+      <Interfaces><NetworkInterface name="tap0"/></Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <Peers><Peer Address="172.16.52.2"/></Peers>
+      <ParticipantIndex>auto</ParticipantIndex>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

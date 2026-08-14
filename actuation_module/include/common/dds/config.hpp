@@ -105,6 +105,17 @@ inline static void init_config(struct ddsi_config & cfg)
   cfg.participantIndex = DDSI_PARTICIPANT_INDEX_AUTO;
   cfg.maxAutoParticipantIndex = 60;
   cfg.allowMulticast = DDSI_AMC_SPDP;
+  // CONFIG_DDS_DISABLE_MULTICAST: the S32Z2 bench sits on a switched segment
+  // where multicast is merely filtered by IGMP snooping, so leaving
+  // allowMulticast at its DDSI_AMC_SPDP default (try multicast for SPDP,
+  // unicast for everything else) is harmless there -- CONFIG_DDS_PEER alone
+  // fixes discovery. A point-to-point RPMsg link (X5H) carries no multicast
+  // capability at all at the netif layer, so a target on that link must
+  // never attempt it; this opt-in override (default off, so S32Z2/POSIX/
+  // Zephyr behavior is unchanged) forces allowMulticast fully off.
+#if defined(CONFIG_DDS_DISABLE_MULTICAST) && (CONFIG_DDS_DISABLE_MULTICAST)
+  cfg.allowMulticast = DDSI_AMC_FALSE;
+#endif
 
   // Trace
   cfg.tracefp = NULL;
