@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Build the arm64 edge_ecu_peer bundle for AutoSD deployment (Task 8, Step 3).
 #
+# This is the ONLY script that produces the AutoSD edge_ecu_peer bundle.
+# freertos_s32z2/scripts/build-edge-ecu-peer.sh builds the S32Z2 bench's own
+# x86_64 peer and must not be repurposed for X5H/AutoSD (off-limits file;
+# also wrong target arch and wrong wire constants). Task 13 (or any future
+# consumer) must invoke *this* script.
+#
 # Reuses freertos_s32z2/edge_ecu_peer/CMakeLists.txt AS-IS (the S32Z2 target
 # is off-limits to modify) inside an emulated arm64v8/ubuntu:22.04 container
 # via podman --arch arm64, and overrides its CONFIG_DDS_* CACHE vars at cmake
@@ -14,6 +20,11 @@
 # reused CMakeLists.txt has no CACHE var for this -- see common/dds/
 # config.hpp's Task 8 comment for why full multicast disable, not just a
 # unicast peer, is required on this point-to-point link).
+# check-dds-config.sh asserts these four literal -D/compile-definition
+# strings appear, uncommented, in THIS file -- see that script's Important-1
+# fix comment for why the Linux-side source of truth is this script, not
+# edge_ecu_peer/cyclonedds-x5h.xml (which is never read at runtime; see that
+# XML's own header comment).
 #
 # CDDS_HOST_PREFIX inside that reused CMakeLists.txt is a plain (non-CACHE)
 # `set(CDDS_HOST_PREFIX ${REPO_ROOT}/build/cyclonedds_host/out)`, where
@@ -24,21 +35,52 @@
 # the S32Z2 file: this script assembles a virtual root at /build-arm64
 # inside the container by bind-mounting actuation_module/ and cyclonedds/
 # directly under it (not via symlink -- symlink ".." resolution would just
-# walk back out to the real /src tree) alongside a private, container-local
-# build/ directory, so REPO_ROOT resolves to /build-arm64 and
-# CDDS_HOST_PREFIX to /build-arm64/build/cyclonedds_host/out: an arm64-only
-# CycloneDDS install this script builds fresh, never touching the real
-# build/cyclonedds_host/out.
+# walk back out to the real /src tree) alongside a container-local build/
+# directory, so REPO_ROOT resolves to /build-arm64 and CDDS_HOST_PREFIX to
+# /build-arm64/build/cyclonedds_host/out: an arm64-only CycloneDDS install
+# this script builds fresh, never touching the real build/cyclonedds_host/out.
+#
+# Cache/scratch split (review round 2, Minor #1): that CDDS_HOST_PREFIX
+# install is expensive (a full CycloneDDS host build under qemu emulation)
+# and was previously reused only by *skipping* the rebuild
+# (`if [ ! -x ".../idlc" ]`) -- but the top-level `rm -rf "${WORK}"` below
+# wiped that same directory at the start of every run, making the reuse
+# branch permanently unreachable in practice. CACHE_DIR now lives outside
+# WORK and is never rm -rf'd by this script; only WORK (peer-build scratch,
+# the assembled bundle, and the output tarball) is wiped fresh every run.
+# CACHE_DIR is bind-mounted at the *nested* container path
+# /build-arm64/build/cyclonedds_host (a sub-path of the separate
+# /build-arm64/build mount), which both podman and plain Linux bind mounts
+# support: the more specific mount simply shadows that subdirectory of the
+# broader one. One consequence: host-side references to the installed
+# CycloneDDS libs (the RPATH/patchelf section and the bundling section
+# below) must read from CACHE_DIR directly, not from
+# "${WORK}/build/cyclonedds_host" -- that path only ever exists inside the
+# container's merged view, never on the host filesystem.
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 cd "${REPO_ROOT}"
 
-IMAGE="docker.io/arm64v8/ubuntu:22.04"
+# Minor #4: pin by manifest digest, not the mutable `22.04` tag, so a future
+# run of this script (or CI) builds against the exact same base image bytes
+# this was developed and reviewed against, rather than whatever `22.04` has
+# drifted to mean by then. Digest captured via:
+#   podman inspect docker.io/arm64v8/ubuntu:22.04 --format '{{.Digest}}'
+IMAGE="docker.io/arm64v8/ubuntu@sha256:70490a6c9a3e6632c5baa4d8674d179da8928f37f4484e9ececc75dc9bce6299"
+# Native (non-emulated) x86_64 image used only for the host-side patchelf
+# RPATH fix-up below (Important #3) -- no qemu/binfmt involved, since
+# patchelf never executes the arm64 binaries it edits, only rewrites their
+# ELF program-header/dynamic-section bytes. Also digest-pinned for the same
+# reproducibility reason as IMAGE above.
+PATCHELF_IMAGE="docker.io/library/ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea"
+
+CACHE_DIR="${REPO_ROOT}/build/edge-ecu-peer-arm64-cache"
 WORK="${REPO_ROOT}/build/edge-ecu-peer-arm64"
 OUT_TAR="${REPO_ROOT}/build/edge-ecu-peer-arm64.tar.gz"
 CYCLONEDDS_X5H_XML="${REPO_ROOT}/actuation_module/freertos_x5h/edge_ecu_peer/cyclonedds-x5h.xml"
 
+mkdir -p "${CACHE_DIR}"
 rm -rf "${WORK}"
 mkdir -p "${WORK}/build"
 
@@ -75,12 +117,43 @@ rm -rf /build-arm64/build/peer-build
 # though configure-time idlc checks (which ran inside the same CMake process
 # where set(ENV{PATH}) took effect) succeed.
 export PATH="${CDDS_HOST_PREFIX}/bin:${PATH}"
+# -DCMAKE_BUILD_TYPE=Release (Minor #5): the reused S32Z2 CMakeLists.txt / its
+# own build-edge-ecu-peer.sh set no CMAKE_BUILD_TYPE at all (confirmed via
+# grep -- neither file mentions it), so this is a deliberate divergence for
+# the AutoSD arm64 bundle, not an oversight: this bundle ships to a board and
+# benefits from optimized, non-debug binaries, whereas the S32Z2 peer is a
+# bench-only dev tool where that trade-off was apparently never made.
+#
+# -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON / -DCMAKE_INSTALL_RPATH='$ORIGIN/lib'
+# (Important #3, part 1): without CMAKE_BUILD_WITH_INSTALL_RPATH, CMake
+# stamps binaries in the *build* tree with an automatically-computed RPATH
+# pointing at the actual build-time absolute path of their shared-lib
+# dependencies (here, /build-arm64/build/cyclonedds_host/out/lib -- a
+# container-internal path that will not exist on the board). This project's
+# CMakeLists.txt performs no `install()` step, so that build-tree RPATH is
+# also the one that ships. Forcing CMAKE_INSTALL_RPATH to apply immediately
+# at build time, with the $ORIGIN token (resolved by the dynamic loader at
+# *load* time to "the directory containing this binary"), makes the shipped
+# bundle's lib/ subdirectory discoverable no matter where the tarball is
+# extracted on the board. $ORIGIN is single-quoted here so neither this
+# heredoc's outer shell nor this inner script's shell expand it -- cmake
+# must receive the literal two characters "$ORIGIN", for the loader to
+# expand at runtime.
+#
+# This is belt-and-suspenders with the host-side patchelf step further down
+# (Important #3, part 2): that step is the one actually verified via
+# readelf -d before/after (see task-8-report.md), and remains authoritative
+# even if some future CMake/toolchain change quietly stops honoring these
+# two flags.
 cmake -S /build-arm64/actuation_module/freertos_s32z2/edge_ecu_peer -B /build-arm64/build/peer-build \
     -DCONFIG_DDS_DOMAIN_ID=2 \
     -DCONFIG_DDS_NETWORK_INTERFACE=tap0 \
     -DCONFIG_DDS_PEER=172.16.52.2 \
     -DCMAKE_C_FLAGS=-DCONFIG_DDS_DISABLE_MULTICAST=1 \
-    -DCMAKE_CXX_FLAGS=-DCONFIG_DDS_DISABLE_MULTICAST=1
+    -DCMAKE_CXX_FLAGS=-DCONFIG_DDS_DISABLE_MULTICAST=1 \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+    -DCMAKE_INSTALL_RPATH='$ORIGIN/lib'
 cmake --build /build-arm64/build/peer-build -j"$(nproc)"
 
 test -x /build-arm64/build/peer-build/edge_ecu_pub
@@ -96,6 +169,7 @@ podman run --rm --arch arm64 \
     -v "${REPO_ROOT}/actuation_module:/build-arm64/actuation_module:ro,Z" \
     -v "${REPO_ROOT}/cyclonedds:/build-arm64/cyclonedds:ro,Z" \
     -v "${WORK}/build:/build-arm64/build:Z" \
+    -v "${CACHE_DIR}:/build-arm64/build/cyclonedds_host:Z" \
     -v "${WORK}/in-container-build.sh:/build-arm64/in-container-build.sh:ro,Z" \
     "${IMAGE}" \
     bash /build-arm64/in-container-build.sh
@@ -105,6 +179,30 @@ file "${WORK}/build/peer-build/edge_ecu_pub" | tee "${WORK}/file-edge_ecu_pub.tx
 file "${WORK}/build/peer-build/edge_ecu_sub" | tee "${WORK}/file-edge_ecu_sub.txt"
 grep -q "ARM aarch64" "${WORK}/file-edge_ecu_pub.txt"
 grep -q "ARM aarch64" "${WORK}/file-edge_ecu_sub.txt"
+
+# ---- Important #3, part 2: authoritative RPATH fix-up via patchelf ----
+# Runs in a NATIVE (host-arch) container -- no --arch flag, so no
+# qemu/binfmt emulation at all, since patchelf only rewrites ELF metadata
+# bytes and never executes the aarch64 target. This is the step actually
+# proven correct via readelf -d before/after in task-8-report.md; the cmake
+# flags above are a secondary, best-effort defense, not the assertion this
+# script relies on.
+echo "--- RUNPATH before patchelf fix-up ---"
+readelf -d "${WORK}/build/peer-build/edge_ecu_pub" | grep -i runpath || echo "(none)"
+podman run --rm \
+    -v "${WORK}/build/peer-build:/work:Z" \
+    "${PATCHELF_IMAGE}" \
+    bash -c 'set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends patchelf >/dev/null
+        patchelf --set-rpath "\$ORIGIN/lib" /work/edge_ecu_pub
+        patchelf --set-rpath "\$ORIGIN/lib" /work/edge_ecu_sub'
+echo "--- RUNPATH after patchelf fix-up ---"
+readelf -d "${WORK}/build/peer-build/edge_ecu_pub" | tee "${WORK}/runpath-edge_ecu_pub-after.txt" | grep -i runpath
+readelf -d "${WORK}/build/peer-build/edge_ecu_sub" | tee "${WORK}/runpath-edge_ecu_sub-after.txt" | grep -i runpath
+grep -q '\$ORIGIN/lib' "${WORK}/runpath-edge_ecu_pub-after.txt"
+grep -q '\$ORIGIN/lib' "${WORK}/runpath-edge_ecu_sub-after.txt"
 
 # ---- Assemble the deployable bundle ----
 BUNDLE="${WORK}/bundle"
@@ -118,12 +216,14 @@ cp "${CYCLONEDDS_X5H_XML}" "${BUNDLE}/"
 # with BUILD_SHARED_LIBS=ON, exactly like build.sh's own build_cyclonedds_host
 # does for the host build): libddsc.so + its versioned target, resolved via
 # readelf -d (NEEDED entries) rather than ldd, since ldd would need to
-# execute the aarch64 loader itself.
+# execute the aarch64 loader itself. Read from CACHE_DIR (see the cache/
+# scratch split comment at the top of this file) -- not
+# "${WORK}/build/cyclonedds_host", which no longer exists on the host side.
 needed=$(readelf -d "${WORK}/build/peer-build/edge_ecu_pub" | awk -F'[][]' '/NEEDED/{print $2}')
 for lib in ${needed}; do
     case "${lib}" in
         libddsc*)
-            found="${WORK}/build/cyclonedds_host/out/lib/${lib}"
+            found="${CACHE_DIR}/out/lib/${lib}"
             if [ -e "${found}" ]; then
                 cp -L "${found}" "${BUNDLE}/lib/${lib}"
             fi
@@ -132,7 +232,7 @@ for lib in ${needed}; do
 done
 # Also grab the unversioned/major-versioned symlink targets so the bundle's
 # lib/ dir is self-sufficient regardless of which SONAME the loader asks for.
-cp -L "${WORK}/build/cyclonedds_host/out/lib"/libddsc.so* "${BUNDLE}/lib/" 2>/dev/null || true
+cp -L "${CACHE_DIR}/out/lib"/libddsc.so* "${BUNDLE}/lib/" 2>/dev/null || true
 
 rm -rf "${BUNDLE}"/lib/*.a 2>/dev/null || true
 
