@@ -131,27 +131,27 @@ link:
   secondary, documentation-only cross-check of the same constants — see
   that XML file's own header comment.
 
-## Diagnostics: reading the console (`x5h_diag.c`)
+## Diagnostics: reading the console
 
 Both ELFs carry an always-on diagnostic surface (`x5h_diag.h`,
-`x5h_diag.c`, `x5h_diag_vectors.S`). It is not behind any build flag, and
-none of it allocates — output goes through the BSP's polled
-`R_SERIAL_PutChar()` rather than `printf()`, because two of the failure
-modes it exists to catch are reached from inside the allocator. What a
-board session should look for, in the order it appears:
+`x5h_diag.c`, `x5h_diag_vectors.S`), not behind any build flag.
+
+**This section is the operator's run-book only.** The rationale — the three
+wedge candidates, why each is silent by construction, why nothing in there
+may allocate or take the scheduler lock, and what each field means — lives
+in exactly one place, the header comment of **`x5h_diag.h`**. Read that
+before interpreting anything below; do not restate it here.
+
+What to look for, in the order it appears:
 
 - **First line of all, before `FreeRTOS X5H … starting…`:**
   `x5h-diag: exception vectors installed, VBAR 0x… -> 0x…`. If this line is
-  missing, `main()` was never reached and nothing below applies. If it
-  reports `ERROR … not 32-byte aligned`, the diagnostic vectors were *not*
-  installed and the vendor's silent `b <self>` fault vectors are still in
-  place.
-- **Every 5 s, forever:** `x5h-diag: beacon #N uptime_ms=… launcher=… stack_hwm_words=… heap_brk=… heap_used=… sbrk_free=… heap_free=…`.
+  missing, `main()` was never reached and nothing below applies.
+- **Every 5 s, forever:** `x5h-diag: beacon #N uptime_ms=… launcher=… stack_hwm_words=… heap_brk=… heap_used=… sbrk_free=…`.
   This task is never deleted, so **silence now means dead** — before this
   image, a quiet console was ambiguous between "wedged" and "nothing was
-  logging". Watch `stack_hwm_words` (words of headroom left on the task
-  running the DDS chain — falling towards 0 means an imminent overflow) and
-  `heap_free` (the number a failing `malloc()` competes for).
+  logging". Watch `stack_hwm_words`: words of headroom left on the task
+  running the DDS chain, falling towards 0 means an imminent overflow.
 - **Immediately before the DDS domain call:**
   `x5h-diag: mark pre-dds_create_domain_with_rawconfig …` with the same
   fields. Compare it against the last beacon line before the console went
@@ -168,15 +168,19 @@ board session should look for, in the order it appears:
   `_exit` is a bare `while(1)` with no output, which is what made
   `ddsrt_malloc()`'s failure path silent.
 
-The one failure mode the beacon cannot narrate is a `vTaskSuspendAll()` that
-is never resumed (`heap_useNewlib.c`'s `__malloc_lock` is exactly that): a
-suspended scheduler runs no task at any priority, this one included. It
-shows up as the beacon simply stopping.
+Beacons stopping with **no** exception block and **no** abort line means the
+scheduler itself stopped while the fault vectors were installed and working
+— a `vTaskSuspendAll()` that is never resumed (`heap_useNewlib.c`'s
+`__malloc_lock` is exactly that). No task of any priority runs in that
+state, this one included, so no in-image diagnostic can narrate it; it is
+reported by the stopping itself. Move to a debugger from there.
 
-`x5h_diag_vectors.S` installs its table by programming `VBAR` from
-`main()`; nothing under `rcar_bsp/` is modified, and the table's SVC and IRQ
-slots are replicated instruction-for-instruction from the vendor's
-`asm_vectors.S` so the FreeRTOS context switch and the tick are unchanged.
+There is deliberately **no heap-free-list figure** in the beacon. Getting
+one means `mallinfo()` walking newlib's arena under `__malloc_lock`, which
+a stack overflow can send into an infinite loop with the scheduler
+suspended — turning a candidate-3 death into something that reads exactly
+like the paragraph above. `sbrk_free` bounds the heap without walking it.
+See `diag_put_resources()` in `x5h_diag.c` for the full argument.
 
 ## Design notes
 

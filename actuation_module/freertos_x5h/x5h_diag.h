@@ -3,6 +3,16 @@
 //
 // Task 18: the diagnostic surface that makes a silent CR52 wedge talk.
 //
+// THIS FILE IS THE CANONICAL RATIONALE for the whole diagnostic surface --
+// what it is for, what it may and may not do, and how to read what it
+// prints. x5h_diag.c, x5h_diag_vectors.S and README.md's "Diagnostics"
+// section all point here rather than restating any of it. That is a
+// deliberate response to this tree's own recurring failure mode: the
+// review rounds on this branch were spent on comments that had drifted
+// from the code they described, and four copies of one argument is four
+// chances to drift. Implementation notes that are genuinely local to a
+// file stay in that file; the argument lives here, once.
+//
 // This is instrumentation, not a fix. On the board the actuation image
 // prints its way through transport bring-up and lwIP, reaches
 // "controller -> Creating DDS domain with raw config", and then goes
@@ -13,9 +23,12 @@
 // silent by construction:
 //
 //   1. a CPU exception trapped in one of the vendor vector table's bare
-//      `b <self>` spins (rcar_bsp/.../common/asm_vectors.S:29-44) -- which
-//      also explains the interrupts stopping, since UND/ABT/FIQ entry
-//      architecturally masks IRQ;
+//      `b <self>` spins -- rcar_bsp/.../common/asm_vectors.S, where
+//      undefined_handler (29-30), prefetch_handler (37-38), abort_handler
+//      (40-41), reserved_handler (43-44) and fiq_handler (49-50) are each
+//      an unconditional branch to themselves. This also explains the
+//      interrupts stopping, since UND/ABT/FIQ entry architecturally masks
+//      IRQ;
 //   2. newlib's abort()/_exit() path, where -lnosys's `_exit` is a bare
 //      while(1) with no output (ddsrt_malloc() calls abort() on allocation
 //      failure);
@@ -40,13 +53,69 @@
 //       known-good "just before the cliff" reading to compare the beacon's
 //       last line against.
 //
-// Everything here prints through the BSP serial driver's own
-// R_SERIAL_PutChar() (a polled SCIF write; see rcar_bsp/.../drivers/serial/
-// serial.c and scif.c) and formats integers by hand. Nothing on any path in
-// this header allocates -- deliberately, because two of the three surviving
-// candidates are reached from inside the allocator, and because printf()
-// takes __malloc_lock (vTaskSuspendAll) and allocates its stdio buffer on
-// first use.
+// ---- the one rule everything here obeys: never touch the allocator, and
+// ---- never take the scheduler lock
+//
+// Not a style preference. Every one of these three constraints is a
+// property of a specific wedge candidate:
+//
+//   - Two of the three candidates are reached from INSIDE the allocator.
+//     heap_useNewlib.c's __malloc_lock() is vTaskSuspendAll() -- a global
+//     scheduler lock, not a priority -- and ddsrt_malloc()'s failure path
+//     calls abort(). A diagnostic that allocates re-enters the machinery
+//     it is reporting on.
+//   - printf() on this port allocates its stdio buffer on first use and
+//     takes __malloc_lock() around it. The exception handlers can run with
+//     the scheduler already suspended and with a corrupted context, where
+//     neither is safe.
+//   - Candidate 3 makes newlib's own heap metadata untrustworthy, not just
+//     the heap contents. actuation_task's 128 KiB stack is a pvPortMalloc
+//     block; the stack grows down toward pxStack[0]; newlib's chunk header
+//     sits immediately below the pointer it returned. An overflow of that
+//     stack corrupts a malloc chunk header almost by definition. So any
+//     diagnostic that WALKS the arena (mallinfo(), and therefore
+//     xPortGetFreeHeapSize()) can loop forever on a corrupted size field --
+//     with the scheduler suspended, because it took __malloc_lock to do it.
+//     Nothing here calls it. See diag_put_resources() in x5h_diag.c for
+//     what is reported instead and why it is sufficient.
+//
+// A beacon whose job is to prove the scheduler is alive must not take the
+// global scheduler lock in order to say so. sbrk(0) is the one exception
+// and it is bounded: it suspends and resumes around three assignments, and
+// with incr == 0 it cannot even fail.
+//
+// ---- the output path
+//
+// Everything prints through the BSP serial driver's own R_SERIAL_PutChar()
+// and formats integers by hand. That call reaches the wire through two
+// gates, both verified rather than assumed, and both worth naming because
+// either one closing is a second way for this entire surface to emit
+// nothing at all:
+//
+//   - log_sync (serial.c). False unless R_SERIAL_AMP_LogSync() is called,
+//     and nothing in this repo calls it -- only its own declaration and
+//     definition match a tree-wide grep. So R_SERIAL_PutChar() skips the
+//     MFIS lock acquire and goes straight to console_putc().
+//   - is_log_enable (scif.c:99, tested at scif.c:391). Initialised to
+//     SCIF_LOG_STATE_ON and only ever cleared by R_SERIAL_SetLogState(),
+//     which SystemInit() calls exactly once, and only when
+//     &__CONFIG_SILENT_CONSOLE__ == 1 (system_rcar_gen5.c:258-261). That
+//     weak linker symbol is defined as 0 in lscript_common.ld:17, so the
+//     branch is not taken and the console stays on.
+//
+// Past those, console_putc() -> uart_rcar_poll_out() is a polled SCIF
+// register write: no buffer, no lock, no allocation.
+//
+// ---- what silence means after this image
+//
+// The consequence a board session will actually observe, stated plainly
+// because it is the whole point: the beacon cannot REPORT candidate 2. If
+// a task suspends the scheduler and never resumes it, no task of any
+// priority runs, this one included. The beacon detects that case by
+// STOPPING. Before this image, a quiet console was ambiguous between
+// "wedged" and "nothing was logging"; after it, silence means dead, and
+// the exception vectors are what distinguish a fault from a scheduler
+// lock. README.md's "Diagnostics" section turns that into a run-book.
 //
 // This header is included from x5h_diag_vectors.S as well as from C/C++,
 // so everything that is not a bare #define sits behind __ASSEMBLER__.

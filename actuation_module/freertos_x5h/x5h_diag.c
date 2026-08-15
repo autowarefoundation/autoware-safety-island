@@ -1,37 +1,20 @@
 // Copyright (c) 2026, Arm Limited and contributors.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Task 18: the C half of this image's diagnostic surface. See x5h_diag.h
-// for what each of R1-R4 exists to catch and why every one of the surviving
-// wedge candidates is silent without it.
+// Task 18: the C half of this image's diagnostic surface.
 //
-// House rule for this whole file: NOTHING here allocates, and nothing here
-// goes through printf(). Two reasons, both load-bearing rather than
-// stylistic.
+// READ x5h_diag.h FIRST. It is the canonical rationale for all of this --
+// the three surviving wedge candidates, why each is silent by
+// construction, the rule that nothing here may allocate or take the
+// scheduler lock, the two gates the output path passes through, and what
+// silence means once this image is flashed. None of that is repeated here;
+// four copies of one argument is four chances for it to drift, which is
+// the failure mode this branch's review rounds kept turning up.
 //
-//   - Two of the three surviving wedge candidates are reached from INSIDE
-//     the allocator. heap_useNewlib.c's __malloc_lock() is vTaskSuspendAll()
-//     -- a global scheduler lock, not a priority -- and ddsrt_malloc()'s
-//     failure path calls abort(). A diagnostic that itself allocates would
-//     re-enter the very machinery it is reporting on.
-//   - printf() on this port allocates its stdio buffer on first use and
-//     takes __malloc_lock() around it. The exception handlers below can run
-//     with the scheduler suspended and with a corrupted context, where that
-//     is not a safe thing to do.
-//
-// So output goes through R_SERIAL_PutChar() -- rcar_bsp/.../drivers/serial/
-// serial.c, which (with log_sync false, which it is: R_SERIAL_AMP_LogSync()
-// is never called anywhere in this repo) forwards straight to
-// console_putc() -> uart_rcar_poll_out(), a polled SCIF register write with
-// no buffer, no lock and no allocation -- and integers are formatted by
-// hand below.
-//
-// Consequence worth stating plainly, because it is what the board session
-// will actually observe: the beacon in R3 cannot report candidate 2. If a
-// task suspends the scheduler and never resumes it, no task of any priority
-// runs, this one included. The beacon detects that case by STOPPING. That
-// is precisely the point -- before this image, silence was ambiguous
-// between "wedged" and "nothing changed"; after it, silence means dead.
+// What IS below is implementation detail that belongs with the code: the
+// non-allocating console primitives, the per-field reasoning in
+// diag_put_resources(), the exception report's register handling, and the
+// beacon's priority and cost.
 
 #include <stdint.h>
 
@@ -166,22 +149,39 @@ static uint32_t diag_heap_break(void)
 // Emits the launcher stack watermark and heap headroom shared by R3's
 // beacon and R4's pre-DDS mark, so the two are always directly comparable.
 //
-// Three heap numbers, because no one of them answers the question on its
-// own. heap_used + sbrk_free is _HEAP_SIZE by construction, so the pair
-// also self-checks against the linker script:
+// Two heap numbers, both derived from one sbrk(0) against the allocator's
+// own linker bounds. heap_used + sbrk_free is _HEAP_SIZE by construction,
+// so the pair self-checks against lscript_vram2.ld:
 //   heap_used  the break minus HeapBase -- everything sbrk() has ever
 //              handed to newlib, whether newlib still has it out on loan or
-//              has it back on its free list.
+//              has it back on its own free list.
 //   sbrk_free  HeapLimit minus the break -- heap that has never been handed
-//              out at all. This is the figure the brief asks for: the
+//              out at all. This is exactly the figure R3 asks for: the
 //              linker's own bounds against the current break.
-//   heap_free  xPortGetFreeHeapSize() (heap_useNewlib.c), which is
-//              mallinfo().fordblks plus that same untouched remainder --
-//              i.e. it also counts blocks newlib has already taken from
-//              sbrk and since had free()d back to it. This is the number a
-//              failing malloc() actually competes for, and the one to read
-//              first if the wedge turns out to be allocation failure.
-//              mallinfo() walks newlib's arena; it does not allocate.
+//
+// REMOVED, and deliberately not to be reinstated: a third field carrying
+// xPortGetFreeHeapSize(). It is a strictly better number in the abstract
+// -- fordblks plus the untouched remainder is what a failing malloc()
+// actually competes for -- and it is unusable here, because obtaining it
+// means mallinfo() walking newlib's arena chunk by chunk under
+// __malloc_lock, i.e. under vTaskSuspendAll().
+//
+// The reason that is disqualifying rather than merely unfortunate: the
+// walk is unsafe in precisely the scenario the beacon exists to report.
+// Candidate 3 (an actuation_task stack overflow) corrupts malloc chunk
+// headers almost by definition -- that stack is a pvPortMalloc block, it
+// grows down toward pxStack[0], and newlib's header sits immediately below
+// the returned pointer. A corrupted size field sends the walk into a loop
+// with the scheduler suspended. The operator would then see beacons stop
+// dead with no exception and no abort line, which the run-book reads as a
+// never-resumed vTaskSuspendAll() -- candidate 2. A diagnostic that turns
+// candidate 3 into a confident report of candidate 2 is worse than one
+// that stays quiet about a number it cannot safely obtain.
+//
+// More simply: a beacon whose whole job is to prove the scheduler is alive
+// must not take the global scheduler lock to say so. If allocation failure
+// does turn out to be the wedge, R2's abort()/_exit() lines announce it
+// directly, and sbrk_free still bounds how much heap was ever available.
 static void diag_put_resources(void)
 {
     TaskHandle_t launcher = s_launcher;
@@ -202,8 +202,6 @@ static void diag_put_resources(void)
     diag_put_u32((uint32_t)((uintptr_t)brk - (uintptr_t)&HeapBase));
     diag_puts(" sbrk_free=");
     diag_put_u32((uint32_t)((uintptr_t)&HeapLimit - (uintptr_t)brk));
-    diag_puts(" heap_free=");
-    diag_put_u32((uint32_t)xPortGetFreeHeapSize());
 }
 
 static uint32_t diag_uptime_ms(void)
@@ -260,10 +258,18 @@ _Static_assert(sizeof(kExcPcNotes) / sizeof(kExcPcNotes[0]) == X5H_DIAG_EXC_COUN
 // nesting-safe handler that is harder to trust.
 //
 // The fault-status and fault-address registers are read here rather than
-// passed in from assembly: they still hold the faulting access's status and
-// address at this point -- nothing between the vector and this function
-// performs a memory access that could overwrite them -- and reading them
-// from C keeps the entry stubs to four instructions each.
+// passed in from assembly, and they are still the faulting access's own
+// values when we get to them.
+//
+// The reason is NOT that nothing has touched memory in between -- plenty
+// has: the vector's own `ldr pc, [pc, #24]` literal load, the stub's `ldr`,
+// and this function's prologue pushes are all memory accesses. It is that
+// DFSR/DFAR and IFSR/IFAR are only written when an access FAULTS. A
+// successful load or store leaves them entirely alone, so any number of
+// them can run between the exception and this point without disturbing the
+// record. Only a second fault would overwrite it -- which is the nested
+// case called out below. Reading them from C rather than the stub keeps
+// each entry stub to four instructions.
 //
 // All four are printed on every exception, not just the pair that is
 // architecturally meaningful for the exception at hand (DFSR/DFAR for a
@@ -468,9 +474,34 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // rpmsg_vdev_heartbeat_task already uses for the same shape of work. This
 // task's call depth is strictly smaller than that one's: no printf, no
 // varargs, no stdio -- just the byte-at-a-time console writers above, plus
-// uxTaskGetStackHighWaterMark(), sbrk(0) and mallinfo().
+// uxTaskGetStackHighWaterMark() and sbrk(0).
 #define X5H_DIAG_BEACON_STACK_WORDS configMINIMAL_STACK_SIZE
 
+// The beacon is not a free observer, and a timing-sensitive wedge deserves
+// to have the cost written down rather than discovered.
+//
+// uxTaskGetStackHighWaterMark() is a byte-wise scan, not a stored counter.
+// With portSTACK_GROWTH == -1 (portmacro.h:81) it starts at pxTCB->pxStack
+// and prvTaskCheckFreeStackSpace() (tasks.c:6305-6313) walks upward one
+// byte at a time for as long as the byte still holds tskSTACK_FILL_BYTE
+// (0xA5, memset over the whole stack at creation because
+// tskSET_NEW_STACKS_TO_KNOWN_VALUE is 1 here). Its cost is therefore
+// proportional to the UNUSED part of the stack it is asked about. On
+// actuation_task that is a 32768-word (131072-byte) allocation, so early
+// beacons -- when the launcher has barely touched its stack -- scan close
+// to the whole 128 KiB. That runs at configMAX_PRIORITIES - 1, above
+// everything including rpmsg_poll_task, once every 5 s, and preempts all of
+// it for the duration.
+//
+// Accepted, not overlooked. It is the price of R3's central requirement:
+// the watermark has to come from a task that outranks whatever is starving
+// the image, or it cannot be sampled at the moment it matters. Two things
+// bound the damage -- the scan shrinks as the launcher's stack fills, so it
+// is cheapest exactly when the reading is most interesting, and 5 s between
+// samples makes the duty cycle small against the ~1.7 Hz control cycle.
+// But it is real: if a board session ever sees timing-dependent behaviour
+// that changes when the beacon is present, this is the mechanism to suspect
+// first, and lengthening X5H_DIAG_BEACON_PERIOD_TICKS is the cheapest test.
 static void x5h_diag_beacon_task(void *pv)
 {
     uint32_t n = 0;
