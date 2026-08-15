@@ -138,12 +138,30 @@
 
 #ifndef __ASSEMBLER__
 
+#include <stdint.h>
+
 #include "FreeRTOS.h"
 #include "task.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// ---- the non-allocating console primitives, shared ----
+//
+// Thin exported wrappers over x5h_diag.c's file-static writers, added for
+// Task 19's x5h_cdds_process.c. Exported rather than duplicated because the
+// "never allocate, never take the scheduler lock" rule above is a property of
+// THESE implementations: a second hand-rolled set of console writers would be
+// a second thing to keep inside that rule, and this tree has already paid for
+// duplicated rationale drifting from its code. They format by hand and reach
+// the wire through R_SERIAL_PutChar(); x5h_diag_puts() also translates '\n' to
+// "\r\n". x5h_diag_puts(NULL) prints "<null>" rather than faulting, which
+// matters when the thing being reported may itself be a bad pointer.
+void x5h_diag_puts(const char *s);
+void x5h_diag_put_u32(uint32_t v);
+void x5h_diag_put_i32(int32_t v);
+void x5h_diag_put_hex32(uint32_t v);
 
 // R1. Repoints VBAR at this module's own vector table (x5h_diag_vectors.S)
 // and prints the old and new bases. Call it as the first statement of
