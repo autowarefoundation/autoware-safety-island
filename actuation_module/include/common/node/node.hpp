@@ -21,13 +21,19 @@ using namespace common::logger;
 
 // Task 26, diagnostic-only hook: lets x5h_diag.c's beacon probe the
 // controller pthread this file spawns below, to distinguish a task that was
-// really vTaskDelete()'d from one merely unlinked from the ready list.
-// Guarded so every platform other than the freertos-x5h diagnostic build
-// (X5H_DIAG_TASK_TABLE, off by default) is entirely unaffected -- neither
-// this include nor the four lines it enables in spin() below exist for
-// them. See actuation_module/freertos_x5h/x5h_diag.h ("R3c") for what the
-// probe reads and why it needs the controller's raw FreeRTOS TaskHandle_t
-// rather than the opaque pthread_t this class otherwise keeps to itself.
+// really vTaskDelete()'d from one merely unlinked from the ready list. This
+// include, and the body of the `if` it enables in spin() below, are gated
+// behind X5H_DIAG_TASK_TABLE (off by default) and so do not exist for any
+// platform other than the freertos-x5h diagnostic build. The one line
+// outside that guard -- spin() capturing pthread_create()'s return value
+// into `ret` before returning it, instead of returning it directly -- is
+// unconditional and does compile for every platform (Zephyr,
+// freertos-s32z2, freertos-posix too); it is a trivially-equivalent
+// refactor with identical codegen, not something those builds can opt out
+// of, so "guarded" describes the diagnostic hook, not this whole function.
+// See actuation_module/freertos_x5h/x5h_diag.h ("R3c") for what the probe
+// reads and why it needs the controller's raw FreeRTOS TaskHandle_t rather
+// than the opaque pthread_t this class otherwise keeps to itself.
 #if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
 #include "x5h_diag.h"
 #endif

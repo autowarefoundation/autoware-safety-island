@@ -634,13 +634,18 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // words == 1 KiB) and sizeof(TaskStatus_t) is ~40 bytes here, so 24 of them
 // is ~1 KiB -- the whole beacon stack -- if it were a local.
 #define X5H_DIAG_TASK_TABLE_SLOTS 24
-// Every 2nd beacon. X5H_DIAG_TASK_TABLE_EVERY is unconditional, but the
-// period it multiplies is not (X5H_DIAG_BEACON_PERIOD_TICKS above is
-// conditioned on this same macro): one table every 10 s at the plain 5 s
-// beacon period this constant was originally sized against, but every 2 s
-// since Task 26 dropped X5H_DIAG_TASK_TABLE's own beacon period to 1 s --
-// both changes live behind the same X5H_DIAG_TASK_TABLE gate, so they
-// always move together.
+//
+// THE COUPLING, stated explicitly so it cannot be silently re-broken. This
+// constant is a beacon-count, not a time: the table cadence it produces is
+// X5H_DIAG_TASK_TABLE_EVERY * X5H_DIAG_BEACON_PERIOD_TICKS, and the second
+// factor is itself conditioned on X5H_DIAG_TASK_TABLE (see that definition
+// above) -- one table every 10 s at the plain 5 s default-build period this
+// constant was originally sized against, but every 3 s in the diagnostic
+// build, where the period drops to 1 s. Retuning the beacon period without
+// also re-checking this constant silently retunes the table cadence too;
+// that is exactly the trap review round 1 on this task flagged, so it is
+// spelled out here rather than left for the next person to rediscover by
+// noticing the tables arriving at an unexpected rate.
 //
 // Sized by the shortest window that has to yield a USABLE reading, not by
 // what feels cheap. rt is only meaningful as a delta between two dumps, and
@@ -648,21 +653,44 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // a 30 s window (peers stopped, waiting to see whether the 10 s participant
 // lease expires). At one table per 30 s that window can contain exactly one
 // table and therefore no delta at all -- the measurement would be missing
-// from precisely the interval it was built for. At 10 s it contained three;
-// at Task 26's 2 s it contains fifteen, finer than that argument ever asked
-// for and left as-is rather than re-tuned, because more tables only helps
-// bracket a narrow window, never hurts it.
+// from precisely the interval it was built for. At 10 s it contained three.
+// The diagnostic build's own window of interest is Task 26's narrower ~6.5 s
+// controller death window, which this constant is now also sized against:
+// at 3 s it contains 2-3 tables (still enough for the cross-task runtime
+// delta that is real corroborating evidence for the "overwritten TCB" and
+// "stray unlink" shapes), which is why review round 1 rejected raising this
+// to 10 -- that would have dropped the diagnostic build back to at most one
+// table inside the window it exists to bracket, the same failure this
+// constant was first written to avoid.
 //
 // Affordable at the original cadence: one table is ~15 tasks x ~60 chars ~=
-// 900 B, and the console is 115200 8N1 (~11.5 kB/s), so a table is ~80 ms
-// every 10 s -- a duty cycle under 1 %. At Task 26's 2 s cadence that same
-// ~80 ms recurs five times as often, ~4 % duty cycle -- still small next to
-// the ~6.5 s death window this change exists to bracket, but no longer
-// "under 1 %"; said plainly so this paragraph does not quietly go stale the
-// way an earlier version of this file's comments already did once. See the
-// artefact note below for what that 80 ms does to the rest of the image
-// while it happens.
-#define X5H_DIAG_TASK_TABLE_EVERY 2
+// 900 B, and the console is 115200 8N1 (~11.5 kB/s), so a table is ~78 ms
+// every 10 s -- a duty cycle under 1 %. Measured on the diagnostic build's
+// own 1 s beacon period (review round 1): the per-second beacon line costs
+// ~10.4 ms and this file's controller probe (see "R3c" below) another
+// ~6.1 ms, so even before any table that base rate is already ~1.7 % duty;
+// a table every 3 s adds ~78 ms / 3 s (~2.6 %) on top, for a combined
+// ~4.3 % duty cycle in the diagnostic build -- not under 1 %, and not meant
+// to be; still small next to the ~6.5 s window this change exists to
+// bracket. (At the EVERY=2 this constant briefly held during development,
+// the same arithmetic gives ~5.5 % -- measured, not estimated, in that
+// review round -- which is why EVERY=3 is what shipped.) Numbers stated
+// plainly so this paragraph does not quietly go stale the way an earlier
+// version of this file's comments already did once. See the artefact note
+// below for what that ~78 ms does to the rest of the image while it
+// happens.
+#define X5H_DIAG_TASK_TABLE_EVERY 3
+// M5 (review round 1): the beacon below gates the table on
+// `(n % X5H_DIAG_TASK_TABLE_EVERY) == 1u`, which is never true if this
+// constant is ever set to 1 (n % 1 is always 0) -- silently disabling the
+// table entirely rather than printing it every beacon as "every 1st beacon"
+// would suggest. Guarded here rather than in the beacon's own modulo test,
+// so the failure is caught at the definition that would introduce it.
+_Static_assert(X5H_DIAG_TASK_TABLE_EVERY >= 2,
+               "X5H_DIAG_TASK_TABLE_EVERY must be at least 2: the beacon "
+               "loop's `(n % X5H_DIAG_TASK_TABLE_EVERY) == 1u` gate is never "
+               "true when this is 1, which would silently disable the task "
+               "table instead of printing it every beacon.");
 static TaskStatus_t s_task_status[X5H_DIAG_TASK_TABLE_SLOTS];
 
 static char diag_task_state_char(eTaskState st)
@@ -766,13 +794,23 @@ void x5h_diag_set_controller_task(TaskHandle_t controller)
 // really deleted out of this image's 14-task boot population, 14 if it was
 // merely unlinked. So it is put on the wire FIRST and UNCONDITIONALLY,
 // before the controller handle is touched at all. R_SERIAL_PutChar() is a
-// synchronous polled UART write (see this file's own output-path notes in
-// x5h_diag.h): by the time diag_put_u32() below returns, those bytes have
-// already left the UART, not merely been queued. If the controller probe
-// that follows then faults, R1's replacement exception vectors catch it,
-// report it, and halt -- the capture already has its decisive scalar; only
-// the corroborating detail is lost, and losing detail costs far less than
-// losing the one flash this diagnostic gets.
+// synchronous polled UART write with no software buffer or queue (see this
+// file's own output-path notes in x5h_diag.h) -- but "no queue" is not "no
+// latency". CORRECTED (review round 1 on this task): an earlier revision of
+// this comment claimed the ntasks bytes have "already left the UART" by the
+// time diag_put_u32() returns. They have not, necessarily -- the BSP's own
+// uart_rcar_poll_out() waits for TX FIFO SPACE and then writes the byte into
+// it, so up to a FIFO's worth of bytes can still be sitting in the hardware
+// FIFO, not yet shifted out onto the wire, when this function returns. What
+// actually keeps that safe is not the print call itself but the fault path
+// on the other side of it: R1's replacement exception vectors
+// (x5h_diag_exception_report()) halt in a spin loop rather than resetting
+// the core, so if the controller probe below then faults, the FIFO the
+// ntasks line is sitting in is left alone and drains on its own -- nothing
+// here needs the write to be complete, only for nothing downstream to ever
+// reset the UART or the core before it finishes draining. Only the
+// corroborating detail is lost to a fault here, not the capture, and losing
+// detail costs far less than losing the one flash this diagnostic gets.
 //
 // This does not reintroduce the scheduler-lock hazard diag_put_resources()
 // and the R3b comment above both rule out elsewhere in this file. Unlike
@@ -783,6 +821,50 @@ void x5h_diag_set_controller_task(TaskHandle_t controller)
 // There is nothing here for corrupted state to loop forever in; the worst
 // case is a data abort taken with IRQ masked, which lands in R1 exactly as
 // any other fault would, not a permanently suspended scheduler.
+//
+// IMPORTANT, and specific to this probe alone: this file's other name
+// prints (diag_put_task_table() above, diag_put_resources()'s launcher
+// name) all pass a plain, unbounded diag_puts() over pcTaskGetName(), and
+// that is fine there -- every handle those two ever see comes straight out
+// of uxTaskGetSystemState()'s own walk of FreeRTOS's live ready/blocked/
+// suspended lists, so the TCB it points at is, by construction, one the
+// scheduler still considers valid. This probe is different on purpose: the
+// whole point of s_controller_task is to read a handle the scheduler may no
+// longer be able to vouch for at all, and "overwritten TCB" is one of the
+// four shapes it exists to distinguish. pcTaskGetName() returns
+// &pxTCB->pcTaskName[0], a plain configMAX_TASK_NAME_LEN-byte char array
+// (FreeRTOSConfig.h) with no length prefix; if the bytes at and after it
+// have been scribbled over there is no guarantee of a NUL anywhere nearby,
+// and this file's normal diag_puts() would walk off the end of the array
+// and keep going through whatever memory follows until it happened to find
+// a zero byte -- or didn't, and this priority-31 task (above every other
+// task in the image, per X5H_DIAG_BEACON_PRIORITY above) then never returns
+// to sleep, at 115200 baud, forever. Unlike a fault -- which halts and is
+// therefore an acceptable outcome here, see above -- an unterminated walk
+// never halts, so it would starve the rest of the image and destroy exactly
+// the corroborating evidence (later task tables, the level-3 discovery
+// trace, later ntasks deltas) this diagnostic is flashed to collect.
+// diag_puts_bounded() below is the fix: at most configMAX_TASK_NAME_LEN
+// characters, full stop, whether or not a NUL ever turns up.
+static void diag_puts_bounded(const char *s, uint32_t max_len)
+{
+    uint32_t i;
+
+    if (s == NULL) {
+        diag_puts("<null>");
+        return;
+    }
+    for (i = 0; i < max_len && s[i] != '\0'; i++) {
+        // Same '\n' -> "\r\n" translation diag_puts() does above, for the
+        // same reason: a garbage name byte that happens to be '\n' should
+        // not be allowed to corrupt a raw serial capture's line structure.
+        if (s[i] == '\n') {
+            diag_putc('\r');
+        }
+        diag_putc(s[i]);
+    }
+}
+
 static void diag_put_controller_probe(void)
 {
     TaskHandle_t controller = s_controller_task;
@@ -806,7 +888,7 @@ static void diag_put_controller_probe(void)
         diag_puts(s);
     }
     diag_puts(" name=");
-    diag_puts(pcTaskGetName(controller));
+    diag_puts_bounded(pcTaskGetName(controller), (uint32_t)configMAX_TASK_NAME_LEN);
     diag_puts(" prio=");
     diag_put_u32((uint32_t)uxTaskPriorityGet(controller));
     diag_puts("\n");
