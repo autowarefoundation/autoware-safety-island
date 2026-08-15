@@ -376,19 +376,52 @@ set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)"
 # CONFIG_DDS_DISABLE_MULTICAST). Both constants are the frozen wire values
 # shared with the Linux side's cyclonedds-x5h.xml.
 set(CONFIG_DDS_PEER "172.16.52.1" CACHE STRING "Unicast SPDP peer IPv4 (Linux edge ECU over the RPMsg netif)")
+# Task 21: size the DDS wire units under the frozen 462-byte RPMsg-netif MTU
+# instead of relying on IP fragmentation. Full derivation lives as a comment
+# in common/dds/config.hpp right where these are consumed -- summary only
+# here: UDP payload ceiling = 462 - 20 (IPv4) - 8 (UDP) = 434 B.
+# CONFIG_DDS_FRAGMENT_SIZE leaves room inside that ceiling for one RTPS
+# message header (20 B) + one INFO_DST submessage (16 B, worst case: a
+# directed retransmit) + one INFO_TS submessage (12 B) + one DATA_FRAG
+# submessage header (36 B) = 84 B of fixed overhead, so 434 - 84 = 350,
+# rounded DOWN to the nearest multiple of 4 (CycloneDDS pads a fragment's
+# payload to a 4-byte boundary and transmits that padding -- ddsi_xmsg.c's
+# align4u()/`assert ((plsize % 4) == 0)`), giving 348 B. Fix-round-1
+# correction: a first draft used 68 B / 366 B here, missing both the
+# directed-retransmit INFO_DST submessage and the 4-byte alignment
+# requirement -- see config.hpp's own comment for the full derivation and
+# why 366 B still IP-fragmented on exactly the traffic (Trajectory,
+# Odometry) this task exists to fix.
+# CONFIG_DDS_MAX_MSG_SIZE / CONFIG_DDS_MAX_REXMIT_MSG_SIZE are themselves
+# defined as "the maximum UDP payload Cyclone DDS will generate" (also for
+# retransmits), so both get the 434 B ceiling directly. These MUST be set on
+# both ends of this link -- see also
+# scripts/build-edge-ecu-peer-arm64.sh's matching -D flags for the arm64
+# Linux peer -- or the end left at the CycloneDDS defaults (14720/1456/1344)
+# still IP-fragments every full-size datagram onto a link whose reassembly
+# depth cannot keep up (see lwip_port/lwipopts.h's IP_REASS_* comment).
+set(CONFIG_DDS_MAX_MSG_SIZE 434 CACHE STRING "Max DDS UDP payload size (bytes); see common/dds/config.hpp for derivation")
+set(CONFIG_DDS_MAX_REXMIT_MSG_SIZE 434 CACHE STRING "Max DDS retransmit UDP payload size (bytes); see common/dds/config.hpp for derivation")
+set(CONFIG_DDS_FRAGMENT_SIZE 348 CACHE STRING "DDSI sample fragment size (bytes); see common/dds/config.hpp for derivation")
 # target_compile_definitions(actuation_x5h ...), not directory-scoped
 # add_compile_definitions() (review finding, Minor): this file runs inside
 # the VENDOR's own directory scope (see the header comment above), so a
 # directory-scoped add_compile_definitions() here would leak
-# CONFIG_NET_CONFIG_PEER_IPV4_ADDR/CONFIG_DDS_DISABLE_MULTICAST into every
-# target configured in that scope, not just actuation_x5h -- including
+# CONFIG_NET_CONFIG_PEER_IPV4_ADDR/CONFIG_DDS_DISABLE_MULTICAST/CONFIG_DDS_
+# MAX_MSG_SIZE/CONFIG_DDS_MAX_REXMIT_MSG_SIZE/CONFIG_DDS_FRAGMENT_SIZE into
+# every target configured in that scope, not just actuation_x5h -- including
 # netif_only_x5h, which does not compile common/dds/config.hpp (the only
-# consumer of either macro) at all. Scoped to actuation_x5h alone, matching
-# the EIGEN_FAST_MATH=0 precedent already in this file.
+# consumer of any of these macros) at all. Scoped to actuation_x5h alone,
+# matching the EIGEN_FAST_MATH=0 precedent already in this file.
 if(CONFIG_DDS_PEER)
     target_compile_definitions(actuation_x5h PRIVATE CONFIG_NET_CONFIG_PEER_IPV4_ADDR="${CONFIG_DDS_PEER}")
 endif()
 target_compile_definitions(actuation_x5h PRIVATE CONFIG_DDS_DISABLE_MULTICAST=1)
+target_compile_definitions(actuation_x5h PRIVATE
+    CONFIG_DDS_MAX_MSG_SIZE=${CONFIG_DDS_MAX_MSG_SIZE}
+    CONFIG_DDS_MAX_REXMIT_MSG_SIZE=${CONFIG_DDS_MAX_REXMIT_MSG_SIZE}
+    CONFIG_DDS_FRAGMENT_SIZE=${CONFIG_DDS_FRAGMENT_SIZE}
+)
 # Controller node thread stack. autoware_mpc_lateral_controller's Eigen-heavy
 # control cycle overflowed a 256 KiB stack by a few hundred bytes on S32Z2
 # (same component, same Cortex-R52 + NEON ABI); 512 KiB gives ~2x margin.
