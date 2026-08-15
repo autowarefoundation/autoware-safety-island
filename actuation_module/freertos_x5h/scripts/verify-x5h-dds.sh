@@ -37,6 +37,8 @@
 # from "works but too slowly", and is a gate that can actually go red.
 set -uo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
 BUNDLE=${BUNDLE:-/var/tmp/edge-ecu-peer}
 COUNT=${COUNT:-100}
 WINDOW=${WINDOW:-120}
@@ -195,35 +197,16 @@ fi
 # Guards against a payload that arrives but is garbage: NaN/inf, or values no
 # controller would emit. awk does the numeric work because the values are
 # floating point and the shell cannot compare those.
-if ! awk -v maxsteer="$MAX_STEER_RAD" -v maxaccel="$MAX_ACCEL" -v maxvel="$MAX_VEL" '
-    function bad(v)  { return (v != v) || (v == "inf") || (v == "-inf") }
-    function absv(v) { return v < 0 ? -v : v }
-    /steering_tire_angle:/ {
-        v = $2; seen_steer++
-        if (bad(v) || absv(v) > maxsteer) {
-            printf "implausible steering_tire_angle: %s (limit %s)\n", v, maxsteer > "/dev/stderr"; bad_n++
-        }
-    }
-    /^accel:/ {
-        a = $2; v = $5; seen_accel++
-        if (bad(a) || absv(a) > maxaccel) {
-            printf "implausible accel: %s (limit %s)\n", a, maxaccel > "/dev/stderr"; bad_n++
-        }
-        if (bad(v) || absv(v) > maxvel) {
-            printf "implausible velocity: %s (limit %s)\n", v, maxvel > "/dev/stderr"; bad_n++
-        }
-    }
-    END {
-        # No parsed fields at all means the log shape changed and this check
-        # silently stopped checking -- treat that as failure, not success.
-        if (seen_steer == 0 || seen_accel == 0) {
-            printf "no control_cmd fields parsed (steer=%d accel=%d): assertion would be vacuous\n",
-                   seen_steer, seen_accel > "/dev/stderr"
-            exit 1
-        }
-        exit (bad_n > 0) ? 1 : 0
-    }
-' "$SUB_LOG"; then
+#
+# The parser itself lives in dds-plausibility.awk, not inlined here: it reads
+# each value by the KEY NAME next to it (steering_tire_angle:/accel:/
+# velocity:), not by positional field index, so it survives real log lines
+# carrying an ANSI colour escape + timestamp + '|' prefix ahead of the key
+# (see that file's header for the defect a positional read produced on real
+# hardware) -- and keeping it in its own file lets
+# scripts/test-dds-plausibility.sh exercise this exact parser directly.
+if ! awk -v maxsteer="$MAX_STEER_RAD" -v maxaccel="$MAX_ACCEL" -v maxvel="$MAX_VEL" \
+    -f "${SCRIPT_DIR}/dds-plausibility.awk" "$SUB_LOG"; then
     fail implausible
 fi
 

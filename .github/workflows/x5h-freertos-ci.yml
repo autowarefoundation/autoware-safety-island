@@ -65,6 +65,14 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
+      # Host-runnable regression test for verify-x5h-dds.sh's field-
+      # plausibility parser (dds-plausibility.awk). Needs no submodules or
+      # build artifacts -- run first for fast feedback if this ever
+      # regresses. See test-dds-plausibility.sh's header for what it covers.
+      - name: Verify DDS field-plausibility parser (host regression test)
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/test-dds-plausibility.sh
+
       # Only the submodules the freertos-x5h target needs. s32ct_config is a
       # PRIVATE submodule (NXP Confidential) that the repo-scoped CI token
       # cannot clone and this target does not reference; zephyr and
