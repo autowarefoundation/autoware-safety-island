@@ -156,6 +156,18 @@ What to look for, in the order it appears:
   `x5h-diag: mark pre-dds_create_domain_with_rawconfig …` with the same
   fields. Compare it against the last beacon line before the console went
   quiet.
+- **Once, inside the DDS domain call (`actuation_x5h` only):**
+  `x5h-diag: procname tcb=… borrow=… copy=… delta=… borrow_in_heap=… free_would_have_hit=… hdr_prev=… hdr_size=…`.
+  This line is a **test, not a status message** — it is how a board session
+  confirms that the Task 19 fix took effect for the reason it was made, and
+  it is the last line printed before the run either continues past the point
+  the CR52 used to die or does not. Expected: `delta=52`, `hdr_size=0x0`,
+  `hdr_prev` equal to `tcb`, `free_would_have_hit` equal to `tcb+44`, and
+  `borrow_in_heap=1`. Any other value falsifies part of the diagnosis. The
+  full argument, including why `borrow_in_heap` is 1 rather than 0 and what
+  each field is derived from, lives in the header comment of
+  **`x5h_cdds_process.c`**; read that before drawing a conclusion from this
+  line.
 - **On a CPU fault:** `*** X5H EXCEPTION: <name> ***` followed by the
   offset-corrected faulting `PC`, `SPSR`, `DFSR`/`DFAR`/`IFSR`/`IFAR` and
   the running task's name, then `*** halted ***`. All four fault registers

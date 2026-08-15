@@ -164,6 +164,7 @@ set(X5H_DIAG_SOURCES
 # flags the assembler consumes.
 set_source_files_properties(
     ${CMAKE_CURRENT_LIST_DIR}/x5h_diag.c
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_cdds_process.c
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
 )
 
@@ -174,6 +175,14 @@ set_source_files_properties(
 add_executable(actuation_x5h
     ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp
     ${CMAKE_CURRENT_LIST_DIR}/newlib_stubs.c
+    # Task 19. Listed here and NOT in X5H_DIAG_SOURCES because, unlike the
+    # Task 18 files, it is specific to this target: it defines ddsrt_getpid()
+    # and ddsrt_getprocessname() so that libddsc.a's process.c.obj is never
+    # pulled into the link (see that file's header comment), and it includes
+    # CycloneDDS's own headers to do it. netif_only_x5h links neither
+    # libddsc.a nor those include directories, so the override belongs to
+    # actuation_x5h alone.
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_cdds_process.c
     ${X5H_DIAG_SOURCES}
     ${X5H_BSP_RPMSG_SOURCES}
 )
