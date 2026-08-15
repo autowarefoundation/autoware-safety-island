@@ -168,9 +168,14 @@
 // unchanged; only the reasoning was.
 //
 // rpmsg_poll_task (priority 5, this file's TCPIP_THREAD_PRIO + 1) strictly
-// preempts tcpip_thread (priority 4) under this target's
-// configUSE_TIME_SLICING == 0 (see rpmsg_transport.c's own priority-map
-// comment). So whatever the poll task drains from the vring and pushes into
+// preempts tcpip_thread (priority 4) -- see rpmsg_transport.c's own
+// priority-map comment. (CORRECTED: this used to attribute that preemption
+// to configUSE_TIME_SLICING == 0, which is the wrong reason for a right
+// claim. A strictly higher-priority runnable task preempts a lower one
+// under configUSE_PREEMPTION == 1 alone; time slicing has nothing to do
+// with it, and only ever governs EQUAL-priority tasks. The sizing
+// conclusion below is unaffected.) So whatever the poll task drains from
+// the vring and pushes into
 // TCPIP_MBOX in one pass -- from the moment it wakes until its own
 // vTaskDelay(1) -- tcpip_thread gets zero chance to drain any of it; the
 // mailbox has to be able to hold that whole pass by itself.
@@ -275,14 +280,33 @@
 // Previously unset here, so both TCPIP_THREAD_PRIO and DEFAULT_THREAD_PRIO
 // silently took lwIP's own lwip/opt.h default of 1 -- the exact priority
 // FreeRTOS gives every DDS/controller pthread on this port (tskIDLE_
-// PRIORITY + 1; see include/platform/freertos/x5h/pthread.h). With
-// configUSE_TIME_SLICING == 0 for this target (rcar_bsp's own
-// FreeRTOSConfig.h), FreeRTOS never round-robins ready tasks of equal
-// priority on a tick -- a ready task only yields to an equal-priority peer
-// when it blocks or calls taskYIELD(). Tying the tcpip thread to the same
-// priority as the DDS/controller pthreads therefore risked exactly the
-// starvation this review is about: whichever of them the scheduler picked
-// first could hold the CPU indefinitely.
+// PRIORITY + 1; see include/platform/freertos/x5h/pthread.h). Tying the
+// tcpip thread to the same priority as the DDS/controller pthreads is a
+// real hazard and the raise below is right, but state WHY correctly.
+//
+// CORRECTED: this paragraph used to argue that "FreeRTOS never round-robins
+// ready tasks of equal priority ... a ready task only yields to an
+// equal-priority peer when it blocks or calls taskYIELD()", and concluded
+// that whichever task the scheduler picked "could hold the CPU
+// indefinitely". Only the first clause is true, and only as far as it goes:
+// configUSE_TIME_SLICING == 0 removes the TICK-driven switch
+// (rcar_bsp/FreeRTOS/Source/tasks.c:4810-4841) and nothing else. Task
+// selection still runs listGET_OWNER_OF_NEXT_ENTRY (tasks.c:178-193 on this
+// build, which has configUSE_PORT_OPTIMISED_TASK_SELECTION == 0), so the
+// ready list rotates on EVERY context switch -- including the ones caused
+// by a higher-priority task becoming ready or blocking again, which on this
+// port happens constantly. So equal-priority tasks do interleave, and an
+// equal-priority tie costs a peer roughly half the CPU rather than all of
+// it. The full derivation, with the kernel's own wording, is in
+// freertos_main.cpp's ACTUATION_TASK_PRIORITY block; it is not repeated
+// here.
+//
+// The raise is unaffected by that correction, because what it buys comes
+// from STRICT priority, not from time slicing: at 4 the tcpip thread
+// preempts every application task outright and runs whenever it has work,
+// which is the property this file needs. Halving its CPU against a
+// CPU-bound peer would already be unacceptable for RX delivery; being
+// preempted by one would be worse. Neither is possible at 4.
 //
 // This target's real priority map (see rpmsg_transport.c's own comment on
 // the poll task priority for the full picture and how it was verified):
@@ -305,8 +329,11 @@
 // never transmitted a frame. actuation_task does block in pthread_join --
 // eventually, at src/main.cpp:57 -- but it first runs configure_network()
 // and the entire Controller constructor (CycloneDDS participant + Eigen MPC)
-// without blocking, and under configUSE_TIME_SLICING == 0 nothing below it
-// can preempt a task that has not blocked yet. So for that whole stretch the
+// without blocking, and a runnable task is never preempted by a STRICTLY
+// LOWER-priority one. (That is plain priority under configUSE_PREEMPTION;
+// the original wording credited configUSE_TIME_SLICING == 0, which governs
+// only equal priorities and is not what made a 30 fatal here.) So for that
+// whole stretch the
 // tcpip thread at 4 and the poll task at 5 simply did not run: the channel
 // was announced and then nothing was ever transmitted, while Linux logged
 // its virtio_rpmsg send path timing out waiting for the remote to return a
@@ -319,8 +346,11 @@
 //
 // TCPIP_THREAD_PRIO=4: strictly above every task that runs application code
 // -- the controller/DDS pthreads at 1, the CycloneDDS ddsrt threads and the
-// actuation launcher at 2 -- so the tcpip thread cannot be starved by any of
-// them under configUSE_TIME_SLICING=0.
+// actuation launcher at 2 -- so the tcpip thread cannot be starved or even
+// merely delayed by any of them. Strictly above, not merely different: at
+// EQUAL priority it would round-robin with a CPU-bound peer and get about
+// half the CPU, which is already too little for RX delivery. The margin
+// here comes from priority alone and needs no time-slicing argument.
 // DEFAULT_THREAD_PRIO=(TCPIP_THREAD_PRIO + 1): mirrors
 // freertos_s32z2/include/.../lwipopts.h's own DEFAULT_THREAD_PRIO-above-
 // TCPIP_THREAD_PRIO placement (there, DEFAULT_THREAD_PRIO is where NXP's

@@ -79,24 +79,66 @@
 // property that matters here; "it cannot hold the CPU while the network has
 // work to do" is.
 //
-// tskIDLE_PRIORITY + 2 (== 2). Every one of these bounds is load-bearing,
-// and every one of them is asserted below rather than only described:
+// THE SCHEDULER FACT EVERY BOUND BELOW RESTS ON, stated once and up front.
+// CORRECTED: an earlier version of this block asserted the opposite, that
+// "under configUSE_TIME_SLICING == 0 equal priorities never round-robin".
+// That is false, it survived a review, and it went on to mislead a later
+// investigation into a different defect. It is corrected here rather than
+// only deleted, because the bounds below are only as good as the mechanism
+// they are justified by.
+//
+// FreeRTOS DOES round-robin equal-priority READY tasks. Selection is
+// taskSELECT_HIGHEST_PRIORITY_TASK(), and this build has
+// configUSE_PORT_OPTIMISED_TASK_SELECTION == 0 (rcar_bsp's own
+// FreeRTOSConfig.h), so that macro is rcar_bsp/FreeRTOS/Source/tasks.c:
+// 178-193 -- a listGET_OWNER_OF_NEXT_ENTRY() under the kernel's own comment
+// at tasks.c:189-190: "indexes through the list, so the tasks of the same
+// priority get an equal share of the processor time." (The port-optimised
+// variant at tasks.c:219-227 does the same, so nothing here depends on
+// which one is compiled.) configUSE_TIME_SLICING == 0 removes exactly one
+// thing: the TICK-driven switch at tasks.c:4810-4841. It does not pin the
+// CPU to one task. Every other context switch -- a task blocking, a
+// taskYIELD(), a higher-priority task becoming ready or blocking again --
+// still rotates the ready list, and on this port tcpip_thread and
+// rpmsg_poll_task generate those constantly.
+//
+// So the two hazards are of different KINDS, and keeping them apart is what
+// the earlier version got wrong:
+//   - An equal-priority tie is a SHARING hazard. A CPU-bound task at equal
+//     priority takes roughly half the CPU from its peer and badly delays
+//     it. It does not hold the CPU until it blocks.
+//   - A task at STRICTLY HIGHER priority preempts outright, indefinitely,
+//     for as long as it stays runnable. That needs no time-slicing argument
+//     at all -- it is plain priority.
+// The bounds that fix the actual defect are the strictly-below ones, and
+// they are load-bearing because of the second bullet, not the first.
+//
+// tskIDLE_PRIORITY + 2 (== 2). Every one of these bounds is asserted below
+// rather than only described:
 //   - strictly BELOW TCPIP_THREAD_PRIO (4) and RPMSG_POLL_TASK_PRIORITY (5).
-//     This is the bound that fixes the defect: both network tasks preempt
-//     this one, so bring-up -- and the DDS traffic that follows -- can never
+//     This is the bound that fixes the defect, and it is the one that rests
+//     on plain strict priority: both network tasks preempt this one
+//     outright, so bring-up -- and the DDS traffic that follows -- can never
 //     be starved by whatever the launcher happens to be doing.
 //   - strictly ABOVE the pthreads at tskIDLE_PRIORITY + 1 (hardcoded in
 //     include/platform/freertos/x5h/pthread.h, which exports no macro to
 //     reference from here, so the expression is spelled out below rather
-//     than mirrored under a second name). Not 1: at 1 the launcher would sit
-//     at the same priority as the controller pthread it spawns through
-//     Controller::spin(), and under configUSE_TIME_SLICING == 0 equal
-//     priorities never round-robin -- whichever task the scheduler picked
-//     would hold the CPU until it blocked. That is the same hazard
-//     lwipopts.h's own thread-priority comment warns about.
+//     than mirrored under a second name). What this bound is worth, stated
+//     at its corrected strength rather than its old inflated one: at 1 the
+//     launcher would tie with the controller pthread it spawns through
+//     Controller::spin(), and per the correction above that is a sharing
+//     hazard -- during any stretch in which the launcher runs without
+//     blocking, the pthread would get roughly half the CPU instead of all
+//     of it. That window is small here (the launcher reaches pthread_join
+//     at src/main.cpp:57 a few statements after spin()), so this bound buys
+//     a deliberate, documented ordering rather than preventing a hang. It
+//     is kept because it is free and because "do not tie with what you
+//     create" is still the right default; it is no longer claimed to be
+//     preventing starvation, because it is not.
 //   - not 3, which is configTIMER_TASK_PRIORITY (vendor-fixed): at 3 the
-//     launcher would sit at the timer service's priority instead, the same
-//     equal-priority hazard against a different task.
+//     launcher would tie with the FreeRTOS timer service instead. Same
+//     corrected strength -- during the launcher's long non-blocking startup
+//     stretch the timer service would be delayed by sharing, not stopped.
 //
 // One consequence that is invisible from this file but decided by this
 // constant: CycloneDDS's own ddsrt threads are not the pthread.h ones.
@@ -112,24 +154,28 @@
 // a priority is exactly what this whole change exists to undo. Those ddsi
 // threads land at EXACTLY this value. The launcher and the threads it
 // creates inside dds_create_participant() are therefore an equal-priority
-// TIE at 2, and under configUSE_TIME_SLICING == 0 that tie does not
-// round-robin: the ddsi threads cannot preempt the constructor that spawned
-// them, and get the CPU only when the launcher itself blocks -- wherever the
-// constructor happens to block, and then unconditionally once it reaches
-// pthread_join at src/main.cpp:57, a few statements later, where it stays
-// for the life of the image.
+// TIE at 2.
+//
+// CORRECTED: this paragraph used to say that tie "does not round-robin:
+// the ddsi threads cannot preempt the constructor that spawned them, and
+// get the CPU only when the launcher itself blocks". Per the scheduler
+// correction at the top of this block, that is false -- the ddsi threads
+// share the CPU with the constructor round-robin from the moment they are
+// created, and each of them makes progress during it. The tie costs
+// throughput, not liveness.
 //
 // So moving the launcher from 30 to 2 RELOCATES this tie; it does not remove
 // it, and no value available here would. 3 is configTIMER_TASK_PRIORITY and
 // anything at or below 1 crosses the pthread.h threads, so every candidate
 // ties with something. The tie is accepted, not overlooked, for two reasons:
 // the property this fix is about is untouched by it -- tcpip_thread (4) and
-// rpmsg_poll_task (5) sit above BOTH sides of the tie, so no resolution of
-// it can starve the network -- and the contended window is bounded by
-// construction, ending a few statements after the threads are created. What
-// this tie does mean is that the assertion below guards the pthread.h half
-// of "do not tie with what you create" and nothing more; do not read it as
-// covering the ddsi threads, because it cannot.
+// rpmsg_poll_task (5) sit STRICTLY ABOVE both sides of the tie, so they
+// preempt it outright and no resolution of it can starve the network -- and
+// the contended window is bounded by construction, ending a few statements
+// after the threads are created. What this tie does mean is that the
+// assertion below guards the pthread.h half of "do not tie with what you
+// create" and nothing more; do not read it as covering the ddsi threads,
+// because it cannot.
 #define ACTUATION_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 
 // A comment is not a guard, and comments are exactly what failed here, so
@@ -147,45 +193,60 @@ static_assert(ACTUATION_TASK_PRIORITY < TCPIP_THREAD_PRIO,
               "ACTUATION_TASK_PRIORITY must stay strictly below "
               "TCPIP_THREAD_PRIO (lwip_port/lwipopts.h): the actuation "
               "launcher runs configure_network() and the entire Controller "
-              "constructor before it ever blocks, and with "
-              "configUSE_TIME_SLICING=0 a launcher at or above the lwIP "
-              "tcpip thread starves the network stack for that whole "
-              "stretch. On the board that produced an rpmsg-eth channel "
-              "that announced itself and then transmitted nothing. Lower "
-              "the launcher; do not raise it to match a network thread.");
+              "constructor before it ever blocks, i.e. it is CPU-bound for "
+              "that whole stretch -- which is exactly the case where its "
+              "priority relative to the tcpip thread decides how much CPU "
+              "the network stack gets. ABOVE the tcpip thread, a runnable "
+              "launcher preempts it outright and the stack gets none of it; "
+              "at EQUAL priority the two round-robin and the stack gets "
+              "roughly half, which for a bring-up handshake is still a bad "
+              "delay. Strictly below is the only placement that leaves the "
+              "stack able to run whenever it has work. On the board the "
+              "above-the-stack version produced an rpmsg-eth channel that "
+              "announced itself and then transmitted nothing. Lower the "
+              "launcher; do not raise it to match a network thread.");
 static_assert(ACTUATION_TASK_PRIORITY < RPMSG_POLL_TASK_PRIORITY,
               "ACTUATION_TASK_PRIORITY must stay strictly below "
               "RPMSG_POLL_TASK_PRIORITY (rpmsg_transport.h): the poll task "
               "is what drains inbound RPMsg notifications and returns tx "
-              "buffers to Linux. A launcher at or above it stops both, and "
-              "the Linux side reports its virtio_rpmsg send path timing out "
-              "waiting for the remote to return a tx buffer.");
+              "buffers to Linux. A launcher ABOVE it stops both outright "
+              "while the launcher stays runnable; at EQUAL priority it "
+              "halves the poll task's CPU during the same CPU-bound "
+              "startup stretch. Either way the Linux side reports its "
+              "virtio_rpmsg send path timing out waiting for the remote to "
+              "return a tx buffer.");
 static_assert(ACTUATION_TASK_PRIORITY > (tskIDLE_PRIORITY + 1),
               "ACTUATION_TASK_PRIORITY must stay strictly above the pthread "
               "priority hardcoded in include/platform/freertos/x5h/pthread.h "
               "(tskIDLE_PRIORITY + 1) -- the controller's own pthread and "
-              "every other pthread_create() on this port. With "
-              "configUSE_TIME_SLICING=0 equal priorities never round-robin, "
-              "so a launcher sitting at the pthreads' own priority would "
-              "hold the CPU until it blocked, whichever way the scheduler "
-              "happened to pick. Note the exact scope of this bound: it "
-              "keeps the launcher clear of the pthread.h threads, NOT of "
-              "every thread it creates. CycloneDDS's ddsrt threads inherit "
-              "the launcher's own priority and are a deliberate, accepted "
+              "every other pthread_create() on this port. CORRECTED: this "
+              "message used to claim that equal priorities never round-robin "
+              "under configUSE_TIME_SLICING=0 and that a launcher tied with "
+              "the pthreads would hold the CPU until it blocked. They do "
+              "round-robin (see the ACTUATION_TASK_PRIORITY comment block "
+              "for the kernel citations), so a tie here would cost the "
+              "pthread roughly half the CPU during the launcher's "
+              "non-blocking stretches, not all of it. The bound is kept "
+              "because it is free and because 'do not tie with what you "
+              "create' is the right default, not because it prevents a "
+              "hang. Note the exact scope of it either way: it keeps the "
+              "launcher clear of the pthread.h threads, NOT of every thread "
+              "it creates. CycloneDDS's ddsrt threads inherit the "
+              "launcher's own priority and are a deliberate, accepted "
               "equal-priority tie at this value -- see the "
               "ACTUATION_TASK_PRIORITY comment block for why that tie is "
-              "harmless and why no value here could avoid it.");
+              "tolerable and why no value here could avoid it.");
 static_assert(ACTUATION_TASK_PRIORITY != configTIMER_TASK_PRIORITY,
               "ACTUATION_TASK_PRIORITY must not equal "
               "configTIMER_TASK_PRIORITY (3, vendor-fixed in rcar_bsp's own "
-              "FreeRTOSConfig.h): that would sit the launcher at the "
-              "FreeRTOS timer service's priority, and with "
-              "configUSE_TIME_SLICING=0 an equal-priority pair does not "
-              "round-robin -- whichever of them the scheduler picked would "
-              "hold the CPU until it blocked. This bound is asserted rather "
-              "than left as a comment precisely because the other three "
-              "assertions all pass at 3 (3<4, 3<5, 3>1), so nothing else "
-              "here would catch it.");
+              "FreeRTOSConfig.h): that would tie the launcher with the "
+              "FreeRTOS timer service. CORRECTED, same as the bound above: "
+              "the two would round-robin, so the timer service would be "
+              "DELAYED by sharing the CPU through the launcher's CPU-bound "
+              "startup stretch, not stopped by it. Still worth avoiding, "
+              "and still worth asserting rather than leaving as a comment, "
+              "precisely because the other three assertions all pass at 3 "
+              "(3<4, 3<5, 3>1), so nothing else here would catch it.");
 
 #ifdef X5H_NETIF_ONLY
 #include "platform/freertos/x5h/freertos_network.h"
