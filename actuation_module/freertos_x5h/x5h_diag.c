@@ -477,7 +477,17 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
                "without this the beacon could end up somewhere other than "
                "the top of the image with nothing to say so.");
 
+// 5 s by default. Task 26 tightens this to 1 s under X5H_DIAG_TASK_TABLE
+// (diagnostic builds only, off by default): the controller-liveness probe
+// that macro also gates (see "R3c" below) is chasing a ~6.5 s death window,
+// and a 5 s beacon cannot reliably bracket a window narrower than itself.
+// Conditioned on the same macro the rest of this feature is, so the default
+// image's period -- and therefore its object code -- is untouched.
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+#define X5H_DIAG_BEACON_PERIOD_TICKS pdMS_TO_TICKS(1000)
+#else
 #define X5H_DIAG_BEACON_PERIOD_TICKS pdMS_TO_TICKS(5000)
+#endif
 
 // configMINIMAL_STACK_SIZE (256 words) matches what
 // rpmsg_vdev_heartbeat_task already uses for the same shape of work. This
@@ -499,15 +509,20 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // actuation_task that is a 32768-word (131072-byte) allocation, so early
 // beacons -- when the launcher has barely touched its stack -- scan close
 // to the whole 128 KiB. That runs at configMAX_PRIORITIES - 1, above
-// everything including rpmsg_poll_task, once every 5 s, and preempts all of
-// it for the duration.
+// everything including rpmsg_poll_task, once every beacon period, and
+// preempts all of it for the duration.
 //
 // Accepted, not overlooked. It is the price of R3's central requirement:
 // the watermark has to come from a task that outranks whatever is starving
 // the image, or it cannot be sampled at the moment it matters. Two things
 // bound the damage -- the scan shrinks as the launcher's stack fills, so it
-// is cheapest exactly when the reading is most interesting, and 5 s between
-// samples makes the duty cycle small against the ~1.7 Hz control cycle.
+// is cheapest exactly when the reading is most interesting, and at the
+// default 5 s period the duty cycle is small against the ~1.7 Hz control
+// cycle. Under X5H_DIAG_TASK_TABLE's 1 s period (see
+// X5H_DIAG_BEACON_PERIOD_TICKS above) that duty cycle is five times higher;
+// accepted for the same reason the rest of that macro's cost is (see "R3c"
+// below) -- a diagnostic image chasing a ~6.5 s window is not the build a
+// timing-sensitive board session should be running anyway.
 // But it is real: if a board session ever sees timing-dependent behaviour
 // that changes when the beacon is present, this is the mechanism to suspect
 // first, and lengthening X5H_DIAG_BEACON_PERIOD_TICKS is the cheapest test.
@@ -619,20 +634,34 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // words == 1 KiB) and sizeof(TaskStatus_t) is ~40 bytes here, so 24 of them
 // is ~1 KiB -- the whole beacon stack -- if it were a local.
 #define X5H_DIAG_TASK_TABLE_SLOTS 24
-// Every 2nd beacon at a 5 s beacon period == one table every 10 s.
+// Every 2nd beacon. X5H_DIAG_TASK_TABLE_EVERY is unconditional, but the
+// period it multiplies is not (X5H_DIAG_BEACON_PERIOD_TICKS above is
+// conditioned on this same macro): one table every 10 s at the plain 5 s
+// beacon period this constant was originally sized against, but every 2 s
+// since Task 26 dropped X5H_DIAG_TASK_TABLE's own beacon period to 1 s --
+// both changes live behind the same X5H_DIAG_TASK_TABLE gate, so they
+// always move together.
 //
 // Sized by the shortest window that has to yield a USABLE reading, not by
 // what feels cheap. rt is only meaningful as a delta between two dumps, and
-// the highest-value observation in the planned board session is a 30 s
-// window (peers stopped, waiting to see whether the 10 s participant lease
-// expires). At one table per 30 s that window can contain exactly one table
-// and therefore no delta at all -- the measurement would be missing from
-// precisely the interval it was built for. At 10 s it contains three.
+// the highest-value observation in the original (Task 23) board session was
+// a 30 s window (peers stopped, waiting to see whether the 10 s participant
+// lease expires). At one table per 30 s that window can contain exactly one
+// table and therefore no delta at all -- the measurement would be missing
+// from precisely the interval it was built for. At 10 s it contained three;
+// at Task 26's 2 s it contains fifteen, finer than that argument ever asked
+// for and left as-is rather than re-tuned, because more tables only helps
+// bracket a narrow window, never hurts it.
 //
-// Affordable: one table is ~15 tasks x ~60 chars ~= 900 B, and the console
-// is 115200 8N1 (~11.5 kB/s), so a table is ~80 ms every 10 s -- a duty
-// cycle under 1 %. See the artefact note below for what that 80 ms does to
-// the rest of the image while it happens.
+// Affordable at the original cadence: one table is ~15 tasks x ~60 chars ~=
+// 900 B, and the console is 115200 8N1 (~11.5 kB/s), so a table is ~80 ms
+// every 10 s -- a duty cycle under 1 %. At Task 26's 2 s cadence that same
+// ~80 ms recurs five times as often, ~4 % duty cycle -- still small next to
+// the ~6.5 s death window this change exists to bracket, but no longer
+// "under 1 %"; said plainly so this paragraph does not quietly go stale the
+// way an earlier version of this file's comments already did once. See the
+// artefact note below for what that 80 ms does to the rest of the image
+// while it happens.
 #define X5H_DIAG_TASK_TABLE_EVERY 2
 static TaskStatus_t s_task_status[X5H_DIAG_TASK_TABLE_SLOTS];
 
@@ -695,6 +724,93 @@ static void diag_put_task_table(void)
     diag_put_hex32((uint32_t)((uint64_t)total & 0xffffffffu));
     diag_puts("\n");
 }
+
+// ---- R3c: controller liveness probe (Task 26) ----
+//
+// The table above answers WHICH CycloneDDS worker stopped. This answers a
+// narrower, prior question a board session raised: the CR52's controller
+// task (pthread_create()'s "pthread", spawned from Node::spin() in
+// common/node/node.hpp, priority 1) disappears from that same table at
+// ~192 s and never returns, and no reachable vTaskDelete() call and no fault
+// path explains it. Four shapes remain -- deleted after all, a clobbered
+// ready-list header, a stray xStateListItem unlink, or an overwritten TCB --
+// and task-26-brief.md has the full table of which reading proves which.
+// Only the mechanism is repeated here.
+//
+// s_controller_task is set once, by x5h_diag_set_controller_task() (called
+// from Node::spin() right after pthread_create() succeeds, guarded by this
+// same macro), and only ever read here. No lock, for the identical reason
+// s_launcher above has none: one aligned pointer, written once before
+// anything could race it.
+static TaskHandle_t volatile s_controller_task = NULL;
+
+void x5h_diag_set_controller_task(TaskHandle_t controller)
+{
+    s_controller_task = controller;
+}
+
+// FAULT-SAFETY ORDERING, the point of this whole function. Once the
+// controller task is truly gone, s_controller_task is a stashed handle into
+// a TCB that may be deleted, unlinked, or overwritten -- exactly the shape
+// of bug this firmware has prior form for (a free() of a borrowed TCB
+// pointer, fixed 2026-08-14, still fresh enough to take seriously here).
+// eTaskGetState(), pcTaskGetName() and uxTaskPriorityGet() (tasks.c) all
+// dereference that TCB directly, and none of the four candidate shapes above
+// can be ruled safe to read in advance -- that is exactly the ambiguity this
+// probe exists to resolve, so it cannot also be assumed away first.
+//
+// uxTaskGetNumberOfTasks() carries none of that risk (tasks.c's own
+// comment: "A critical section is not required because the variables are of
+// type BaseType_t" -- a single global read, no pointer involved), and on
+// its own it already answers deleted-vs-unlinked: 13 if the controller was
+// really deleted out of this image's 14-task boot population, 14 if it was
+// merely unlinked. So it is put on the wire FIRST and UNCONDITIONALLY,
+// before the controller handle is touched at all. R_SERIAL_PutChar() is a
+// synchronous polled UART write (see this file's own output-path notes in
+// x5h_diag.h): by the time diag_put_u32() below returns, those bytes have
+// already left the UART, not merely been queued. If the controller probe
+// that follows then faults, R1's replacement exception vectors catch it,
+// report it, and halt -- the capture already has its decisive scalar; only
+// the corroborating detail is lost, and losing detail costs far less than
+// losing the one flash this diagnostic gets.
+//
+// This does not reintroduce the scheduler-lock hazard diag_put_resources()
+// and the R3b comment above both rule out elsewhere in this file. Unlike
+// mallinfo() (an unbounded arena walk under vTaskSuspendAll()),
+// eTaskGetState() and uxTaskPriorityGet() each wrap exactly one struct read
+// in taskENTER_CRITICAL()/taskEXIT_CRITICAL() -- portDISABLE_INTERRUPTS()
+// around a fixed handful of field reads, not a walk with unbounded length.
+// There is nothing here for corrupted state to loop forever in; the worst
+// case is a data abort taken with IRQ masked, which lands in R1 exactly as
+// any other fault would, not a permanently suspended scheduler.
+static void diag_put_controller_probe(void)
+{
+    TaskHandle_t controller = s_controller_task;
+
+    diag_puts("x5h-diag: ntasks=");
+    diag_put_u32((uint32_t)uxTaskGetNumberOfTasks());
+    diag_puts("\n");
+
+    if (controller == NULL) {
+        // Not yet stashed (before Node::spin() has run) or never will be on
+        // this image (netif_only_x5h never constructs a Controller at all).
+        diag_puts("x5h-diag: controller=<unset>\n");
+        return;
+    }
+
+    diag_puts("x5h-diag: controller state=");
+    {
+        char s[2];
+        s[0] = diag_task_state_char(eTaskGetState(controller));
+        s[1] = '\0';
+        diag_puts(s);
+    }
+    diag_puts(" name=");
+    diag_puts(pcTaskGetName(controller));
+    diag_puts(" prio=");
+    diag_put_u32((uint32_t)uxTaskPriorityGet(controller));
+    diag_puts("\n");
+}
 #endif  // X5H_DIAG_TASK_TABLE
 
 static void x5h_diag_beacon_task(void *pv)
@@ -711,6 +827,13 @@ static void x5h_diag_beacon_task(void *pv)
         diag_put_resources();
         diag_puts("\n");
 #if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+        // Every period (Task 26): the decisive ntasks scalar plus, when it
+        // is safe to have reached this far, the controller's own state/name/
+        // priority. Ahead of the every-2nd-beacon full table below, though
+        // the two are independent and their relative order does not affect
+        // the fault-safety property diag_put_controller_probe() itself
+        // documents.
+        diag_put_controller_probe();
         if ((n % X5H_DIAG_TASK_TABLE_EVERY) == 1u) {
             diag_put_task_table();
         }

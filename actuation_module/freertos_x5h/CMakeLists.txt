@@ -626,6 +626,17 @@ option(X5H_DIAG_TASK_TABLE "Emit a periodic FreeRTOS task table on the console (
 if(X5H_DIAG_TASK_TABLE)
     target_compile_definitions(actuation_x5h PRIVATE X5H_DIAG_TASK_TABLE=1)
     target_compile_definitions(netif_only_x5h PRIVATE X5H_DIAG_TASK_TABLE=1)
+    # Task 26's controller-liveness probe needs common/node/node.hpp (a
+    # shared header, well outside this directory) to reach x5h_diag.h so it
+    # can call x5h_diag_set_controller_task(). x5h_diag.c and
+    # freertos_main.cpp already resolve that #include "x5h_diag.h" for free
+    # -- they live in this same directory, so the quote-form include finds it
+    # before ever consulting the search path below. node.hpp has no such
+    # neighbour, so it needs this directory on actuation_x5h's include path.
+    # Added only inside this branch: when the option is OFF (the default),
+    # node.hpp's matching #if never fires, so nothing here is even searched,
+    # let alone found.
+    target_include_directories(actuation_x5h PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 endif()
 
 target_link_libraries(netif_only_x5h PRIVATE
