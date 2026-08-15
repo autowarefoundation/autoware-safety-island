@@ -365,7 +365,16 @@ set(CONFIG_LOG_LEVEL 1 CACHE STRING "Log level (0=off, 1=info, 2=debug)")
 set(CONFIG_LOG_THROTTLE_RATE 3 CACHE STRING "Log throttle rate in seconds")
 set(CONFIG_DDS_DOMAIN_ID 2 CACHE STRING "DDS domain ID")
 set(CONFIG_DDS_NETWORK_INTERFACE "172.16.52.2" CACHE STRING "DDS network interface name or IP")
-set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug)")
+# Default 0 (off), unchanged -- the shipping image is unaffected by this
+# knob's new level. Level 3 (Task 23) is the diagnostic setting for the
+# once-per-boot discovery defect: a discovery/liveliness-only CycloneDDS trace
+# mask, chosen because level 2's DDS_LC_ALL is unusable on this target's
+# busy-polled, unbuffered 115200 console. Build the instrumented image with
+# -DCONFIG_DDS_LOG_LEVEL=3; the mask itself, and the full justification for
+# preferring it over DDS_LC_ALL, live at the point of use in
+# actuation_module/include/common/dds/config.hpp's "Trace" section. Do not
+# make 2 or 3 a default here.
+set(CONFIG_DDS_LOG_LEVEL 0 CACHE STRING "DDS log level (0=off, 1=warn, 2=debug/DDS_LC_ALL, 3=discovery-only trace)")
 # Task 8: unicast SPDP peer + full multicast disable. Task 6's RPMsg-backed
 # lwIP netif is a point-to-point link -- it carries no multicast at all,
 # unlike the S32Z2 bench (a switched segment where multicast is merely
@@ -598,6 +607,26 @@ target_include_directories(netif_only_x5h PRIVATE
     ${LWIP_DIR}/src/include
     ${CMAKE_CURRENT_LIST_DIR}/lwip_port
 )
+
+# ---- X5H_DIAG_TASK_TABLE (Task 23, diagnostic only, OFF by default) ----
+# Turns on the periodic per-task state/priority/stack/run-time dump in
+# x5h_diag.c's beacon. What it is for, what each field discriminates, and what
+# it costs are all documented at the point of use in x5h_diag.c's "R3b" block
+# -- not repeated here. Configure with -DX5H_DIAG_TASK_TABLE=ON alongside
+# -DCONFIG_DDS_LOG_LEVEL=3 to build the full instrumented image; leave it off
+# for anything that is going to stay on the board.
+#
+# Placed here rather than beside the CONFIG_DDS_* knobs above because it has
+# to be applied to BOTH targets and netif_only_x5h is not defined until this
+# point in the file. Both get it for the same reason netif_only_x5h compiles
+# x5h_diag.c at all: it is the cheap isolation image reached for first when
+# the board misbehaves, and it should not be the one build that cannot say
+# which task stopped.
+option(X5H_DIAG_TASK_TABLE "Emit a periodic FreeRTOS task table on the console (diagnostic builds only)" OFF)
+if(X5H_DIAG_TASK_TABLE)
+    target_compile_definitions(actuation_x5h PRIVATE X5H_DIAG_TASK_TABLE=1)
+    target_compile_definitions(netif_only_x5h PRIVATE X5H_DIAG_TASK_TABLE=1)
+endif()
 
 target_link_libraries(netif_only_x5h PRIVATE
     freertos_bsp
