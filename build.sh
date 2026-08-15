@@ -33,6 +33,13 @@ BUILD_PLATFORM_SET=0
 NETWORK_PROFILE="default"
 DDS_NETWORK_INTERFACE=""
 CONTROL_CMD_OUTPUT_MODE=""
+# Repeatable pass-through for ad hoc CMake cache entries (e.g. instrumented
+# CI builds), forwarded verbatim as -D<value> to the freertos-x5h cmake
+# configure call in build_freertos_x5h(). Empty by default and only ever
+# appended to by --cmake-define, so leaving it unused (as every platform
+# other than freertos-x5h does today) is behaviourally identical to it not
+# existing.
+EXTRA_CMAKE_ARGS=()
 RUNTIME_TARGET_LIST=("zephyr-fvp" "zephyr-s32z" "freertos-posix" "freertos-s32z2" "freertos-x5h")
 ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
 ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
@@ -46,6 +53,8 @@ function usage() {
   echo -e "${GREEN}    --network          ${NC}Network profile: default, tap. tap is valid for zephyr-fvp."
   echo -e "${GREEN}    --dds-interface    ${NC}DDS interface/IP selector for FreeRTOS targets."
   echo -e "${GREEN}    --control-output   ${NC}FreeRTOS control output: DDS_ONLY, CAN_ONLY, DDS_AND_CAN."
+  echo -e "${GREEN}    --cmake-define     ${NC}Extra CMake cache entry KEY=VALUE, forwarded as -DKEY=VALUE."
+  echo -e "${GREEN}                         Repeatable. freertos-x5h only."
   echo -e "${GREEN}    -t                 ${NC}Zephyr target board: ${ZEPHYR_TARGET_LIST[*]}"
   echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]}.${NC}"
   echo -e "${GREEN}    -d                 ${NC}Build directory. Default: ${BUILD_DIR}."
@@ -71,6 +80,7 @@ function usage() {
   echo -e "    $0 --platform freertos-posix -d build/freertos-posix --dds-interface wlp2s0 --control-output DDS_ONLY"
   echo -e "    $0 --platform freertos-s32z2 -d build/freertos-s32z2 --dds-interface 192.168.0.105"
   echo -e "    $0 --platform freertos-x5h -d build/freertos-x5h"
+  echo -e "    $0 --platform freertos-x5h -d build/freertos-x5h-diag --cmake-define X5H_DIAG_TASK_TABLE=ON --cmake-define CONFIG_DDS_LOG_LEVEL=3"
 }
 
 function require_arg() {
@@ -121,6 +131,11 @@ function parse_args() {
       --control-output)
         require_arg "$1" "${2:-}"
         CONTROL_CMD_OUTPUT_MODE="$2"
+        shift 2
+        ;;
+      --cmake-define)
+        require_arg "$1" "${2:-}"
+        EXTRA_CMAKE_ARGS+=("-D$2")
         shift 2
         ;;
       --unit-test)
@@ -251,6 +266,11 @@ function normalize_platform() {
 
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
     echo -e "${RED}--control-output is only valid for --platform freertos-posix, freertos-s32z2, or freertos-x5h${NC}" 1>&2
+    exit 1
+  fi
+
+  if [ "${#EXTRA_CMAKE_ARGS[@]}" -gt 0 ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
+    echo -e "${RED}--cmake-define is only valid for --platform freertos-x5h${NC}" 1>&2
     exit 1
   fi
 
@@ -520,6 +540,13 @@ function build_freertos_x5h() {
   fi
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
     x5h_args+=(-DCONFIG_CONTROL_CMD_OUTPUT_MODE="${CONTROL_CMD_OUTPUT_MODE}")
+  fi
+  # e.g. --cmake-define X5H_DIAG_TASK_TABLE=ON --cmake-define
+  # CONFIG_DDS_LOG_LEVEL=3 for an instrumented build into its own -d
+  # directory; empty by default, so the default configuration's argv (and
+  # therefore its byte-identical output) is unchanged when this is absent.
+  if [ "${#EXTRA_CMAKE_ARGS[@]}" -gt 0 ]; then
+    x5h_args+=("${EXTRA_CMAKE_ARGS[@]}")
   fi
 
   cmake "${x5h_args[@]}"
