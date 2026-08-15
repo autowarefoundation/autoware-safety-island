@@ -101,6 +101,15 @@ static void diag_put_i32(int32_t v)
     }
 }
 
+// The exported face of the four writers above, declared in x5h_diag.h. See
+// that declaration for why Task 19's x5h_cdds_process.c shares these rather
+// than rolling its own. Wrappers rather than a rename so that this file's own
+// ~40 call sites stay untouched.
+void x5h_diag_puts(const char *s) { diag_puts(s); }
+void x5h_diag_put_u32(uint32_t v) { diag_put_u32(v); }
+void x5h_diag_put_i32(int32_t v) { diag_put_i32(v); }
+void x5h_diag_put_hex32(uint32_t v) { diag_put_hex32(v); }
+
 // ============================================================================
 // Shared state: the task whose stack the beacon and R4's mark report on
 // ============================================================================
