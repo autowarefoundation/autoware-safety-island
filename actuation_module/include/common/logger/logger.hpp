@@ -27,9 +27,14 @@ inline void vprint_color_(const char * format, va_list args, const char * color)
         now.time_since_epoch()) % 1000;
     
     // Print time in HH:MM:SS.mmm format
-    char time_str[13]; 
-    strftime(time_str, 9, "%H:%M:%S", localtime(&time_t_now));
-    sprintf(time_str + 8, ".%03ld", ms.count());
+    char time_str[13];
+    struct tm tm_now = {};
+    struct tm * tm_now_p = localtime(&time_t_now);
+    if (tm_now_p != nullptr) {
+        tm_now = *tm_now_p;
+    }
+    strftime(time_str, 9, "%H:%M:%S", &tm_now);
+    sprintf(time_str + 8, ".%03lld", static_cast<long long>(ms.count()));
 
     // Print message with time and color
     fprintf(stderr, "%s[%s] | ", color, time_str);
