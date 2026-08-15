@@ -149,6 +149,53 @@ jobs:
         shell: bash
         run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h/netif_only_x5h.elf
 
+      # Task 24: the instrumented (diag) image Task 23 added
+      # (X5H_DIAG_TASK_TABLE=ON, CONFIG_DDS_LOG_LEVEL=3). Built into its own
+      # -d directory (build/freertos-x5h-diag) via build.sh's --cmake-define
+      # pass-through so the default build above -- its directory, its steps,
+      # its artifact -- is untouched. A board session is only ever authorised
+      # to flash a CI-built image, and until now CI only produced the
+      # default config, so the instrumented ELF was never obtainable this
+      # way. build_freertos_x5h() runs check-dds-config.sh/
+      # check-elf-contract.sh (x2)/check-image-budget.sh (x2) internally
+      # here too, exactly as it does for the default build above.
+      - name: Build freertos-x5h diagnostic (X5H_DIAG_TASK_TABLE=ON, CONFIG_DDS_LOG_LEVEL=3)
+        shell: bash
+        run: ./build.sh --platform freertos-x5h -d build/freertos-x5h-diag --cmake-define X5H_DIAG_TASK_TABLE=ON --cmake-define CONFIG_DDS_LOG_LEVEL=3
+
+      # Same defense-in-depth re-verification the default build gets above,
+      # against the diag build's own ELFs: this is the image a board session
+      # actually flashes, so it needs the same gates as its own named steps.
+      - name: Re-verify ELF contract - actuation_x5h.elf (diag)
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth
+
+      - name: Re-verify ELF contract - netif_only_x5h.elf (diag)
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth
+
+      - name: Re-verify image budget - actuation_x5h.elf (diag)
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h-diag/actuation_x5h.elf
+
+      - name: Re-verify image budget - netif_only_x5h.elf (diag)
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h-diag/netif_only_x5h.elf
+
+      # A SEPARATE artifact name from freertos-x5h-elfs (Task 24 requirement):
+      # an operator fetching a flash image must not be able to confuse the
+      # instrumented build with the default one that ships.
+      - name: Upload freertos-x5h diagnostic ELF artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-x5h-diag-elfs
+          path: |
+            build/freertos-x5h-diag/actuation_x5h.elf
+            build/freertos-x5h-diag/netif_only_x5h.elf
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload freertos-x5h ELF artifacts
         if: always()
         uses: actions/upload-artifact@v4
