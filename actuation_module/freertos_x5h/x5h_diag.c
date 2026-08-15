@@ -511,6 +511,136 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // But it is real: if a board session ever sees timing-dependent behaviour
 // that changes when the beacon is present, this is the mechanism to suspect
 // first, and lengthening X5H_DIAG_BEACON_PERIOD_TICKS is the cheapest test.
+// ---- R3b: the optional task table (Task 23) ----
+//
+// OFF unless X5H_DIAG_TASK_TABLE is defined non-zero at build time, so the
+// shipping image is unchanged. It exists for one specific question that the
+// beacon above cannot answer and that a CycloneDDS discovery trace cannot
+// answer either: WHICH thread stopped, and whether one of them is holding the
+// CPU.
+//
+// Why that question is the one worth a console line. Every CycloneDDS ddsrt
+// worker on this port -- recv, dq.builtins, dq.<topic>, tev, gc -- is created
+// at the priority of the task that created it, because
+// cyclonedds/src/ddsrt/src/threads/freertos/threads.c:404-411 falls back to
+// uxTaskPriorityGet(NULL) whenever attr->schedPriority is 0, which is what
+// ddsi always passes. They are all created from the Controller constructor on
+// actuation_task, so they are all TIED at ACTUATION_TASK_PRIORITY (2), and
+// this port sets configUSE_TIME_SLICING == 0 (rcar_bsp's own
+// FreeRTOSConfig.h). Equal-priority tasks therefore never round-robin: one
+// priority-2 worker that stops blocking starves every other CycloneDDS
+// thread, while the lwIP tcpip thread (4), rpmsg_poll_task (5) and this
+// beacon (31) all keep running -- ICMP still answers, rx_ok/tx_ok still
+// climb, the beacon still prints, and DDS is dead. That signature is
+// indistinguishable from several other faults using the counters the beacon
+// already prints; it is immediately distinguishable in a task table.
+//
+// Three fields carry that:
+//   state  FreeRTOS's own eTaskState for the task -- R(unning), r(eady),
+//          B(locked), S(uspended), D(eleted). A worker that should be
+//          waiting on a socket or a condition and instead reads 'r' every
+//          sample is the wedge.
+//   rt     the per-task run-time counter. configGENERATE_RUN_TIME_STATS is 1
+//          in this BSP and its counter is real, not a stub -- common/ARM_CR52/
+//          port.c:180-182 returns R_UTILS_GetTimerCounter() minus the value
+//          latched at scheduler start. Read the DELTA between two dumps, not
+//          the absolute value: one priority-2 task accumulating nearly the
+//          whole interval while its siblings accumulate nothing is the
+//          starvation hypothesis, confirmed or refuted in one comparison.
+//   hwm    stack high-water mark in words, per task. The 16 KiB default DDS
+//          worker stack (threads.c:372) is the other standing suspicion on
+//          this port, and this is where a worker running out of it becomes
+//          visible before configCHECK_FOR_STACK_OVERFLOW == 2 fires.
+//
+// Cost, stated rather than discovered. uxTaskGetSystemState() runs the whole
+// walk inside vTaskSuspendAll(), and it calls prvTaskCheckFreeStackSpace()
+// for every task -- the same byte-at-a-time scan whose cost this file's
+// beacon comment already works through, now paid once per task rather than
+// once per beacon. That is why this is sampled every
+// X5H_DIAG_TASK_TABLE_EVERY beacons rather than every beacon, and why it is
+// off by default.
+//
+// The scheduler-lock objection that disqualified mallinfo() from
+// diag_put_resources() does NOT transfer here, and the difference is worth
+// being explicit about. That objection was specific: mallinfo() walks
+// NEWLIB's arena, whose chunk headers are corrupted by exactly the stack
+// overflow the beacon exists to report, so the walk can loop forever with
+// the scheduler suspended and turn one failure into a false report of
+// another. uxTaskGetSystemState() walks FREERTOS's own ready/blocked/
+// suspended lists instead. If those were corrupt the scheduler would already
+// have failed and there would be no beacon to print anything at all, so this
+// walk cannot be the thing that converts a live image into a silent one.
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+
+// Static, not an automatic: the beacon runs on configMINIMAL_STACK_SIZE (256
+// words == 1 KiB) and sizeof(TaskStatus_t) is ~40 bytes here, so 24 of them
+// is ~1 KiB -- the whole beacon stack -- if it were a local.
+#define X5H_DIAG_TASK_TABLE_SLOTS 24
+// Every 6th beacon at a 5 s beacon period == one table every 30 s.
+#define X5H_DIAG_TASK_TABLE_EVERY 6
+static TaskStatus_t s_task_status[X5H_DIAG_TASK_TABLE_SLOTS];
+
+static char diag_task_state_char(eTaskState st)
+{
+    switch (st) {
+        case eRunning:   return 'R';
+        case eReady:     return 'r';
+        case eBlocked:   return 'B';
+        case eSuspended: return 'S';
+        case eDeleted:   return 'D';
+        default:         return '?';
+    }
+}
+
+static void diag_put_task_table(void)
+{
+    configRUN_TIME_COUNTER_TYPE total = 0;
+    UBaseType_t n =
+        uxTaskGetSystemState(s_task_status, X5H_DIAG_TASK_TABLE_SLOTS, &total);
+
+    if (n == 0) {
+        // uxTaskGetSystemState() returns 0 -- and fills in nothing -- when the
+        // array is too small for the number of tasks. Say so rather than
+        // printing an empty table that reads as "no tasks".
+        diag_puts("x5h-diag: tasks OVERFLOW slots=");
+        diag_put_u32((uint32_t)X5H_DIAG_TASK_TABLE_SLOTS);
+        diag_puts(" (raise X5H_DIAG_TASK_TABLE_SLOTS)\n");
+        return;
+    }
+
+    for (UBaseType_t i = 0; i < n; i++) {
+        const TaskStatus_t *t = &s_task_status[i];
+        diag_puts("x5h-diag: task ");
+        diag_puts(t->pcTaskName != NULL ? t->pcTaskName : "?");
+        diag_puts(" state=");
+        {
+            char s[2];
+            s[0] = diag_task_state_char(t->eCurrentState);
+            s[1] = '\0';
+            diag_puts(s);
+        }
+        diag_puts(" prio=");
+        diag_put_u32((uint32_t)t->uxCurrentPriority);
+        diag_puts(" hwm=");
+        diag_put_u32((uint32_t)t->usStackHighWaterMark);
+        // Printed as two 32-bit halves because the counter is 64-bit
+        // (configRUN_TIME_COUNTER_TYPE is unsigned long long here) and the
+        // console writers above are 32-bit only. Hex, so the two halves
+        // concatenate into the real value by inspection.
+        diag_puts(" rt=");
+        diag_put_hex32((uint32_t)((uint64_t)t->ulRunTimeCounter >> 32));
+        diag_puts(":");
+        diag_put_hex32((uint32_t)((uint64_t)t->ulRunTimeCounter & 0xffffffffu));
+        diag_puts("\n");
+    }
+    diag_puts("x5h-diag: task-total rt=");
+    diag_put_hex32((uint32_t)((uint64_t)total >> 32));
+    diag_puts(":");
+    diag_put_hex32((uint32_t)((uint64_t)total & 0xffffffffu));
+    diag_puts("\n");
+}
+#endif  // X5H_DIAG_TASK_TABLE
+
 static void x5h_diag_beacon_task(void *pv)
 {
     uint32_t n = 0;
@@ -524,6 +654,11 @@ static void x5h_diag_beacon_task(void *pv)
         diag_put_u32(diag_uptime_ms());
         diag_put_resources();
         diag_puts("\n");
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+        if ((n % X5H_DIAG_TASK_TABLE_EVERY) == 1u) {
+            diag_put_task_table();
+        }
+#endif
         vTaskDelay(X5H_DIAG_BEACON_PERIOD_TICKS);
     }
 }
