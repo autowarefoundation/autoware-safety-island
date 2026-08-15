@@ -19,6 +19,19 @@
 #include "common/logger/logger.hpp"
 using namespace common::logger;
 
+// Task 26, diagnostic-only hook: lets x5h_diag.c's beacon probe the
+// controller pthread this file spawns below, to distinguish a task that was
+// really vTaskDelete()'d from one merely unlinked from the ready list.
+// Guarded so every platform other than the freertos-x5h diagnostic build
+// (X5H_DIAG_TASK_TABLE, off by default) is entirely unaffected -- neither
+// this include nor the four lines it enables in spin() below exist for
+// them. See actuation_module/freertos_x5h/x5h_diag.h ("R3c") for what the
+// probe reads and why it needs the controller's raw FreeRTOS TaskHandle_t
+// rather than the opaque pthread_t this class otherwise keeps to itself.
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+#include "x5h_diag.h"
+#endif
+
 using param_type = std::variant<bool,
                               int,
                               int64_t,
@@ -72,7 +85,22 @@ public:
      * @return 0 on success, negative value on failure
      */
     int spin() {
-        return pthread_create(&main_thread_, &main_thread_attr_, main_thread_entry_, this);
+        int ret = pthread_create(&main_thread_, &main_thread_attr_, main_thread_entry_, this);
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+        if (ret == 0) {
+            // pthread_t on this port is a pointer to pthread_internal_t
+            // (platform/freertos/x5h/pthread.h), and ->task is the raw
+            // FreeRTOS TaskHandle_t pthread_create() actually created. This
+            // only stashes that pointer value for later -- see x5h_diag.c's
+            // "R3c" block for the one place that ever dereferences it, and
+            // for how it orders that against the safe scalar it prints
+            // first.
+            auto *info = reinterpret_cast<pthread_internal_t *>(
+                static_cast<uintptr_t>(main_thread_));
+            x5h_diag_set_controller_task(info->task);
+        }
+#endif
+        return ret;
     }
 
     /**

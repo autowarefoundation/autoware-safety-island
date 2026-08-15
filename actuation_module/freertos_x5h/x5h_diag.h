@@ -187,6 +187,19 @@ BaseType_t x5h_diag_start_beacon(TaskHandle_t launcher);
 // would be a use-after-free. Subsequent beacon lines report no launcher.
 void x5h_diag_clear_launcher(void);
 
+// R3c (Task 26). Stashes the CR52 controller pthread's raw FreeRTOS
+// TaskHandle_t so the beacon can probe it every period -- built for the
+// once-per-boot defect where that task disappears from the task table and
+// never comes back (see x5h_diag.c's "R3c" block for what the probe reads
+// and why it is ordered the way it is). This call only records a pointer
+// value; it never dereferences it. Declared only under X5H_DIAG_TASK_TABLE
+// so common/node/node.hpp's call site (guarded the same way, right after
+// pthread_create() wraps the controller thread) is the only caller and no
+// other platform's build ever links against this symbol.
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+void x5h_diag_set_controller_task(TaskHandle_t controller);
+#endif
+
 // R4. Prints one tagged diagnostic line carrying the same launcher stack
 // watermark and heap headroom the beacon reports. Declared weak (with no
 // definition) in include/common/dds/dds.hpp so every other platform's build
