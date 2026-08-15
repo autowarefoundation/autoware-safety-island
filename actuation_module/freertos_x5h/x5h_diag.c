@@ -516,41 +516,65 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // OFF unless X5H_DIAG_TASK_TABLE is defined non-zero at build time, so the
 // shipping image is unchanged. It exists for one specific question that the
 // beacon above cannot answer and that a CycloneDDS discovery trace cannot
-// answer either: WHICH thread stopped, and whether one of them is holding the
-// CPU.
+// answer either: WHICH of the CycloneDDS worker threads stopped making
+// progress, and whether it stopped because it is BLOCKED or because
+// something else is holding the CPU.
 //
-// Why that question is the one worth a console line. Every CycloneDDS ddsrt
-// worker on this port -- recv, dq.builtins, dq.<topic>, tev, gc -- is created
-// at the priority of the task that created it, because
-// cyclonedds/src/ddsrt/src/threads/freertos/threads.c:404-411 falls back to
-// uxTaskPriorityGet(NULL) whenever attr->schedPriority is 0, which is what
-// ddsi always passes. They are all created from the Controller constructor on
-// actuation_task, so they are all TIED at ACTUATION_TASK_PRIORITY (2), and
-// this port sets configUSE_TIME_SLICING == 0 (rcar_bsp's own
-// FreeRTOSConfig.h). Equal-priority tasks therefore never round-robin: one
-// priority-2 worker that stops blocking starves every other CycloneDDS
-// thread, while the lwIP tcpip thread (4), rpmsg_poll_task (5) and this
-// beacon (31) all keep running -- ICMP still answers, rx_ok/tx_ok still
-// climb, the beacon still prints, and DDS is dead. That signature is
-// indistinguishable from several other faults using the counters the beacon
-// already prints; it is immediately distinguishable in a task table.
+// Why that question is the one worth a console line. The leading explanation
+// for the once-per-boot DDS defect is that one CycloneDDS worker stops
+// draining its queue, after which discovery dies SILENTLY and PERMANENTLY:
+// ddsi_receive.c:2542 passes ddsi_dqueue_is_full(gv->builtins_dqueue) into
+// ddsi_reorder_rsample(), whose delivery-queue-full branch
+// (ddsi_radmin.c:1942-1947) returns DDSI_REORDER_REJECT -- and SPDP is
+// best-effort, so a rejected participant announcement is simply gone: no
+// NACK, no retransmit, no second chance. Everything else on the board keeps
+// working, because the lwIP tcpip thread (4), rpmsg_poll_task (5) and this
+// beacon (31) all sit above the CycloneDDS workers: ICMP still answers,
+// rx_ok/tx_ok still climb, the beacon still prints, and DDS is dead. That
+// signature is indistinguishable from several other faults using the
+// counters the beacon already prints; it is immediately distinguishable in a
+// task table.
 //
 // Three fields carry that:
 //   state  FreeRTOS's own eTaskState for the task -- R(unning), r(eady),
-//          B(locked), S(uspended), D(eleted). A worker that should be
-//          waiting on a socket or a condition and instead reads 'r' every
-//          sample is the wedge.
+//          B(locked), S(uspended), D(eleted). The expected wedge signature is
+//          a worker reading 'B' forever with a frozen rt (below) -- blocked
+//          on a queue nobody is draining -- NOT a worker spinning.
 //   rt     the per-task run-time counter. configGENERATE_RUN_TIME_STATS is 1
 //          in this BSP and its counter is real, not a stub -- common/ARM_CR52/
 //          port.c:180-182 returns R_UTILS_GetTimerCounter() minus the value
 //          latched at scheduler start. Read the DELTA between two dumps, not
-//          the absolute value: one priority-2 task accumulating nearly the
-//          whole interval while its siblings accumulate nothing is the
-//          starvation hypothesis, confirmed or refuted in one comparison.
+//          the absolute value. Two different readings come out of it: a
+//          worker whose delta is zero across an interval in which DDS traffic
+//          was offered has stopped; and, separately, a single task
+//          accumulating nearly the whole interval while its siblings
+//          accumulate nothing would be CPU-bound starvation (see the priority
+//          note below), which is a different fault with a different fix.
 //   hwm    stack high-water mark in words, per task. The 16 KiB default DDS
 //          worker stack (threads.c:372) is the other standing suspicion on
 //          this port, and this is where a worker running out of it becomes
 //          visible before configCHECK_FOR_STACK_OVERFLOW == 2 fires.
+//
+// A platform hazard this table also happens to test, stated carefully
+// because an earlier draft of this comment stated it WRONGLY. Every
+// CycloneDDS ddsrt worker -- recv, dq.builtins, dq.user, tev, gc -- is
+// created at the priority of the task that created it, because
+// cyclonedds/src/ddsrt/src/threads/freertos/threads.c:404-411 falls back to
+// uxTaskPriorityGet(NULL) whenever attr->schedPriority is 0, which is what
+// ddsi always passes. They are all created from the Controller constructor
+// on actuation_task, so they are all TIED at ACTUATION_TASK_PRIORITY (2).
+// What that tie does NOT mean: it does not mean one worker that stops
+// blocking freezes the others. configUSE_TIME_SLICING == 0 removes only the
+// TICK-driven switch (rcar_bsp's Source/tasks.c:4810-4841); task selection
+// itself still uses listGET_OWNER_OF_NEXT_ENTRY (tasks.c:178-193 on this
+// build, which has configUSE_PORT_OPTIMISED_TASK_SELECTION == 0), and that
+// macro's own comment says it "indexes through the list, so the tasks of the
+// same priority get an equal share of the processor time". Equal-priority
+// READY tasks therefore DO round-robin on every context switch. So the tie
+// only bites against a CPU-BOUND worker, and no spinning site has been
+// identified anywhere in this stack -- every candidate blocks on a condition
+// variable or a semaphore, and a blocked task yields. Keep the tie in view
+// as a hazard; do not treat it as the explanation.
 //
 // Cost, stated rather than discovered. uxTaskGetSystemState() runs the whole
 // walk inside vTaskSuspendAll(), and it calls prvTaskCheckFreeStackSpace()
@@ -559,6 +583,25 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // once per beacon. That is why this is sampled every
 // X5H_DIAG_TASK_TABLE_EVERY beacons rather than every beacon, and why it is
 // off by default.
+//
+// TWO CONSOLE ARTEFACTS THIS PRODUCES. Both are instrumentation, not signal,
+// and both are cheap to misread as evidence in a one-shot log:
+//
+//   1. A burst of rx_drop_input_err immediately after a table. Printing a
+//      table is ~900 B of BUSY-POLLED UART at 115200 (~80 ms) issued from
+//      this beacon task at priority 31 -- above tcpip_thread (4) and above
+//      rpmsg_poll_task (5). Nothing drains the RPMsg virtqueue into lwIP for
+//      that whole 80 ms, so inbound frames pile up and netif->input rejects
+//      them. That is the beacon's own footprint. Only drops that are NOT
+//      adjacent to a table carry information.
+//   2. Spliced lines. _write() (rcar_bsp/.../drivers/serial/serial.c:249)
+//      takes no task-level mutex, so this priority-31 task can preempt a
+//      priority-2 CycloneDDS thread part-way through a trace line and
+//      interleave its own output into it -- e.g. an "x5h-diag: task ..."
+//      fragment appearing in the middle of an "SPDP ST0 ... NEW". Grep the
+//      log tolerantly (match on the token, not on whole lines anchored at
+//      both ends); do not conclude a discovery line is absent because it did
+//      not match a strict pattern.
 //
 // The scheduler-lock objection that disqualified mallinfo() from
 // diag_put_resources() does NOT transfer here, and the difference is worth
@@ -576,8 +619,21 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // words == 1 KiB) and sizeof(TaskStatus_t) is ~40 bytes here, so 24 of them
 // is ~1 KiB -- the whole beacon stack -- if it were a local.
 #define X5H_DIAG_TASK_TABLE_SLOTS 24
-// Every 6th beacon at a 5 s beacon period == one table every 30 s.
-#define X5H_DIAG_TASK_TABLE_EVERY 6
+// Every 2nd beacon at a 5 s beacon period == one table every 10 s.
+//
+// Sized by the shortest window that has to yield a USABLE reading, not by
+// what feels cheap. rt is only meaningful as a delta between two dumps, and
+// the highest-value observation in the planned board session is a 30 s
+// window (peers stopped, waiting to see whether the 10 s participant lease
+// expires). At one table per 30 s that window can contain exactly one table
+// and therefore no delta at all -- the measurement would be missing from
+// precisely the interval it was built for. At 10 s it contains three.
+//
+// Affordable: one table is ~15 tasks x ~60 chars ~= 900 B, and the console
+// is 115200 8N1 (~11.5 kB/s), so a table is ~80 ms every 10 s -- a duty
+// cycle under 1 %. See the artefact note below for what that 80 ms does to
+// the rest of the image while it happens.
+#define X5H_DIAG_TASK_TABLE_EVERY 2
 static TaskStatus_t s_task_status[X5H_DIAG_TASK_TABLE_SLOTS];
 
 static char diag_task_state_char(eTaskState st)
