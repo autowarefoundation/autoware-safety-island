@@ -130,10 +130,14 @@
 // for it, because the obvious hardening is the wrong one: a bounds check of
 // ddsrt_free()'s argument against [HeapBase, HeapLimit) would NOT have caught
 // this defect. Both the borrowed pointer and borrow-8 are inside that range,
-// so such a guard passes and the free proceeds exactly as before. Discriminating
-// this fault needs the chunk header at borrow-8-4 to be sanity-checked, not the
-// address range -- which is a different and considerably less safe proposition
-// (see x5h_diag.h on why nothing here may walk newlib's arena).
+// so such a guard passes and the free proceeds exactly as before. What DOES
+// discriminate this fault is the chunk header itself -- the word at borrow-12
+// is 0 here, which no live allocation's size field can be -- but that means
+// reading newlib's own metadata on every ddsrt_free() in the image rather than
+// comparing an address against two linker symbols. It is a materially
+// different proposition and it was not taken on this change; x5h_diag.h's
+// argument for why this image treats newlib's arena as untrustworthy applies
+// to it directly.
 
 #include <stdbool.h>
 #include <stddef.h>
