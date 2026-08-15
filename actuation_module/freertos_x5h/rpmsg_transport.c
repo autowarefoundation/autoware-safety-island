@@ -278,9 +278,17 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 // src/main.cpp:57) -- but only after running configure_network() AND the
 // entire Controller constructor, CycloneDDS participant creation plus Eigen
 // MPC construction, at priority 30, above every network task in this image.
-// With configUSE_TIME_SLICING == 0 nothing below 30 can preempt a task that
-// has not yet blocked, so for that whole stretch neither this poll task (5)
-// nor the tcpip thread (4) ran at all. The board showed exactly that: the
+// Nothing below 30 can preempt a task that has not yet blocked, so for that
+// whole stretch neither this poll task (5) nor the tcpip thread (4) ran at
+// all. (CORRECTED: this used to credit that to configUSE_TIME_SLICING == 0.
+// It is plain strict priority under configUSE_PREEMPTION == 1 -- a runnable
+// task is never preempted by a lower-priority one whatever time slicing
+// says. configUSE_TIME_SLICING governs EQUAL priorities only, and even
+// there it removes only the tick-driven switch, not the round-robin; see
+// freertos_main.cpp's ACTUATION_TASK_PRIORITY block for the kernel
+// citations. The diagnosis in this paragraph is unaffected: 30 was above
+// the network tasks, which is a strict-priority problem.) The board showed
+// exactly that: the
 // rpmsg-eth channel announced itself (so rpmsg_transport_init() below had
 // run to completion) and then transmitted nothing -- inbound frames counted
 // up on the Linux side, outbound stayed
