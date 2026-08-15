@@ -25,10 +25,19 @@ using namespace common::logger;
 //
 // Why here specifically: on the X5H safety island the CR52 prints the
 // log_info() line below and then goes permanently silent, with the
-// "DDS domain created" line never appearing on any boot. The mark reports
-// the running task's stack high-water mark and the heap headroom at the
-// last instant before the call that never returns, so that reading can be
-// compared against the liveness beacon's last line.
+// "DDS domain created" line never appearing on any boot. The mark records
+// a resource snapshot at the last instant before the call that never
+// returns, so that reading can be compared against the liveness beacon's
+// last line.
+//
+// What exactly it reports is the implementer's business, not this header's
+// -- this is a shared header, also compiled for Zephyr, POSIX and S32Z2,
+// and a description written against one platform's implementation is a
+// claim the other three cannot keep true. On freertos_x5h it reports the
+// registered LAUNCHER task's stack high-water mark (which happens to be
+// the calling task on that image, but the hook does not require it) plus
+// heap headroom; see actuation_module/freertos_x5h/x5h_diag.h for the
+// definitive description.
 extern "C" void actuation_diag_mark(const char * tag) __attribute__((weak));
 
 /**

@@ -18,10 +18,15 @@
  * Nothing under rcar_bsp/ changes.
  *
  * The two vectors that must NOT change behaviour are SVC (FreeRTOS context
- * switch) and IRQ (the tick, and every driver interrupt). Both are
- * replicated here instruction-for-instruction from asm_vectors.S:29-48 --
- * the SVC path keeps the vendor's BPIALL + DSB prologue before branching to
- * SVC_Handler, and IRQ branches straight to IRQ_Handler. Both handlers are
+ * switch) and IRQ (the tick, and every driver interrupt). Those two, and
+ * only those two, are replicated instruction-for-instruction: SVC from
+ * asm_vectors.S:32-35 (the vendor's BPIALL + DSB prologue, then the branch
+ * to SVC_Handler) and IRQ from asm_vectors.S:46-47. The vendor's five fault
+ * handlers -- undefined_handler (29-30), prefetch_handler (37-38),
+ * abort_handler (40-41), reserved_handler (43-44), fiq_handler (49-50) --
+ * are emphatically NOT replicated; replacing each bare `b <self>` with
+ * something that prints is this file's entire reason to exist. Both
+ * replicated handlers are
  * ARM-state naked functions in rcar_bsp/.../common/ARM_CR52/port.c
  * (BSP_TARGET_ARM + __attribute__((naked)), lines 705 and 732), and neither
  * the vendor's `b` nor this file's touches LR or any GPR, so the state each
@@ -33,9 +38,10 @@
  * uint32_t pc, uint32_t spsr): r0 = one of the X5H_DIAG_EXC_* codes below,
  * r1 = the preferred faulting address (LR corrected by the architectural
  * per-exception return offset), r2 = SPSR. The stubs deliberately do no
- * more than that: DFSR/DFAR/IFSR/IFAR are still valid when the C side runs
- * and are read there, and the report function never returns, so nothing
- * needs saving. Each exception mode already has its own 100 KiB stack
+ * more than that: DFSR/DFAR/IFSR/IFAR are only written by a FAULTING access
+ * and so survive everything the stub and the C prologue do (see
+ * x5h_diag_exception_report()'s own comment), and the report function never
+ * returns, so nothing needs saving. Each exception mode has its own stack
  * installed by boot.S (common/linker/lscript_vram2.ld's _ABORT_STACK_SIZE /
  * _UNDEF_STACK_SIZE / _FIQ_STACK_SIZE), which is what the C side runs on.
  *
