@@ -186,6 +186,18 @@ else
         'CONFIG_DDS_DOMAIN_ID 2 CACHE'
     require_match "${X5H_CMAKE}" "FreeRTOS side: multicast is not disabled" \
         'CONFIG_DDS_DISABLE_MULTICAST=1'
+    # Task 21 fix round 1 (Important #3): the three DDS wire-sizing literals
+    # derived in common/dds/config.hpp -- previously only cross-checked by a
+    # one-shot flags.make inspection at review time, which this plan has
+    # already been bitten by once (a peer built without its -D flags
+    # silently reverting to CycloneDDS's own defaults). Same mechanism this
+    # script already uses for the four constants above.
+    require_match "${X5H_CMAKE}" "FreeRTOS side: DDS max message size is not 434" \
+        'CONFIG_DDS_MAX_MSG_SIZE 434 CACHE'
+    require_match "${X5H_CMAKE}" "FreeRTOS side: DDS max rexmit message size is not 434" \
+        'CONFIG_DDS_MAX_REXMIT_MSG_SIZE 434 CACHE'
+    require_match "${X5H_CMAKE}" "FreeRTOS side: DDS fragment size is not 348" \
+        'CONFIG_DDS_FRAGMENT_SIZE 348 CACHE'
 fi
 
 # ---- 2b. Linux side: the arm64 build script's -D flags (Important #1) ----
@@ -202,6 +214,16 @@ else
         '\-DCONFIG_DDS_PEER=172\.16\.52\.2'
     require_match "${ARM64_BUILD_SCRIPT}" "Linux side: multicast is not disabled" \
         'CONFIG_DDS_DISABLE_MULTICAST=1'
+    # Task 21 fix round 1 (Important #3): same three DDS wire-sizing
+    # literals as the FreeRTOS-side check above, on this side's own -D
+    # mechanism (see this script's header comment for why the -D flags
+    # here, not cyclonedds-x5h.xml, are what actually reaches the binaries).
+    require_match "${ARM64_BUILD_SCRIPT}" "Linux side: DDS max message size is not 434" \
+        '\-DCONFIG_DDS_MAX_MSG_SIZE=434'
+    require_match "${ARM64_BUILD_SCRIPT}" "Linux side: DDS max rexmit message size is not 434" \
+        '\-DCONFIG_DDS_MAX_REXMIT_MSG_SIZE=434'
+    require_match "${ARM64_BUILD_SCRIPT}" "Linux side: DDS fragment size is not 348" \
+        '\-DCONFIG_DDS_FRAGMENT_SIZE=348'
 fi
 
 # ---- 3. Linux side, secondary cross-check: cyclonedds-x5h.xml (Important #2) ----
@@ -281,8 +303,8 @@ fi
 
 echo "PASS: check-dds-config.sh"
 echo "  XML validated: ${#xml_configs[@]} file(s)"
-echo "  FreeRTOS side (${X5H_CMAKE#${REPO_ROOT}/}): interface=172.16.52.2 peer=172.16.52.1 domain=2 multicast=disabled"
-echo "  Linux side    (${ARM64_BUILD_SCRIPT#${REPO_ROOT}/}): interface=tap0 peer=172.16.52.2 domain=2 multicast=disabled"
+echo "  FreeRTOS side (${X5H_CMAKE#${REPO_ROOT}/}): interface=172.16.52.2 peer=172.16.52.1 domain=2 multicast=disabled max_msg_size=434 max_rexmit_msg_size=434 fragment_size=348"
+echo "  Linux side    (${ARM64_BUILD_SCRIPT#${REPO_ROOT}/}): interface=tap0 peer=172.16.52.2 domain=2 multicast=disabled max_msg_size=434 max_rexmit_msg_size=434 fragment_size=348"
 echo "  Linux side    (edge_ecu_peer/cyclonedds-x5h.xml, doc cross-check): domain=2 peer=172.16.52.2 multicast=disabled (exactly one <Peer>)"
 echo "  FreeRTOS side (${LWIP_BRINGUP#${REPO_ROOT}/}): ip=172.16.52.2 netmask=255.255.255.0 gw=172.16.52.1"
 echo "  RPMsg side    (${RPMSG_NETIF_CORE_H#${REPO_ROOT}/}): service=rpmsg-eth mtu=462 max_frame=(mtu+14)"

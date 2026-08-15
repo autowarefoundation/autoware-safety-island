@@ -19,10 +19,14 @@
 #     `ip tuntap add dev tap0 mode tap && ip addr add
 #     172.16.52.1/24 dev tap0`; this script does not bring it up itself)
 #   - CONFIG_DDS_PEER=172.16.52.2         (CR52 unicast SPDP peer)
-# plus CONFIG_DDS_DISABLE_MULTICAST=1 via CMAKE_C_FLAGS/CMAKE_CXX_FLAGS (the
-# reused CMakeLists.txt has no CACHE var for this -- see common/dds/
-# config.hpp's Task 8 comment for why full multicast disable, not just a
-# unicast peer, is required on this point-to-point link).
+# plus CONFIG_DDS_DISABLE_MULTICAST=1, CONFIG_DDS_MAX_MSG_SIZE=434,
+# CONFIG_DDS_MAX_REXMIT_MSG_SIZE=434 and CONFIG_DDS_FRAGMENT_SIZE=348 via
+# CMAKE_C_FLAGS/CMAKE_CXX_FLAGS (the reused CMakeLists.txt has no CACHE var
+# for any of these four -- see common/dds/config.hpp's Task 8 comment for why
+# full multicast disable, not just a unicast peer, is required on this
+# point-to-point link, and its Task 21 comment for the full derivation of
+# the three DDS-sizing constants; both ends of the link must set all three
+# sizing knobs or the end left at CycloneDDS's defaults still IP-fragments).
 # check-dds-config.sh asserts these four literal -D/compile-definition
 # strings appear, uncommented, in THIS file -- see that script's Important-1
 # fix comment for why the Linux-side source of truth is this script, not
@@ -148,12 +152,19 @@ export PATH="${CDDS_HOST_PREFIX}/bin:${PATH}"
 # readelf -d before/after, further down in this same script, and remains
 # authoritative even if some future CMake/toolchain change quietly stops
 # honoring these two flags.
+# Task 21: CONFIG_DDS_MAX_MSG_SIZE/CONFIG_DDS_MAX_REXMIT_MSG_SIZE/
+# CONFIG_DDS_FRAGMENT_SIZE=434/434/348 -- same three DDS-sizing knobs, same
+# values, as freertos_x5h/CMakeLists.txt sets for the CR52 firmware side of
+# this identical 462-byte link (see that file's own comment, and common/dds/
+# config.hpp's fuller derivation). Bundled into the same -DCMAKE_C_FLAGS/
+# -DCMAKE_CXX_FLAGS string as CONFIG_DDS_DISABLE_MULTICAST=1, for the same
+# reason: this reused CMakeLists.txt has no CACHE var for any of the four.
 cmake -S /build-arm64/actuation_module/freertos_s32z2/edge_ecu_peer -B /build-arm64/build/peer-build \
     -DCONFIG_DDS_DOMAIN_ID=2 \
     -DCONFIG_DDS_NETWORK_INTERFACE=tap0 \
     -DCONFIG_DDS_PEER=172.16.52.2 \
-    -DCMAKE_C_FLAGS=-DCONFIG_DDS_DISABLE_MULTICAST=1 \
-    -DCMAKE_CXX_FLAGS=-DCONFIG_DDS_DISABLE_MULTICAST=1 \
+    -DCMAKE_C_FLAGS="-DCONFIG_DDS_DISABLE_MULTICAST=1 -DCONFIG_DDS_MAX_MSG_SIZE=434 -DCONFIG_DDS_MAX_REXMIT_MSG_SIZE=434 -DCONFIG_DDS_FRAGMENT_SIZE=348" \
+    -DCMAKE_CXX_FLAGS="-DCONFIG_DDS_DISABLE_MULTICAST=1 -DCONFIG_DDS_MAX_MSG_SIZE=434 -DCONFIG_DDS_MAX_REXMIT_MSG_SIZE=434 -DCONFIG_DDS_FRAGMENT_SIZE=348" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
     -DCMAKE_INSTALL_RPATH='$ORIGIN/lib'
