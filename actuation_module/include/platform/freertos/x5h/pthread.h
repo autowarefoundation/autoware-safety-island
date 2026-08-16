@@ -215,7 +215,36 @@ static inline int pthread_join(pthread_t thread, void **retval)
     if (info == NULL) {
         return -1;
     }
-    xSemaphoreTake(info->done, portMAX_DELAY);
+    /* POSIX pthread_join() has no spurious-wakeup allowance: it must not
+     * proceed to tear the thread down until the thread has actually run to
+     * completion and given info->done.
+     *
+     * On this port/config, xSemaphoreTake(..., portMAX_DELAY) is believed to
+     * block unconditionally: INCLUDE_vTaskSuspend == 1 in this BSP's
+     * FreeRTOSConfig.h, so prvAddCurrentTaskToDelayedList() parks a
+     * portMAX_DELAY waiter on the suspended-task list rather than a
+     * tick-timed delayed list -- a plain tick-based timeout can therefore
+     * never fire for this wait. But INCLUDE_xTaskAbortDelay == 1 too, and
+     * xTaskCheckForTimeOut() tests pxCurrentTCB->ucDelayAborted *before* its
+     * portMAX_DELAY special case, so a call to xTaskAbortDelay() against the
+     * joining task -- from anywhere, including code added later -- would
+     * still make this take return pdFALSE with the semaphore ungiven.
+     * (vTaskResume()/xTaskResumeFromISR() cannot do the same: FreeRTOS's own
+     * prvTaskIsTaskSuspended() checks whether the task's event-list item is
+     * linked into any list -- true here, since the take leaves it on the
+     * semaphore's wait list -- and refuses to resume it.) Grepping this
+     * repo's application code (i.e. everything outside vendor/kernel
+     * sources) turns up no call to xTaskAbortDelay() anywhere, so this take
+     * cannot return early in practice today. Retry anyway rather than
+     * trusting a single take: it costs nothing on the real, single-iteration
+     * path, and it is the only response consistent with pthread_join()'s
+     * no-spurious-wakeup contract -- an early, non-completion return here
+     * must never be treated as "the thread finished," since that leads
+     * straight to vTaskDelete()-ing (and freeing the bookkeeping for) a
+     * still-running task. */
+    while (xSemaphoreTake(info->done, portMAX_DELAY) != pdPASS) {
+        /* Not a real completion signal (see above); go back to waiting. */
+    }
     if (retval != NULL) {
         *retval = NULL;
     }
