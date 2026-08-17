@@ -68,6 +68,15 @@ extern "C" {
 #undef PTHREAD_MUTEX_INITIALIZER
 #define PTHREAD_MUTEX_INITIALIZER ((pthread_mutex_t)0)
 
+// Defined in freertos_x5h/x5h_emutls.c; canonical declaration in
+// freertos_x5h/x5h_emutls.h, which the common code including this header
+// cannot reach on its include path -- hence this duplicate (keep in sync).
+// Frees the per-task emulated-TLS storage that runtime hangs off a TCB
+// thread-local-storage slot. Called below before every vTaskDelete() on
+// another task: the slot lives inside the TCB, which for dynamic-stack
+// tasks the idle task frees after the delete.
+void x5h_emutls_task_cleanup(TaskHandle_t task);
+
 typedef struct pthread_internal_s {
     void *(*entry)(void *);
     void *arg;
@@ -249,6 +258,11 @@ static inline int pthread_join(pthread_t thread, void **retval)
         *retval = NULL;
     }
     if (info->task != NULL) {
+        /* Safe without suspending the thread first: it has already given
+         * info->done and it touches no __thread variable between that give
+         * and its permanent vTaskSuspend (pthread_x5h_entry_), so its TLS
+         * storage is quiescent here. */
+        x5h_emutls_task_cleanup(info->task);
         vTaskDelete(info->task);
     }
     /* Release the application-owned static TCB the kernel does not free.
@@ -271,6 +285,14 @@ static inline int pthread_cancel(pthread_t thread)
     TaskHandle_t t = info->task;
     info->task = NULL;
     xSemaphoreGive(info->done);
+    /* Unlike pthread_join's target, a cancelled thread may be running
+     * anywhere -- including inside __emutls_get_address() replacing the
+     * very array the cleanup below frees -- so park it first. It cannot be
+     * holding newlib's __malloc_lock at this point (that lock is
+     * vTaskSuspendAll(), under which this code could not be running), so
+     * freeing its TLS storage afterwards is safe. */
+    vTaskSuspend(t);
+    x5h_emutls_task_cleanup(t);
     vTaskDelete(t);
     return 0;
 }
