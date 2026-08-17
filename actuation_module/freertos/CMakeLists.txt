@@ -255,4 +255,34 @@ if(BUILD_TEST STREQUAL "1")
         COMMENT "Running rpmsg_netif_core host unit test"
         VERBATIM
     )
+
+    # ---- Host-compiled input-staleness-gate unit test (Task 36) ----
+    # input_staleness_gate.hpp is deliberately pure logic (no clock, no DDS,
+    # no FreeRTOS): the controller's control_cmd publication gate can be
+    # exercised directly on the build host, same pattern as
+    # rpmsg_netif_core_test above, under the same BUILD_TEST=1 selector CI
+    # already invokes.
+    set(INPUT_STALENESS_GATE_TEST_MAIN ${ACTUATION_DIR}/test/test_input_staleness_gate.cpp)
+
+    add_executable(input_staleness_gate_test
+        ${INPUT_STALENESS_GATE_TEST_MAIN}
+    )
+
+    # Undo this directory's main -> actuation_main rename for this
+    # standalone host executable (see rpmsg_netif_core_test above).
+    set_source_files_properties(${INPUT_STALENESS_GATE_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+
+    target_include_directories(input_staleness_gate_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+
+    target_compile_options(input_staleness_gate_test PRIVATE -Wall -Wextra)
+
+    add_custom_command(TARGET input_staleness_gate_test POST_BUILD
+        COMMAND input_staleness_gate_test
+        COMMENT "Running input_staleness_gate host unit test"
+        VERBATIM
+    )
 endif()
