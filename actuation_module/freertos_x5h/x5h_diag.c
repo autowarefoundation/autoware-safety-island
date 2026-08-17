@@ -978,7 +978,7 @@ _Static_assert(offsetof(StaticTask_t, xDummy3) == 4,
 // shifts this literal. Re-derive with `nm` whenever this file's statics
 // change -- which is exactly what derivation (2) below now checks for at
 // run time, so a stale literal is caught instead of silently believed.
-#define X5H_PXREADYTASKSLISTS_ADDR 0x11890d3cUL
+#define X5H_PXREADYTASKSLISTS_ADDR 0x11890ddcUL
 
 // (2) Run-time derivation, no literal involved. pxCurrentTCB IS a global
 // here (tasks.c:446 declares it without `static` when configNUMBER_OF_CORES
