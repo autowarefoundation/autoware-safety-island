@@ -198,6 +198,16 @@ void x5h_diag_clear_launcher(void);
 // other platform's build ever links against this symbol.
 #if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
 void x5h_diag_set_controller_task(TaskHandle_t controller);
+
+// R3f (Task 33). Captures this core's MPIDR and the tick PPI's priority
+// byte from this core's own redistributor SGI/PPI frame, BEFORE the
+// scheduler start programs that priority -- the "pre" half of the one-shot
+// GIC evidence line the beacon prints at its first run (see x5h_diag.c's
+// "R3f" block for the line format and what each field decides). Call it
+// from main() after setup_hardware() -- it needs the GICR base Irq_Setup()
+// plants -- and before vTaskStartScheduler(). Reads only; writes nothing
+// to the GIC.
+void x5h_diag_gic_capture_boot(void);
 #endif
 
 // R4. Prints one tagged diagnostic line carrying the same launcher stack
