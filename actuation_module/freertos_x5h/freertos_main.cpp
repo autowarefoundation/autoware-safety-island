@@ -355,6 +355,14 @@ int main(void) {
     // itself, which is the price of not editing rcar_bsp/.
     x5h_diag_install_vectors();
     setup_hardware();
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+    // Task 33 (R3f): capture MPIDR and the tick PPI's not-yet-programmed
+    // priority byte while the scheduler -- and therefore
+    // vConfigureTickInterrupt() -- has not run. Must sit after
+    // setup_hardware() (needs the GICR base Irq_Setup() plants) and before
+    // vTaskStartScheduler(); the beacon prints the line built from it.
+    x5h_diag_gic_capture_boot();
+#endif
 #ifdef X5H_NETIF_ONLY
     printf("FreeRTOS X5H (netif-only) starting...\n");
 #else

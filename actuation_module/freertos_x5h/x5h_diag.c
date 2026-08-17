@@ -31,6 +31,15 @@
    rpmsg_transport.h gives for holding that macro in one place. */
 #include "rpmsg_transport.h"
 
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+/* Task 33's one-shot GIC evidence line ("R3f" below) needs GICR_Type (via
+   core_cr52.h), R_GIC_GetRedistID()/R_GIC_GetPriorityMask(), and the tick's
+   PPI number. Gated so the default build's include graph is unchanged. */
+#include "cmsis_rcar_gen5.h"
+#include "drivers/gic/gic.h"
+#include "interrupts.h"
+#endif
+
 #include "x5h_diag.h"
 
 // ============================================================================
@@ -969,7 +978,7 @@ _Static_assert(offsetof(StaticTask_t, xDummy3) == 4,
 // shifts this literal. Re-derive with `nm` whenever this file's statics
 // change -- which is exactly what derivation (2) below now checks for at
 // run time, so a stale literal is caught instead of silently believed.
-#define X5H_PXREADYTASKSLISTS_ADDR 0x1188ecfcUL
+#define X5H_PXREADYTASKSLISTS_ADDR 0x11890d3cUL
 
 // (2) Run-time derivation, no literal involved. pxCurrentTCB IS a global
 // here (tasks.c:446 declares it without `static` when configNUMBER_OF_CORES
@@ -1103,6 +1112,115 @@ static void diag_put_controller_probe(void)
     diag_put_controller_raw_words(controller);
 }
 
+// ---- R3f: one-shot GIC tick-priority evidence line (Task 33) ----
+//
+// One line, once per boot, before the first beacon line:
+//
+//   x5h-diag: gic mpidr=0x........ aff0=N rd=0x........
+//     tickprio_pre=0xNN tickprio_post=0xNN pmr=0xNN
+//
+// (a single line on the wire; wrapped here for width). Every field is
+// fixed-format and bounded; nothing repeats. What each one is:
+//
+//  - mpidr, aff0 (= MPIDR & 0xFF): read on this core at boot. aff0 is the
+//    index the pre-Task-33 Irq_SetPriority() applied to the already-per-core
+//    gic_rdist base (see vendor_patched/interrupts.c), so aff0 != 0 is the
+//    precondition for the tick PPI's priority write having missed this
+//    core's frame on every image before the fix. This value has never been
+//    observed on this hardware.
+//  - tickprio_pre: GICR_IPRIORITYR[30] (the tick PPI) read from this core's
+//    own SGI/PPI frame in main(), after Irq_Setup() seeds gic_rdist and
+//    before vTaskStartScheduler() -> vConfigureTickInterrupt() programs the
+//    tick priority. It is the value the byte held before THIS boot wrote
+//    it -- i.e. the priority the tick actually ran at, all run long, on
+//    every earlier image whose Irq_SetPriority() never reached this frame.
+//  - tickprio_post: the same byte re-read at beacon start, after
+//    vConfigureTickInterrupt() ran through the corrected accessor --
+//    IPRIORITY(24) back means the fixed write lands where this read looks.
+//  - pmr: ICC_PMR read between taskENTER_CRITICAL()/taskEXIT_CRITICAL(),
+//    i.e. the masking threshold a critical section actually programs
+//    (port.c: configMAX_API_CALL_INTERRUPT_PRIORITY << portPRIORITY_SHIFT).
+//    GICv3 only signals an interrupt whose priority is numerically BELOW
+//    PMR, so a critical section holds the tick out only while
+//    tickprio >= pmr.
+//
+// Frame derivation -- deliberately NOT the indexing being measured:
+// gic_rdist (seeded by Irq_Setup() with this core's own GICR frame address)
+// indexed by R_GIC_GetRedistID(), which returns the index whose GICR_TYPER
+// affinity field -- hardware ground truth burned into each redistributor --
+// matches this core's own MPIDR Aff0. That is the same derivation the
+// board-proven Irq_Enable() path uses, and it is self-correcting: whatever
+// index the TYPER match selects IS this PE's frame, regardless of any
+// table arithmetic. If the lookup fails, rd stays 0xffffffff, neither
+// priority byte is ever dereferenced, and both print as 0xff -- the rd
+// field on the same line is what disambiguates that sentinel from a
+// genuine 0xff.
+//
+// R_GIC_GetRedistID()'s internal scan is bounded by gic_max_rd, the frame
+// count Irq_Setup() already walked to at boot -- not an unbounded walk.
+static uint32_t s_gic_mpidr;
+static uint32_t s_gic_rd = 0xFFFFFFFFu;
+static uint8_t s_gic_tickprio_pre = 0xFFu;
+
+// gic.c defines this without a header declaration of its own; the type
+// matches its definition (GICR_Type* gic_rdist).
+extern GICR_Type *gic_rdist;
+
+void x5h_diag_gic_capture_boot(void)
+{
+    uint32_t mpidr;
+    uint32_t rd;
+
+    __asm__ volatile ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
+    s_gic_mpidr = mpidr;
+
+    // Same affinity argument Irq_Enable() passes (MPIDR Aff1|Aff0).
+    rd = R_GIC_GetRedistID(mpidr & 0xFFFFu);
+    if (rd == 0xFFFFFFFFu) {
+        return;  // statics keep their "unreadable" sentinels
+    }
+    s_gic_rd = rd;
+    s_gic_tickprio_pre =
+        gic_rdist[rd].sgi_ppi.GICR_IPRIORITYR[R_OS_BSP_GENERIC_ARM_TIMER_IRQNUM];
+}
+
+static void diag_put_hex8(uint8_t v)
+{
+    static const char hexdigits[] = "0123456789abcdef";
+
+    diag_puts("0x");
+    diag_putc(hexdigits[(v >> 4) & 0xFU]);
+    diag_putc(hexdigits[v & 0xFU]);
+}
+
+static void diag_put_gic_oneshot(void)
+{
+    uint8_t tickprio_post = 0xFFu;
+    uint32_t pmr;
+
+    if (s_gic_rd != 0xFFFFFFFFu) {
+        tickprio_post =
+            gic_rdist[s_gic_rd].sgi_ppi.GICR_IPRIORITYR[R_OS_BSP_GENERIC_ARM_TIMER_IRQNUM];
+    }
+    taskENTER_CRITICAL();
+    pmr = R_GIC_GetPriorityMask();
+    taskEXIT_CRITICAL();
+
+    diag_puts("x5h-diag: gic mpidr=");
+    diag_put_hex32(s_gic_mpidr);
+    diag_puts(" aff0=");
+    diag_put_u32(s_gic_mpidr & 0xFFu);
+    diag_puts(" rd=");
+    diag_put_hex32(s_gic_rd);
+    diag_puts(" tickprio_pre=");
+    diag_put_hex8(s_gic_tickprio_pre);
+    diag_puts(" tickprio_post=");
+    diag_put_hex8(tickprio_post);
+    diag_puts(" pmr=");
+    diag_put_hex8((uint8_t)(pmr & 0xFFu));
+    diag_puts("\n");
+}
+
 // ---- R3e: boot-time TLS self-test (Task 31) ----
 //
 // One-shot, before the first beacon line: two short-lived tasks write
@@ -1225,6 +1343,10 @@ static void x5h_diag_beacon_task(void *pv)
 
     (void)pv;
 #if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+    // One-shot GIC evidence line first -- see "R3f". Ahead of the TLS
+    // self-test because that test can block for seconds on its handshake
+    // timeouts, and this is the decisive datum of the boot.
+    diag_put_gic_oneshot();
     // One-shot TLS verdict ahead of the first beacon line -- see "R3e".
     diag_run_tls_selftest();
 #endif
