@@ -262,8 +262,15 @@ int32_t IRQ_Enable (IRQn_ID_t irqn)
 
 void Irq_Disable(unsigned int id)
 {
-	/* Same redistributor-indexing fix as Irq_SetPriority() below. */
+	/* Same redistributor-indexing fix as Irq_SetPriority() below. Unlike
+	 * R_GIC_SetIntPriority(), R_GIC_DisableInt() has no rd bound check on
+	 * its id < 31 path, so a failed lookup (0xFFFFFFFF) must bail here
+	 * rather than index gic_rdist[] wild. Unreachable today -- every
+	 * in-tree caller passes SPIs, where rd is ignored -- but the old
+	 * cpu_id index at least stayed small, and this keeps that bound. */
 	uint32_t rd = R_GIC_GetRedistID(Irq_GetAffinity());
+	if (rd == 0xFFFFFFFFU)
+		return;
 	R_GIC_DisableInt(id, rd);
 }
 /* Legacy: IRQ_Disable should not be used */

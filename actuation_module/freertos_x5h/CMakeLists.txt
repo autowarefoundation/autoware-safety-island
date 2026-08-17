@@ -149,6 +149,24 @@ set(X5H_BSP_PATCHED_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/vendor_patched/interrupts.c
 )
 
+# -O0, matching the freertos_bsp archive the shadow displaces (that target
+# adds no -O flag, so the vendor member compiles at the -O0 default; both
+# targets here add -O2). This is not cosmetic: interrupts.c also contains
+# vApplicationIRQHandler() and the Irq_GetMergeStatReg()/Irq_GetTableId()
+# table scan it runs on EVERY interrupt, and the defect stage13 exists to
+# attribute is timing-sensitive enough that ~4-5.5 % console duty suppresses
+# what ~1 % reproduces. Letting the shadow retune the per-interrupt dispatch
+# path would leave a null board result ambiguous between "the GIC fix cured
+# it" and "the dispatch timing shifted it out of its window". With -O0 the
+# untouched functions compile essentially identically to the vendor member,
+# confining the delta to the two accessors the patch actually changes --
+# which run at interrupt setup/teardown, not per interrupt. (Source-file
+# property, directory scope, so it applies in both targets; the property's
+# trailing -O0 overrides the targets' earlier -O2 by GCC's last-wins rule.)
+set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/vendor_patched/interrupts.c
+    PROPERTIES COMPILE_OPTIONS "-O0"
+)
+
 # ---- Task 18: diagnostic instrumentation for the silent CR52 wedge ----
 #
 # Listed in BOTH targets' own add_executable() calls below rather than added
