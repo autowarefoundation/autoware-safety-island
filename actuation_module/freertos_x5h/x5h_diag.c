@@ -638,6 +638,12 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // walk cannot be the thing that converts a live image into a silent one.
 #if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
 
+// offsetof(), used only by R3d below (diag_put_controller_raw_words()) to
+// derive a TCB member offset from the public StaticTask_t stand-in without
+// touching FreeRTOS kernel sources. Gated here, not at file scope, so this
+// build-only dependency cannot affect the default build's translation unit.
+#include <stddef.h>
+
 // Static, not an automatic: the beacon runs on configMINIMAL_STACK_SIZE (256
 // words == 1 KiB) and sizeof(TaskStatus_t) is ~40 bytes here, so 24 of them
 // is ~1 KiB -- the whole beacon stack -- if it were a local.
@@ -891,6 +897,174 @@ static void diag_puts_bounded(const char *s, uint32_t max_len)
     }
 }
 
+// ---- R3d: raw scheduler-structure words (Task 30) ----
+//
+// diag_put_controller_probe() below distinguishes deleted-vs-unlinked from
+// ntasks alone, but cannot tell a clobbered ready-list header, a stray
+// xStateListItem unlink, and an overwritten TCB apart from each other --
+// those three shapes differ only in the raw link words themselves. This
+// adds them: the controller TCB's own xStateListItem (pxNext, pxPrevious,
+// pxContainer) and the priority-1 ready list header (the controller's own
+// priority) those pointers should agree with when nothing is corrupted.
+//
+// Reaching both without touching FreeRTOS kernel sources (forbidden by this
+// task's brief) needed two different techniques -- full derivation and
+// evidence in task-30-report.md, summarized here:
+//
+// TCB offset of xStateListItem: StaticTask_t (FreeRTOS.h) is the PUBLIC
+// struct FreeRTOS ships so applications can size a TCB without seeing the
+// private tskTaskControlBlock definition in tasks.c. Its own doc comment
+// guarantees its size/alignment match the real struct "no matter how the
+// values in FreeRTOSConfig.h are set", and tasks.c's own
+// configASSERT(sizeof(StaticTask_t) == sizeof(TCB_t)) enforces exactly that
+// every time this build creates a task -- including the controller itself
+// (pthread_create() -> xTaskCreateStatic()). StaticTask_t's second field,
+// `StaticListItem_t xDummy3[2]`, mirrors the real struct's `xStateListItem;
+// xEventListItem;` pair under the identical #if conditions, so
+// offsetof(StaticTask_t, xDummy3) IS offsetof(TCB_t, xStateListItem) --
+// computed by the compiler, not guessed, and correct regardless of which of
+// this branch's two disagreeing FreeRTOSConfig.h copies wins
+// (configMAX_TASK_NAME_LEN 16 vs. 32; see task-30-report.md), since this
+// offset never reads that macro at all.
+_Static_assert(sizeof(ListItem_t) == sizeof(((StaticTask_t *)0)->xDummy3[0]),
+    "StaticTask_t's documented size contract (FreeRTOS.h, above struct "
+    "xSTATIC_TCB) no longer holds -- xDummy3[0] no longer stands in for "
+    "ListItem_t, so the TCB offset derived from it cannot be trusted");
+// Second, independent check on the same offset: read directly out of this
+// build's own DWARF (`arm-none-eabi-readelf --debug-dump=info`, struct
+// tskTaskControlBlock, member xStateListItem) rather than trusted only on
+// the paragraph above -- see task-30-report.md for the exact dump. Both
+// numbers agree at 4 for this build (pxTopOfStack alone precedes it here:
+// no MPU wrapper, no multi-core affinity field in this config).
+_Static_assert(offsetof(StaticTask_t, xDummy3) == 4,
+    "offsetof(StaticTask_t, xDummy3) no longer matches the DWARF-confirmed "
+    "offsetof(TCB_t, xStateListItem) == 4 recorded in task-30-report.md -- "
+    "the TCB layout changed (a new field ahead of xStateListItem, most "
+    "likely); re-derive both before trusting diag_put_controller_raw_words()");
+//
+// pxReadyTasksLists[1] address: two INDEPENDENT derivations, compared
+// against each other rather than either one trusted alone -- see "HONESTY
+// ON THE RUNTIME PATH" below for why that comparison matters, not just the
+// mechanics of getting an address.
+//
+// (1) Build-time literal. `static List_t pxReadyTasksLists[configMAX_PRIORITIES]`
+// (tasks.c) has internal linkage, so no `extern` declaration anywhere else
+// can bind to it -- the "declare it extern if the symbol is global" path
+// this task's brief offers does not apply to THIS symbol (it does apply to
+// pxCurrentTCB below). The literal is read from this exact build's own
+// linked symbol table (`arm-none-eabi-nm -nS`), the same known-address
+// mechanism Task 29 used for this identical symbol; see task-30-report.md
+// for the build-measure-embed-rebuild convergence check that validates it
+// for the artifact this task ships. It is NOT a portable constant, and the
+// single most likely thing to move it is THIS FILE'S OWN statics: on this
+// build, x5h_diag.c.o's `s_launcher`/`s_controller_task` link at a LOWER
+// address than tasks.c.o's pxReadyTasksLists (task-30-report.md has the
+// `nm` evidence), i.e. ahead of it in the one contiguous region
+// lscript_vram2.ld places .data/.bss in -- so any static THIS FILE adds or
+// resizes (e.g. widening s_task_status[X5H_DIAG_TASK_TABLE_SLOTS] above)
+// shifts this literal. Re-derive with `nm` whenever this file's statics
+// change -- which is exactly what derivation (2) below now checks for at
+// run time, so a stale literal is caught instead of silently believed.
+#define X5H_PXREADYTASKSLISTS_ADDR 0x1188e0bcUL
+
+// (2) Run-time derivation, no literal involved. pxCurrentTCB IS a global
+// here (tasks.c:446 declares it without `static` when configNUMBER_OF_CORES
+// == 1, which this build is; confirmed by `nm`: capital `B pxCurrentTCB`)
+// -- the brief's "declare it extern if the symbol is global" path applies
+// to this one. FreeRTOS's own round-robin bookkeeping keeps a RUNNING task
+// linked in its own ready list (only unlinked when it stops running), so
+// for as long as this code is executing ON the beacon task, pxCurrentTCB's
+// xStateListItem.pxContainer -- via the identical offsetof(StaticTask_t,
+// xDummy3) technique above -- equals &pxReadyTasksLists[uxTaskPriorityGet(NULL)],
+// true regardless of what the literal above says. If a multi-core config
+// is ever adopted, tasks.c's real pxCurrentTCB stops being a plain global
+// (it becomes an array, pxCurrentTCBs[]); this extern would then fail to
+// LINK, a loud build break rather than a silent wrong read.
+extern TaskHandle_t volatile pxCurrentTCB;
+
+// HONESTY ON THE RUNTIME PATH: pxCurrentTCB is not immune to the very
+// corruption this probe exists to catch. It is a plain global living in
+// the same tasks.c static-storage region as pxReadyTasksLists -- on this
+// build `nm` places pxCurrentTCB just 4 bytes before it (task-30-report.md
+// has both addresses) -- so a wild write wide enough to reach one can
+// reach the other. Agreement between the two derivations is therefore
+// meaningful evidence neither has been touched; disagreement tells us ONLY
+// that something is inconsistent, not which side (if either) is still
+// correct. That is why diag_put_controller_raw_words() below prints BOTH
+// raw addresses on a mismatch and skips the four fields that would require
+// picking one to dereference, instead of silently preferring either.
+static List_t *diag_derive_rdy1_runtime(void)
+{
+    TaskHandle_t self = pxCurrentTCB;
+    ListItem_t *self_item =
+        (ListItem_t *)((uint8_t *)self + offsetof(StaticTask_t, xDummy3));
+    UBaseType_t self_prio = uxTaskPriorityGet(NULL);
+
+    // self_item->pxContainer == &pxReadyTasksLists[self_prio] (see above);
+    // step back to index 1 in pointer arithmetic only -- no loop, no walk,
+    // output stays fully bounded either way.
+    return self_item->pxContainer - (self_prio - 1U);
+}
+
+// Fault-safety ordering, re-checked against the actual control flow below
+// (round 2 -- an earlier version of this comment claimed an ordering the
+// code did not yet have; see task-30-report.md). ctlitem's four fields
+// derive only from `controller`, the independently-stashed handle
+// diag_put_controller_probe() already dereferences safely above (same risk
+// class as its existing state/name/prio line, unchanged by this task).
+// rdy1_lit is a compile-time literal plus pointer arithmetic -- no
+// dereference, cannot fault. diag_derive_rdy1_runtime(), by contrast, ends
+// in a genuine dereference through pxCurrentTCB ("HONESTY ON THE RUNTIME
+// PATH" above), and x5h_diag_exception_report() is noreturn, so a fault
+// there would abandon everything not yet on the wire. That call is
+// therefore placed AFTER ctlitem's four fields are printed, not before --
+// so a fault deriving rdy1_rt costs only the rdy1 fields, never ctlitem's,
+// which are the ones that discriminate the stray-unlink shape.
+static void diag_put_controller_raw_words(TaskHandle_t controller)
+{
+    ListItem_t *ctlitem =
+        (ListItem_t *)((uint8_t *)controller + offsetof(StaticTask_t, xDummy3));
+    List_t *rdy1_lit = &((List_t *)X5H_PXREADYTASKSLISTS_ADDR)[1];
+    List_t *rdy1_rt;
+
+    diag_puts("x5h-diag: ctlitem=");
+    diag_put_hex32((uint32_t)(uintptr_t)ctlitem);
+    diag_puts(" next=");
+    diag_put_hex32((uint32_t)(uintptr_t)ctlitem->pxNext);
+    diag_puts(" prev=");
+    diag_put_hex32((uint32_t)(uintptr_t)ctlitem->pxPrevious);
+    diag_puts(" cont=");
+    diag_put_hex32((uint32_t)(uintptr_t)ctlitem->pxContainer);
+
+    // Only now, with ctlitem's fields already on the wire, do we touch
+    // pxCurrentTCB -- see the function comment above.
+    rdy1_rt = diag_derive_rdy1_runtime();
+
+    if (rdy1_lit != rdy1_rt) {
+        // Disagreement: print both raw candidates and stop. Dereferencing
+        // either one here would be silently picking a side -- see
+        // "HONESTY ON THE RUNTIME PATH" above.
+        diag_puts(" rdy1=stale lit=");
+        diag_put_hex32((uint32_t)(uintptr_t)rdy1_lit);
+        diag_puts(" rt=");
+        diag_put_hex32((uint32_t)(uintptr_t)rdy1_rt);
+        diag_puts("\n");
+        return;
+    }
+
+    diag_puts(" rdy1=");
+    diag_put_hex32((uint32_t)(uintptr_t)rdy1_lit);
+    diag_puts(" n=");
+    diag_put_u32((uint32_t)rdy1_lit->uxNumberOfItems);
+    diag_puts(" idx=");
+    diag_put_hex32((uint32_t)(uintptr_t)rdy1_lit->pxIndex);
+    diag_puts(" endn=");
+    diag_put_hex32((uint32_t)(uintptr_t)rdy1_lit->xListEnd.pxNext);
+    diag_puts(" endp=");
+    diag_put_hex32((uint32_t)(uintptr_t)rdy1_lit->xListEnd.pxPrevious);
+    diag_puts("\n");
+}
+
 static void diag_put_controller_probe(void)
 {
     TaskHandle_t controller = s_controller_task;
@@ -902,7 +1076,10 @@ static void diag_put_controller_probe(void)
     if (controller == NULL) {
         // Not yet stashed (before Node::spin() has run) or never will be on
         // this image (netif_only_x5h never constructs a Controller at all).
+        // Mirrors the existing rule exactly: unset means print the <unset>
+        // variant of every line this function owns and touch nothing.
         diag_puts("x5h-diag: controller=<unset>\n");
+        diag_puts("x5h-diag: ctlitem=<unset>\n");
         return;
     }
 
@@ -918,6 +1095,8 @@ static void diag_put_controller_probe(void)
     diag_puts(" prio=");
     diag_put_u32((uint32_t)uxTaskPriorityGet(controller));
     diag_puts("\n");
+
+    diag_put_controller_raw_words(controller);
 }
 #endif  // X5H_DIAG_TASK_TABLE
 
