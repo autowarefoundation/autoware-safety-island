@@ -12,11 +12,16 @@
 # clean round trip into a false DDS_ROUNDTRIP_FAIL. This test runs the
 # real dds-plausibility.awk file (not a re-implementation of its logic)
 # against fixture log lines covering:
-#   - the real prefixed shape (ANSI colour + timestamp + '|', as actually
-#     captured on hardware -- see this plan's task-22-fixture-sublog.txt)
+#   - the real prefixed shape (ANSI colour + timestamp + '|'; hand-written
+#     to match the format actuation_module/test/dds_sub.cpp's log_success()
+#     calls actually print, per the NDA boundary -- no captured board
+#     output is checked into this repo)
 #   - the bare, unprefixed shape
-#   - an out-of-range steering value
+#   - an out-of-range steering, accel, and velocity value (one case each)
 #   - a NaN/inf value
+#   - a non-numeric token where a value belongs (the historical bug itself:
+#     awk silently coerces a non-numeric string to 0, which would sail
+#     through every range check -- must fail outright, not coerce)
 #   - a log with zero matching lines (must fail, not vacuously pass)
 #   - values sitting just inside every bound (guards against a parser
 #     that merely finds *a* field without reading the right one)
@@ -88,10 +93,38 @@ OOR_STEER_FIXTURE=$'\033[32m[00:04:09.069] | steering_tire_angle: 2.500000 rad\n
 $'\033[32m[00:04:09.069] | accel: 0.000000 m/s^2  velocity: 5.000000 m/s'
 run_case "out-of-range steering_tire_angle" fail "$OOR_STEER_FIXTURE"
 
+# --- case 3b: an out-of-range accel value (limit MAX_ACCEL=10.0) ------------
+OOR_ACCEL_FIXTURE=$'\033[32m[00:04:09.069] | steering_tire_angle: -0.236017 rad\n'\
+$'\033[32m[00:04:09.069] | accel: 25.000000 m/s^2  velocity: 5.000000 m/s'
+run_case "out-of-range accel" fail "$OOR_ACCEL_FIXTURE"
+
+# --- case 3c: an out-of-range velocity value (limit MAX_VEL=100.0) ----------
+OOR_VEL_FIXTURE=$'\033[32m[00:04:09.069] | steering_tire_angle: -0.236017 rad\n'\
+$'\033[32m[00:04:09.069] | accel: 0.000000 m/s^2  velocity: 250.000000 m/s'
+run_case "out-of-range velocity" fail "$OOR_VEL_FIXTURE"
+
 # --- case 4: a NaN/inf value --------------------------------------------------
 NAN_FIXTURE=$'\033[32m[00:04:09.069] | steering_tire_angle: -0.236017 rad\n'\
 $'\033[32m[00:04:09.069] | accel: nan m/s^2  velocity: inf m/s'
 run_case "NaN accel / inf velocity" fail "$NAN_FIXTURE"
+
+# --- case 4b: a non-numeric token where the value belongs --------------------
+# This is the exact class of historical bug, reproduced directly: a garbage
+# token sitting where the numeric value belongs. awk's implicit string ->
+# number coercion turns any non-numeric string into the number 0, which
+# then sails through every subsequent range check -- so a naive fix that
+# merely reads the right field by key name (rather than also validating
+# its shape) can still produce a false PASS on exactly this input.
+# Confirmed empirically against the parser as it stood at this branch's
+# base commit (8b05474): "0.5abc" parsed as 0 and the run reported PASS.
+# A single '|' was tried too and, by coincidence of mawk's string
+# comparison rules (a bare non-numeric string compares against a limit as
+# text, and '|' sorts after any ASCII digit), already failed there for the
+# wrong reason -- "0.5abc" is the fixture that actually isolates the
+# coercion defect this requirement targets.
+NONNUMERIC_FIXTURE=$'\033[32m[00:04:09.069] | steering_tire_angle: 0.5abc rad\n'\
+$'\033[32m[00:04:09.069] | accel: 0.000000 m/s^2  velocity: 5.000000 m/s'
+run_case "non-numeric token where steering value belongs" fail "$NONNUMERIC_FIXTURE"
 
 # --- case 5: zero matching lines (the vacuous-pass guard must still fire) ---
 EMPTY_FIXTURE='INFO bundle=/var/tmp/edge-ecu-peer count>=100 window=120s
@@ -116,4 +149,5 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo "PASS: test-dds-plausibility.sh"
-echo "  6/6 cases: prefixed shape, bare shape, out-of-range steering, NaN/inf, zero-match guard, in-bound values"
+echo "  10/10 cases: prefixed shape, bare shape, out-of-range steering/accel/velocity," \
+     "NaN/inf, non-numeric token, zero-match guard, in-bound values"
