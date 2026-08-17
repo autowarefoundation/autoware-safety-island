@@ -477,14 +477,25 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
                "without this the beacon could end up somewhere other than "
                "the top of the image with nothing to say so.");
 
-// 5 s by default. Task 26 tightens this to 1 s under X5H_DIAG_TASK_TABLE
-// (diagnostic builds only, off by default): the controller-liveness probe
-// that macro also gates (see "R3c" below) is chasing a ~6.5 s death window,
-// and a 5 s beacon cannot reliably bracket a window narrower than itself.
-// Conditioned on the same macro the rest of this feature is, so the default
-// image's period -- and therefore its object code -- is untouched.
+// 5 s -- the same numeric value the default build's plain liveness beacon
+// already runs at, though the default build never compiles this scalar in
+// at all (the whole R3c block below is gated out of it). Task 26 had
+// tightened this to 1 s under X5H_DIAG_TASK_TABLE (diagnostic builds only,
+// off by default), reasoning that a 5 s beacon cannot reliably bracket the
+// ~6.5 s death window the controller-liveness probe (see "R3c" below) is
+// chasing. Task 28 reverses that on board evidence: the bug did NOT
+// reproduce under the 1 s cadence (~4-5.5 % duty, stage8) but DID reproduce
+// at the ~1 % duty of the original stage7 diagnostic image. Reproduction
+// now outranks bracketing precision -- a probe whose own overhead perturbs
+// the timing enough to mask the bug is worse than one with coarser
+// bracketing that can still see it. The `ntasks` scalar
+// diag_put_controller_probe() prints every beacon (see "R3c" below, diag
+// build only) remains the arbiter, now sampled once per 5 s beacon instead
+// of once per 1 s beacon. Still conditioned on the same macro the rest of
+// this feature is, so the default image's period -- and therefore its
+// object code -- is untouched.
 #if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
-#define X5H_DIAG_BEACON_PERIOD_TICKS pdMS_TO_TICKS(1000)
+#define X5H_DIAG_BEACON_PERIOD_TICKS pdMS_TO_TICKS(5000)
 #else
 #define X5H_DIAG_BEACON_PERIOD_TICKS pdMS_TO_TICKS(5000)
 #endif
@@ -516,13 +527,10 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // the watermark has to come from a task that outranks whatever is starving
 // the image, or it cannot be sampled at the moment it matters. Two things
 // bound the damage -- the scan shrinks as the launcher's stack fills, so it
-// is cheapest exactly when the reading is most interesting, and at the
-// default 5 s period the duty cycle is small against the ~1.7 Hz control
-// cycle. Under X5H_DIAG_TASK_TABLE's 1 s period (see
-// X5H_DIAG_BEACON_PERIOD_TICKS above) that duty cycle is five times higher;
-// accepted for the same reason the rest of that macro's cost is (see "R3c"
-// below) -- a diagnostic image chasing a ~6.5 s window is not the build a
-// timing-sensitive board session should be running anyway.
+// is cheapest exactly when the reading is most interesting, and at the 5 s
+// period (Task 28: now the same in the diagnostic build as in the default
+// one, see X5H_DIAG_BEACON_PERIOD_TICKS above) the duty cycle is small
+// against the ~1.7 Hz control cycle.
 // But it is real: if a board session ever sees timing-dependent behaviour
 // that changes when the beacon is present, this is the mechanism to suspect
 // first, and lengthening X5H_DIAG_BEACON_PERIOD_TICKS is the cheapest test.
@@ -639,13 +647,18 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // constant is a beacon-count, not a time: the table cadence it produces is
 // X5H_DIAG_TASK_TABLE_EVERY * X5H_DIAG_BEACON_PERIOD_TICKS, and the second
 // factor is itself conditioned on X5H_DIAG_TASK_TABLE (see that definition
-// above) -- one table every 10 s at the plain 5 s default-build period this
-// constant was originally sized against, but every 3 s in the diagnostic
-// build, where the period drops to 1 s. Retuning the beacon period without
-// also re-checking this constant silently retunes the table cadence too;
-// that is exactly the trap review round 1 on this task flagged, so it is
-// spelled out here rather than left for the next person to rediscover by
-// noticing the tables arriving at an unexpected rate.
+// above) -- the same 10 s cadence this constant was originally sized
+// against at a 5 s beacon period, which Task 28 restores after Task 26's
+// interim 1 s/EVERY=3 (effectively 3 s) diagnostic-build cadence. This
+// constant and the table code it gates exist only inside this
+// X5H_DIAG_TASK_TABLE block; the default build has no table, no cadence,
+// and no version of this constant at all -- there is nothing on the
+// default-build side for "the same cadence" to be relative to. Retuning
+// the beacon period without also re-checking this constant silently
+// retunes the table cadence too; that is exactly the trap review round 1
+// on Task 26 flagged, so it is spelled out here rather than left for the
+// next person to rediscover by noticing the tables arriving at an
+// unexpected rate.
 //
 // Sized by the shortest window that has to yield a USABLE reading, not by
 // what feels cheap. rt is only meaningful as a delta between two dumps, and
@@ -654,32 +667,45 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // lease expires). At one table per 30 s that window can contain exactly one
 // table and therefore no delta at all -- the measurement would be missing
 // from precisely the interval it was built for. At 10 s it contained three.
-// The diagnostic build's own window of interest is Task 26's narrower ~6.5 s
-// controller death window, which this constant is now also sized against:
-// at 3 s it contains 2-3 tables (still enough for the cross-task runtime
-// delta that is real corroborating evidence for the "overwritten TCB" and
-// "stray unlink" shapes), which is why review round 1 rejected raising this
-// to 10 -- that would have dropped the diagnostic build back to at most one
-// table inside the window it exists to bracket, the same failure this
-// constant was first written to avoid.
 //
-// Affordable at the original cadence: one table is ~15 tasks x ~60 chars ~=
+// Task 26's narrower ~6.5 s controller death window is why this constant
+// stayed at EVERY=2 rather than reverting to this diagnostic build's own
+// previous EVERY=3 alongside the beacon period. The real argument is a
+// landing-probability one, not a "how many tables fit" one -- at most one
+// table fits inside a 6.5 s window at EITHER cadence (two tables 10 s or
+// 15 s apart cannot both land inside a 6.5 s span), so the choice is about
+// how often a table lands in the window AT ALL, not how many. For a
+// boot-relative window at a random phase against the table's own
+// (also boot-relative) cadence, that landing probability is approximately
+// window / cadence: ~65 % at EVERY=2's 10 s cadence (6.5 / 10) versus ~43 %
+// at EVERY=3's 15 s cadence (6.5 / 15) -- EVERY=2 gives roughly 1.5x the
+// chance of a boot's window containing a table boundary at all, which is
+// the argument for keeping it at 2 rather than 3 now that the beacon period
+// itself is 5 s. This is weaker than Task 26's original 1 s-period claim of
+// "2-3 tables reliably inside the window" (a coverage guarantee, not a
+// probability), which depended on the 1 s beacon period Task 28 reverted
+// (see X5H_DIAG_BEACON_PERIOD_TICKS above) and does not survive that
+// reversion. diag_put_controller_probe()'s `ntasks` scalar (see "R3c"
+// below), printed every beacon at the same 5 s period, is what actually
+// brackets the death window reliably now; the table is corroboration when
+// its timing happens to cooperate, not the primary signal.
+//
+// Affordable at the current cadence: one table is ~15 tasks x ~60 chars ~=
 // 900 B, and the console is 115200 8N1 (~11.5 kB/s), so a table is ~78 ms
-// every 10 s -- a duty cycle under 1 %. Measured on the diagnostic build's
-// own 1 s beacon period (review round 1): the per-second beacon line costs
-// ~10.4 ms and this file's controller probe (see "R3c" below) another
-// ~6.1 ms, so even before any table that base rate is already ~1.7 % duty;
-// a table every 3 s adds ~78 ms / 3 s (~2.6 %) on top, for a combined
-// ~4.3 % duty cycle in the diagnostic build -- not under 1 %, and not meant
-// to be; still small next to the ~6.5 s window this change exists to
-// bracket. (At the EVERY=2 this constant briefly held during development,
-// the same arithmetic gives ~5.5 % -- measured, not estimated, in that
-// review round -- which is why EVERY=3 is what shipped.) Numbers stated
-// plainly so this paragraph does not quietly go stale the way an earlier
-// version of this file's comments already did once. See the artefact note
-// below for what that ~78 ms does to the rest of the image while it
+// every 10 s -- ~0.78 % duty on its own, existing ONLY in the diagnostic
+// build (the default build's table duty is 0 %, not a shared figure --
+// the table code and its call site are both inside this
+// X5H_DIAG_TASK_TABLE block). Combined with the per-beacon controller
+// probe (see "R3c" below, ~6.1 ms every 5 s, ~0.12 %) and the beacon line
+// both builds already pay (~10.4 ms every 5 s, ~0.21 %), the diagnostic
+// build's own total console duty is ~1.1-1.2 % (cross-checked two ways in
+// task-28-report.md); the table alone is roughly 70 % of that total and
+// the table-plus-probe delta over the default build (~0.90 %) is roughly
+// 87 % table. Well under the ~4-5.5 % this file produced at the 1 s beacon
+// period Task 26 shipped and Task 28 has now reverted. See the artefact
+// note below for what that ~78 ms does to the rest of the image while it
 // happens.
-#define X5H_DIAG_TASK_TABLE_EVERY 3
+#define X5H_DIAG_TASK_TABLE_EVERY 2
 // M5 (review round 1): the beacon below gates the table on
 // `(n % X5H_DIAG_TASK_TABLE_EVERY) == 1u`, which is never true if this
 // constant is ever set to 1 (n % 1 is always 0) -- silently disabling the
