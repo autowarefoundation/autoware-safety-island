@@ -134,6 +134,7 @@ void Controller::callbackSteeringStatus(const SteeringReportMsg* msg, void* arg)
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_steering_ = *msg;
   controller->has_steering_ = true;
+  controller->input_staleness_gate_.noteInput(Clock::now());
 }
 
 void Controller::callbackOperationModeState(const OperationModeStateMsg* msg, void* arg) {
@@ -149,6 +150,7 @@ void Controller::callbackOperationModeState(const OperationModeStateMsg* msg, vo
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_operation_mode_ = *msg;
   controller->has_operation_mode_ = true;
+  controller->input_staleness_gate_.noteInput(Clock::now());
 }
 
 void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
@@ -170,6 +172,7 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   controller->current_odometry_.header.frame_id = nullptr;
   controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
+  controller->input_staleness_gate_.noteInput(Clock::now());
 }
 
 void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg) {
@@ -187,6 +190,7 @@ void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, 
   // — see callbackOdometry; only the numeric accel fields are consumed.
   controller->current_accel_.header.frame_id = nullptr;
   controller->has_accel_ = true;
+  controller->input_staleness_gate_.noteInput(Clock::now());
 }
 
 void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
@@ -206,6 +210,7 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   // is currently disabled, but this keeps the field safe for any future reader).
   controller->current_trajectory_.header.frame_id = nullptr;
   controller->has_trajectory_ = true;
+  controller->input_staleness_gate_.noteInput(Clock::now());
 }
 
 Controller::LateralControllerMode Controller::getLateralControllerMode(
@@ -361,8 +366,35 @@ void Controller::callbackTimerControl()
   // TODO(Horibe): Think specification. This comes from the old implementation.
   // if (isTimeOut(lon_out, lat_out)) return;
 
-  // 5. publish control command
-  publishControlCommand(lon_out, lat_out);
+  // 5. publish control command — unless every input has gone stale.
+  //
+  // The has_* flags above are sticky (set on first receipt, never cleared),
+  // so without this gate the controller would keep publishing forever on
+  // inputs that stopped arriving minutes ago (observed on the X5H board
+  // after the host peer processes exited). The gate suspends control_cmd
+  // when even the freshest required input is older than
+  // kInputStalenessThresholdSec (derivation at its definition), resumes as
+  // soon as inputs resume, and logs each edge exactly once — the UART
+  // console duty budget cannot afford a per-cycle line. Steps 1-4 above are
+  // deliberately untouched: this decides only WHETHER to publish, never
+  // what is computed.
+  const double gate_now = Clock::now();
+  switch (input_staleness_gate_.update(gate_now)) {
+    case InputStalenessGate::Transition::kBecameStale:
+      log_warn(
+        "Inputs stale: freshest input is %.2f s old (> %.2f s); suspending control_cmd "
+        "publication until inputs resume",
+        input_staleness_gate_.ageSec(gate_now), kInputStalenessThresholdSec);
+      break;
+    case InputStalenessGate::Transition::kBecameFresh:
+      log_info("Inputs fresh again; resuming control_cmd publication");
+      break;
+    case InputStalenessGate::Transition::kNone:
+      break;
+  }
+  if (input_staleness_gate_.publishAllowed()) {
+    publishControlCommand(lon_out, lat_out);
+  }
 
   PROFILE_POINT(cyc_t_end);
   PROFILE_LOG("CYCLE in=%.1f lat=%.1f lon=%.1f pub=%.1f total=%.1f [ms]",

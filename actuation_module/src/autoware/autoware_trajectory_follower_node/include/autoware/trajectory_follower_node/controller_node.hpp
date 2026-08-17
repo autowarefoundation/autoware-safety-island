@@ -18,6 +18,7 @@
 #include "autoware/trajectory_follower_base/control_horizon.hpp"
 #include "autoware/trajectory_follower_base/lateral_controller_base.hpp"
 #include "autoware/trajectory_follower_base/longitudinal_controller_base.hpp"
+#include "autoware/trajectory_follower_node/input_staleness_gate.hpp"
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
 #include "autoware_vehicle_info_utils/vehicle_info_utils.hpp"
@@ -65,6 +66,38 @@ private:
   }
 
   double timeout_thr_sec_;
+
+  // Input-staleness threshold for the control_cmd publication gate.
+  //
+  // Derivation (do not retune without re-deriving): the slowest required
+  // input is the trajectory at 10 Hz — expected period 0.1 s. That cadence
+  // is this repo's own ground truth, not an assumption: the edge-ECU peer
+  // publishes every input at PUBLISH_PERIOD_MS = 100 ("10 Hz — realistic
+  // input cadence for the controller", test/dds_pub.cpp), the reader-history
+  // sizing comment in common/dds/dds.hpp names the trajectory's "10 Hz
+  // producer", and every other required input (odometry, acceleration,
+  // steering, operation mode) arrives at the same 10 Hz or faster from the
+  // Autoware side, so 0.1 s bounds all expected periods.
+  //
+  // Multiplier: 5x the slowest expected period. Rationale:
+  //  - five consecutive missing samples of the slowest input is unambiguous
+  //    input loss, not jitter — the transport's reliability window
+  //    (max_blocking_time 30 ms, common/dds/dds.hpp) and observed link
+  //    jitter sit far below one 0.1 s period;
+  //  - 0.5 s spans at least three 0.15 s control cycles, so the gate's
+  //    decision is stable against control-cycle phasing instead of flapping
+  //    on a single borderline cycle;
+  //  - it equals the existing timeout_thr_sec_ default (0.5 s), this
+  //    codebase's only prior definition of "too old to act on" for control
+  //    data, keeping one staleness convention rather than introducing a
+  //    second number with a subtly different meaning.
+  static constexpr double kInputStalenessThresholdSec = 0.5;
+
+  // Gate deciding WHETHER control_cmd may be published (never WHAT is
+  // computed); fed with Clock::now() readings — see input_staleness_gate.hpp
+  // for the clock-discipline note.
+  InputStalenessGate input_staleness_gate_{kInputStalenessThresholdSec};
+
   std::optional<LongitudinalOutput> longitudinal_output_{std::nullopt};
 
   std::shared_ptr<trajectory_follower::LongitudinalControllerBase> longitudinal_controller_;
