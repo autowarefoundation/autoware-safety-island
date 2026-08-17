@@ -644,6 +644,10 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // build-only dependency cannot affect the default build's translation unit.
 #include <stddef.h>
 
+// x5h_emutls_task_cleanup(), used only by R3e below. Gated for the same
+// reason as <stddef.h> above.
+#include "x5h_emutls.h"
+
 // Static, not an automatic: the beacon runs on configMINIMAL_STACK_SIZE (256
 // words == 1 KiB) and sizeof(TaskStatus_t) is ~40 bytes here, so 24 of them
 // is ~1 KiB -- the whole beacon stack -- if it were a local.
@@ -965,7 +969,7 @@ _Static_assert(offsetof(StaticTask_t, xDummy3) == 4,
 // shifts this literal. Re-derive with `nm` whenever this file's statics
 // change -- which is exactly what derivation (2) below now checks for at
 // run time, so a stale literal is caught instead of silently believed.
-#define X5H_PXREADYTASKSLISTS_ADDR 0x1188e11cUL
+#define X5H_PXREADYTASKSLISTS_ADDR 0x1188ecfcUL
 
 // (2) Run-time derivation, no literal involved. pxCurrentTCB IS a global
 // here (tasks.c:446 declares it without `static` when configNUMBER_OF_CORES
@@ -1098,6 +1102,121 @@ static void diag_put_controller_probe(void)
 
     diag_put_controller_raw_words(controller);
 }
+
+// ---- R3e: boot-time TLS self-test (Task 31) ----
+//
+// One-shot, before the first beacon line: two short-lived tasks write
+// distinct values to the same __thread variable and cross-check. Under the
+// per-task emutls runtime (x5h_emutls.c) each task sees its own instance,
+// initialized from the template; under the single-slot libgcc runtime this
+// image shipped with until Task 31, the second task to run reads the first
+// task's value instead of the template, and each task's final readback sees
+// the other's write. The verdict line is on-hardware evidence about the TLS
+// runtime itself, independent of anything DDS later does with it.
+//
+// Ordering: the beacon and both test tasks outrank everything the actuation
+// launcher runs (the _Static_assert below anchors that the same way the
+// beacon's own priority assert does), and the launcher -- the task every
+// DDS call in this image descends from -- has not run one instruction until
+// all three block or finish. So the verdict is printed before the DDS stack
+// can begin to exist.
+//
+// The test tasks allocate: their TLS storage, through the runtime under
+// test. That is the subject of the test, not a breach of this file's
+// no-allocation rule -- that rule exists because diagnostics run in wedged
+// or faulting contexts (x5h_diag.h), and this runs once, at boot, on a
+// healthy scheduler. The beacon's steady-state loop stays allocation-free,
+// and nothing here touches its period, the probe, or any periodic output.
+#define X5H_TLS_SELFTEST_PRIORITY (X5H_DIAG_BEACON_PRIORITY - 1)
+_Static_assert(X5H_TLS_SELFTEST_PRIORITY > RPMSG_POLL_TASK_PRIORITY,
+               "the TLS self-test tasks must outrank the network stack and "
+               "the actuation launcher below it, or the launcher could "
+               "start the DDS stack before the TLS verdict is printed");
+
+#define X5H_TLS_SELFTEST_STACK_WORDS configMINIMAL_STACK_SIZE
+
+// Template-initialized probe. The value is arbitrary but must be nonzero:
+// a zero template would make template-initialization indistinguishable
+// from the zero-fill an uninitialized __thread variable gets.
+#define X5H_TLS_PROBE_TEMPLATE 0x7A5C0FFEU
+static __thread uint32_t s_tls_probe = X5H_TLS_PROBE_TEMPLATE;
+
+static StaticTask_t s_tls_test_tcb[2];
+static StackType_t s_tls_test_stack[2][X5H_TLS_SELFTEST_STACK_WORDS];
+static TaskHandle_t s_tls_test_peer[2];  // [i] = the OTHER task's handle
+static TaskHandle_t s_tls_test_runner;
+// Per-task findings, composed into the verdict's detail word (task 0 in
+// bits 7:0, task 1 in bits 15:8):
+//   0x01 first read != template
+//   0x02 final readback != this task's own write
+//   0x04 peer handshake timed out
+static volatile uint32_t s_tls_test_flags[2];
+
+static void diag_tls_selftest_task(void *pv)
+{
+    uintptr_t self = (uintptr_t)pv;
+    uint32_t mine = (self == 0U) ? 0x000A5A5AU : 0x005A0A0AU;
+    uint32_t flags = 0U;
+
+    if (s_tls_probe != X5H_TLS_PROBE_TEMPLATE) {
+        flags |= 0x01U;
+    }
+    s_tls_probe = mine;
+    xTaskNotifyGive(s_tls_test_peer[self]);
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(500)) == 0U) {
+        flags |= 0x04U;
+    }
+    // Both tasks have written by now (or the handshake failed); a shared
+    // slot would leave the later writer's value visible to both.
+    if (s_tls_probe != mine) {
+        flags |= 0x02U;
+    }
+    s_tls_test_flags[self] = flags;
+    xTaskNotifyGive(s_tls_test_runner);
+    // Free this task's own TLS storage before self-deleting -- also the
+    // one boot-time exercise of the cleanup path.
+    x5h_emutls_task_cleanup(NULL);
+    vTaskDelete(NULL);
+}
+
+static void diag_run_tls_selftest(void)
+{
+    uint32_t detail = 0U;
+    TaskHandle_t t0;
+    TaskHandle_t t1;
+
+    s_tls_test_runner = xTaskGetCurrentTaskHandle();
+    t0 = xTaskCreateStatic(diag_tls_selftest_task, "tls_test0",
+                           X5H_TLS_SELFTEST_STACK_WORDS, (void *)0,
+                           X5H_TLS_SELFTEST_PRIORITY,
+                           s_tls_test_stack[0], &s_tls_test_tcb[0]);
+    t1 = xTaskCreateStatic(diag_tls_selftest_task, "tls_test1",
+                           X5H_TLS_SELFTEST_STACK_WORDS, (void *)1,
+                           X5H_TLS_SELFTEST_PRIORITY,
+                           s_tls_test_stack[1], &s_tls_test_tcb[1]);
+    if (t0 == NULL || t1 == NULL) {
+        diag_puts("x5h-diag: TLS_SELFTEST_FAIL detail=create\n");
+        return;
+    }
+    // Both test tasks sit READY below this task's priority until the takes
+    // below block, so both peer handles are published before either runs.
+    s_tls_test_peer[0] = t1;
+    s_tls_test_peer[1] = t0;
+
+    if (ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(2000)) == 0U ||
+        ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(2000)) == 0U) {
+        detail |= 0x10000U;
+    }
+    detail |= s_tls_test_flags[0] | (s_tls_test_flags[1] << 8);
+
+    if (detail == 0U) {
+        diag_puts("x5h-diag: TLS_SELFTEST_PASS\n");
+    } else {
+        diag_puts("x5h-diag: TLS_SELFTEST_FAIL detail=");
+        diag_put_hex32(detail);
+        diag_puts("\n");
+    }
+}
 #endif  // X5H_DIAG_TASK_TABLE
 
 static void x5h_diag_beacon_task(void *pv)
@@ -1105,6 +1224,10 @@ static void x5h_diag_beacon_task(void *pv)
     uint32_t n = 0;
 
     (void)pv;
+#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+    // One-shot TLS verdict ahead of the first beacon line -- see "R3e".
+    diag_run_tls_selftest();
+#endif
     for (;;) {
         n++;
         diag_puts("x5h-diag: beacon #");
