@@ -132,6 +132,23 @@ set(X5H_BSP_RPMSG_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/rsc_table.c
 )
 
+# ---- Task 33: patched copy of the BSP's common/interrupts.c ----
+#
+# vendor_patched/interrupts.c is rcar_bsp's
+# FreeRTOS/Demo/R-Car_Gen5_CR52/common/interrupts.c with one fix (its own
+# header comment carries the diff): Irq_SetPriority()/Irq_Disable() indexed
+# the redistributor array with the MPIDR Aff0 on a base that is already this
+# core's own GICR frame. It shadows the copy inside libfreertos_bsp.a by the
+# same mechanism the X5H_BSP_RPMSG_SOURCES comment above documents: linked
+# as a regular object of both targets, it defines every symbol the archive
+# member does, so the linker never pulls the vendor member. A patched copy
+# here rather than an edit in place because rcar_bsp is a pristine vendor
+# submodule pinned to the upstream rcar-v2.5.0 tag -- a commit inside it
+# could not be pushed anywhere this branch's checkouts could fetch it from.
+set(X5H_BSP_PATCHED_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/vendor_patched/interrupts.c
+)
+
 # ---- Task 18: diagnostic instrumentation for the silent CR52 wedge ----
 #
 # Listed in BOTH targets' own add_executable() calls below rather than added
@@ -192,6 +209,7 @@ add_executable(actuation_x5h
     ${CMAKE_CURRENT_LIST_DIR}/x5h_cdds_process.c
     ${X5H_DIAG_SOURCES}
     ${X5H_BSP_RPMSG_SOURCES}
+    ${X5H_BSP_PATCHED_SOURCES}
 )
 
 set_target_properties(actuation_x5h PROPERTIES
@@ -582,6 +600,7 @@ add_executable(netif_only_x5h
     ${CMAKE_CURRENT_LIST_DIR}/x5h_emutls.c
     ${X5H_DIAG_SOURCES}
     ${X5H_BSP_RPMSG_SOURCES}
+    ${X5H_BSP_PATCHED_SOURCES}
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
     ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
