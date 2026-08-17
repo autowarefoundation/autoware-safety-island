@@ -165,6 +165,7 @@ set(X5H_DIAG_SOURCES
 set_source_files_properties(
     ${CMAKE_CURRENT_LIST_DIR}/x5h_diag.c
     ${CMAKE_CURRENT_LIST_DIR}/x5h_cdds_process.c
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_emutls.c
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
 )
 
@@ -175,6 +176,12 @@ set_source_files_properties(
 add_executable(actuation_x5h
     ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp
     ${CMAKE_CURRENT_LIST_DIR}/newlib_stubs.c
+    # Task 31: strong __emutls_get_address()/__emutls_register_common()
+    # definitions that keep libgcc's single-slot emutls runtime (built for
+    # `Thread model: single`) out of the link entirely -- every __thread in
+    # the image becomes genuinely per-task. Must be linked into BOTH ELFs;
+    # netif_only_x5h lists it too.
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_emutls.c
     # Task 19. Listed here and NOT in X5H_DIAG_SOURCES because, unlike the
     # Task 18 files, it is specific to this target: it defines ddsrt_getpid()
     # and ddsrt_getprocessname() so that libddsc.a's process.c.obj is never
@@ -571,6 +578,8 @@ set_source_files_properties(
 add_executable(netif_only_x5h
     ${CMAKE_CURRENT_LIST_DIR}/freertos_main.cpp
     ${CMAKE_CURRENT_LIST_DIR}/newlib_stubs.c
+    # Task 31: see actuation_x5h's own listing of this file.
+    ${CMAKE_CURRENT_LIST_DIR}/x5h_emutls.c
     ${X5H_DIAG_SOURCES}
     ${X5H_BSP_RPMSG_SOURCES}
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
