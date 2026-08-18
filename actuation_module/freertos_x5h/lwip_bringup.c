@@ -42,27 +42,41 @@
 
 static struct netif s_netif;
 
+// File-static, NOT a stack local in lwip_bring_up_blocking(): tcpip_init()
+// stores the &s_tcpip_done pointer and the tcpip thread dereferences it in
+// tcpip_init_done() at an arbitrary later time. On the timeout path below,
+// lwip_bring_up_blocking() returns with that callback still pending -- and
+// the image keeps running after a configure_network() failure, so the late
+// callback really does fire in a live system. When this was a stack local,
+// that fire dereferenced a dead frame and gave whatever the reused stack
+// bytes happened to hold as a "semaphore". Static storage outlives every
+// caller frame, so the late give lands on the real (deliberately
+// undeleted, see below) semaphore instead.
+static SemaphoreHandle_t s_tcpip_done;
+
 static void tcpip_init_done(void *arg) {
     SemaphoreHandle_t *done = (SemaphoreHandle_t *)arg;
     xSemaphoreGive(*done);
 }
 
 int lwip_bring_up_blocking(void) {
-    SemaphoreHandle_t tcpip_done = xSemaphoreCreateBinary();
-    if (tcpip_done == NULL) {
+    s_tcpip_done = xSemaphoreCreateBinary();
+    if (s_tcpip_done == NULL) {
         return -1;
     }
 
-    tcpip_init(tcpip_init_done, &tcpip_done);
-    if (xSemaphoreTake(tcpip_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    tcpip_init(tcpip_init_done, &s_tcpip_done);
+    if (xSemaphoreTake(s_tcpip_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
         printf("lwip: tcpip_init timed out\n");
-        // Don't delete tcpip_done on this path: the tcpip thread's init-done
-        // callback may still hold and give it. This path is fatal anyway.
+        // Don't delete the semaphore on this path: the tcpip thread's
+        // init-done callback may still hold and give it. This path is fatal
+        // anyway, so the one-shot semaphore is deliberately leaked.
         return -2;
     }
     // The init-done callback has fired (the take succeeded), so it is safe to
     // release the one-shot semaphore.
-    vSemaphoreDelete(tcpip_done);
+    vSemaphoreDelete(s_tcpip_done);
+    s_tcpip_done = NULL;
 
     // Bring up the RPMsg transport BEFORE netif_add(): rpmsg_netif_init()
     // (below, via netif_add) wires the netif's linkoutput straight to
