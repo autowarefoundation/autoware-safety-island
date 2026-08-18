@@ -373,11 +373,15 @@ void Controller::callbackTimerControl()
   // inputs that stopped arriving minutes ago (observed on the X5H board
   // after the host peer processes exited). The gate suspends control_cmd
   // when even the freshest required input is older than
-  // kInputStalenessThresholdSec (derivation at its definition), resumes as
-  // soon as inputs resume, and logs each edge exactly once — the UART
-  // console duty budget cannot afford a per-cycle line. Steps 1-4 above are
-  // deliberately untouched: this decides only WHETHER to publish, never
-  // what is computed.
+  // kInputStalenessThresholdSec, resumes once an input younger than
+  // kInputFreshThresholdSec is seen (hysteresis — derivations at the
+  // constants' definitions), and reports at most one edge per
+  // kStalenessEdgeLogMinIntervalSec — the UART console duty budget cannot
+  // afford a per-cycle line, nor a per-edge line on a boundary-flapping
+  // link. publishAllowed() below reflects every state change even when the
+  // edge log line was rate-limited away. Steps 1-4 above are deliberately
+  // untouched: this decides only WHETHER to publish, never what is
+  // computed.
   const double gate_now = Clock::now();
   switch (input_staleness_gate_.update(gate_now)) {
     case InputStalenessGate::Transition::kBecameStale:
