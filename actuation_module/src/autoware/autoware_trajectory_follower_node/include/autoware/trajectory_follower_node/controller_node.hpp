@@ -93,10 +93,41 @@ private:
   //    second number with a subtly different meaning.
   static constexpr double kInputStalenessThresholdSec = 0.5;
 
+  // Hysteresis partner to the threshold above: once stale, the gate
+  // returns fresh only when the freshest input is younger than this.
+  //
+  // Derivation, from the same 10 Hz slowest-input cadence as above (do not
+  // retune one threshold without the other):
+  //  - lower bound: it must exceed the worst age a healthy, resumed 10 Hz
+  //    stream can show the gate — one 0.1 s input period plus up to one
+  //    0.15 s control cycle of sampling delay = 0.25 s — or the gate could
+  //    refuse to re-declare fresh on a link that has genuinely recovered;
+  //  - upper bound: the band up to the 0.5 s stale threshold must stay
+  //    wider than one slowest-input period (0.1 s), so an age cannot drift
+  //    across both thresholds within a single expected arrival — the
+  //    boundary flap observed on the board (stale then fresh within 0.6 s)
+  //    is exactly what the band absorbs.
+  //  0.35 s = 3.5x the slowest expected period sits between those bounds
+  //  with margin on each side.
+  static constexpr double kInputFreshThresholdSec = 0.35;
+
+  // Rate limit on REPORTED gate edges (the state itself is never rate
+  // limited — see input_staleness_gate.hpp). Each edge is one log line
+  // through the busy-polled 115200 UART, ~10 ms of console time; a link
+  // degraded to just-above-threshold inter-arrival can produce ~2 edges/s
+  // (~2 % console duty) that hysteresis cannot remove, because every
+  // arrival legitimately resets the age. One line per 10 s bounds the
+  // edge-log duty at ~0.1 % — under half the ~0.21 % the 5 s liveness
+  // beacon both x5h builds already pay — on an image whose known defect
+  // class is timing-sensitive.
+  static constexpr double kStalenessEdgeLogMinIntervalSec = 10.0;
+
   // Gate deciding WHETHER control_cmd may be published (never WHAT is
   // computed); fed with Clock::now() readings — see input_staleness_gate.hpp
   // for the clock-discipline note.
-  InputStalenessGate input_staleness_gate_{kInputStalenessThresholdSec};
+  InputStalenessGate input_staleness_gate_{
+    kInputStalenessThresholdSec, kInputFreshThresholdSec,
+    kStalenessEdgeLogMinIntervalSec};
 
   std::optional<LongitudinalOutput> longitudinal_output_{std::nullopt};
 
