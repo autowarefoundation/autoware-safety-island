@@ -11,9 +11,10 @@
 // pointer in the variable's control record. Every `ddsrt_thread_local` in
 // CycloneDDS (tsd_thread_state, thread_context, log_buffer,
 // freelist_inner_idx in this image) is therefore shared by all FreeRTOS
-// tasks instead of being per-thread -- confirmed from the linked ELF in
-// task-29-report.md (Candidate A) and re-confirmed in
-// task-29-verify-report.md.
+// tasks instead of being per-thread -- confirmed from the linked ELF at
+// branch time, twice independently (the link resolved __emutls_get_address
+// to libgcc's single-thread-model copy, whose one-global-pointer path the
+// disassembly showed unconditionally taken).
 //
 // This file replaces that runtime. It defines the two entry points the
 // compiler emits calls to -- __emutls_get_address() and
@@ -26,8 +27,8 @@
 // CLEAN-ROOM: written against the emulated-TLS control-record contract (a
 // record of four pointer-size words { size, align, loc, templ }; loc
 // zero-initialized and owned by the runtime; templ NULL meaning zero-fill),
-// with the record layout verified against the __emutls_v.* records this
-// toolchain emits into the linked ELF (task-31-report.md). No libgcc source
+// with the record layout verified at branch time against the __emutls_v.*
+// records this toolchain emits into the linked ELF. No libgcc source
 // text was consulted or copied.
 
 #include <stdint.h>
@@ -59,10 +60,11 @@ typedef struct {
 } x5h_emutls_array_t;
 
 // Slot choice: no compiled code in either image stores anything in ANY
-// FreeRTOS thread-local-storage slot (tree grep, task-31-report.md: the
-// only vTaskSetThreadLocalStoragePointer callers outside the kernel are
-// lwIP's contrib/ and test/ ports, neither of which is built -- the
-// compiled port is lwip_port/sys_arch.c). The last slot is used anyway,
+// FreeRTOS thread-local-storage slot (tree grep, re-checkable any time:
+// the only vTaskSetThreadLocalStoragePointer caller outside the kernel and
+// this file is lwIP's contrib/ports/freertos/sys_arch.c, which is not
+// built -- the compiled port is lwip_port/sys_arch.c). The last slot is
+// used anyway,
 // leaving slot 0 free for lwIP's own LWIP_NETCONN_SEM_PER_THREAD
 // convention should it ever be enabled.
 #define X5H_EMUTLS_TLS_SLOT (configNUM_THREAD_LOCAL_STORAGE_POINTERS - 1)
@@ -215,7 +217,9 @@ void *__emutls_get_address(void *control)
 // Emitted for common-linkage (tentative-definition) __thread variables:
 // generated constructor code calls it to merge the size/align/template
 // seen by different translation units into one record before any access.
-// Nothing in either image references it today (task-31-report.md), but a
+// Nothing in either image references it today (no call site in either
+// linked ELF at branch time; `arm-none-eabi-nm` re-checks that in
+// seconds), but a
 // definition must live HERE anyway: if a future object did emit the call
 // and only libgcc defined it, the linker would pull libgcc's emutls.o --
 // and its second, conflicting __emutls_get_address -- back into the link.

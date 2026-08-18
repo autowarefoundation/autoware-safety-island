@@ -717,8 +717,9 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // X5H_DIAG_TASK_TABLE block). Combined with the per-beacon controller
 // probe (see "R3c" below, ~6.1 ms every 5 s, ~0.12 %) and the beacon line
 // both builds already pay (~10.4 ms every 5 s, ~0.21 %), the diagnostic
-// build's own total console duty is ~1.1-1.2 % (cross-checked two ways in
-// task-28-report.md); the table alone is roughly 70 % of that total and
+// build's own total console duty is ~1.1-1.2 % (cross-checked two
+// independent ways at branch time); the table alone is roughly 70 % of
+// that total and
 // the table-plus-probe delta over the default build (~0.90 %) is roughly
 // 87 % table. Well under the ~4-5.5 % this file produced at the 1 s beacon
 // period Task 26 shipped and Task 28 has now reverted. See the artefact
@@ -807,8 +808,12 @@ static void diag_put_task_table(void)
 // ~192 s and never returns, and no reachable vTaskDelete() call and no fault
 // path explains it. Four shapes remain -- deleted after all, a clobbered
 // ready-list header, a stray xStateListItem unlink, or an overwritten TCB --
-// and task-26-brief.md has the full table of which reading proves which.
-// Only the mechanism is repeated here.
+// and the probes in this file split them between themselves: the ntasks
+// scalar below already answers deleted-vs-unlinked on its own (see the
+// uxTaskGetNumberOfTasks() paragraph further down), and the raw
+// scheduler-structure words ("R3d" below) are what discriminate the
+// remaining three, which differ only in the link words themselves. Only
+// the mechanism is described here.
 //
 // s_controller_task is set once, by x5h_diag_set_controller_task() (called
 // from Node::spin() right after pthread_create() succeeds, guarded by this
@@ -921,8 +926,8 @@ static void diag_puts_bounded(const char *s, uint32_t max_len)
 // priority) those pointers should agree with when nothing is corrupted.
 //
 // Reaching both without touching FreeRTOS kernel sources (forbidden by this
-// task's brief) needed two different techniques -- full derivation and
-// evidence in task-30-report.md, summarized here:
+// task's brief) needed two different techniques, derived and evidenced at
+// branch time; everything load-bearing about them is inlined here:
 //
 // TCB offset of xStateListItem: StaticTask_t (FreeRTOS.h) is the PUBLIC
 // struct FreeRTOS ships so applications can size a TCB without seeing the
@@ -937,7 +942,7 @@ static void diag_puts_bounded(const char *s, uint32_t max_len)
 // offsetof(StaticTask_t, xDummy3) IS offsetof(TCB_t, xStateListItem) --
 // computed by the compiler, not guessed, and correct regardless of which of
 // this branch's two disagreeing FreeRTOSConfig.h copies wins
-// (configMAX_TASK_NAME_LEN 16 vs. 32; see task-30-report.md), since this
+// (configMAX_TASK_NAME_LEN 16 vs. 32), since this
 // offset never reads that macro at all.
 _Static_assert(sizeof(ListItem_t) == sizeof(((StaticTask_t *)0)->xDummy3[0]),
     "StaticTask_t's documented size contract (FreeRTOS.h, above struct "
@@ -945,15 +950,17 @@ _Static_assert(sizeof(ListItem_t) == sizeof(((StaticTask_t *)0)->xDummy3[0]),
     "ListItem_t, so the TCB offset derived from it cannot be trusted");
 // Second, independent check on the same offset: read directly out of this
 // build's own DWARF (`arm-none-eabi-readelf --debug-dump=info`, struct
-// tskTaskControlBlock, member xStateListItem) rather than trusted only on
-// the paragraph above -- see task-30-report.md for the exact dump. Both
-// numbers agree at 4 for this build (pxTopOfStack alone precedes it here:
-// no MPU wrapper, no multi-core affinity field in this config).
+// tskTaskControlBlock, member xStateListItem's
+// DW_AT_data_member_location) rather than trusted only on the paragraph
+// above. Both numbers agree at 4 for this build (pxTopOfStack alone
+// precedes it here: no MPU wrapper, no multi-core affinity field in this
+// config); re-run that readelf against the built ELF to re-confirm.
 _Static_assert(offsetof(StaticTask_t, xDummy3) == 4,
     "offsetof(StaticTask_t, xDummy3) no longer matches the DWARF-confirmed "
-    "offsetof(TCB_t, xStateListItem) == 4 recorded in task-30-report.md -- "
-    "the TCB layout changed (a new field ahead of xStateListItem, most "
-    "likely); re-derive both before trusting diag_put_controller_raw_words()");
+    "offsetof(TCB_t, xStateListItem) == 4 (derivation in the comment "
+    "above) -- the TCB layout changed (a new field ahead of xStateListItem, "
+    "most likely); re-derive both before trusting "
+    "diag_put_controller_raw_words()");
 //
 // pxReadyTasksLists[1] address: two INDEPENDENT derivations, compared
 // against each other rather than either one trusted alone -- see "HONESTY
@@ -966,13 +973,15 @@ _Static_assert(offsetof(StaticTask_t, xDummy3) == 4,
 // this task's brief offers does not apply to THIS symbol (it does apply to
 // pxCurrentTCB below). The literal is read from this exact build's own
 // linked symbol table (`arm-none-eabi-nm -nS`), the same known-address
-// mechanism Task 29 used for this identical symbol; see task-30-report.md
-// for the build-measure-embed-rebuild convergence check that validates it
-// for the artifact this task ships. It is NOT a portable constant, and the
+// mechanism Task 29 used for this identical symbol, and validated by a
+// build-measure-embed-rebuild convergence check: build, read the symbol's
+// address with `nm -n <elf> | grep pxReadyTasksLists`, update the literal,
+// rebuild, and repeat until the address is stable across a rebuild that
+// embeds it. It is NOT a portable constant, and the
 // single most likely thing to move it is THIS FILE'S OWN statics: on this
 // build, x5h_diag.c.o's `s_launcher`/`s_controller_task` link at a LOWER
-// address than tasks.c.o's pxReadyTasksLists (task-30-report.md has the
-// `nm` evidence), i.e. ahead of it in the one contiguous region
+// address than tasks.c.o's pxReadyTasksLists (verified with `nm` on this
+// build at branch time), i.e. ahead of it in the one contiguous region
 // lscript_vram2.ld places .data/.bss in -- so any static THIS FILE adds or
 // resizes (e.g. widening s_task_status[X5H_DIAG_TASK_TABLE_SLOTS] above)
 // shifts this literal. Re-derive with `nm` whenever this file's statics
@@ -998,8 +1007,9 @@ extern TaskHandle_t volatile pxCurrentTCB;
 // HONESTY ON THE RUNTIME PATH: pxCurrentTCB is not immune to the very
 // corruption this probe exists to catch. It is a plain global living in
 // the same tasks.c static-storage region as pxReadyTasksLists -- on this
-// build `nm` places pxCurrentTCB just 4 bytes before it (task-30-report.md
-// has both addresses) -- so a wild write wide enough to reach one can
+// build `nm` places pxCurrentTCB just 4 bytes before it (both addresses
+// read from this build's `nm` at branch time) -- so a wild write wide
+// enough to reach one can
 // reach the other. Agreement between the two derivations is therefore
 // meaningful evidence neither has been touched; disagreement tells us ONLY
 // that something is inconsistent, not which side (if either) is still
@@ -1021,7 +1031,7 @@ static List_t *diag_derive_rdy1_runtime(void)
 
 // Fault-safety ordering, re-checked against the actual control flow below
 // (round 2 -- an earlier version of this comment claimed an ordering the
-// code did not yet have; see task-30-report.md). ctlitem's four fields
+// code did not yet have; the code now matches it). ctlitem's four fields
 // derive only from `controller`, the independently-stashed handle
 // diag_put_controller_probe() already dereferences safely above (same risk
 // class as its existing state/name/prio line, unchanged by this task).
