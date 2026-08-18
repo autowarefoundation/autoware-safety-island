@@ -500,14 +500,13 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // bracketing that can still see it. The `ntasks` scalar
 // diag_put_controller_probe() prints every beacon (see "R3c" below, diag
 // build only) remains the arbiter, now sampled once per 5 s beacon instead
-// of once per 1 s beacon. Still conditioned on the same macro the rest of
-// this feature is, so the default image's period -- and therefore its
-// object code -- is untouched.
-#if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
+// of once per 1 s beacon. With the revert, both builds share this one
+// unconditional value (the pre-revert #if/#else had become two identical
+// branches, collapsed since); if a diagnostic build ever needs a different
+// cadence again, re-split it on the same X5H_DIAG_TASK_TABLE macro the
+// rest of the feature is gated on, so the default image's object code
+// stays untouched.
 #define X5H_DIAG_BEACON_PERIOD_TICKS pdMS_TO_TICKS(5000)
-#else
-#define X5H_DIAG_BEACON_PERIOD_TICKS pdMS_TO_TICKS(5000)
-#endif
 
 // configMINIMAL_STACK_SIZE (256 words) matches what
 // rpmsg_vdev_heartbeat_task already uses for the same shape of work. This
@@ -539,7 +538,8 @@ _Static_assert(X5H_DIAG_BEACON_PRIORITY < configMAX_PRIORITIES,
 // is cheapest exactly when the reading is most interesting, and at the 5 s
 // period (Task 28: now the same in the diagnostic build as in the default
 // one, see X5H_DIAG_BEACON_PERIOD_TICKS above) the duty cycle is small
-// against the ~1.7 Hz control cycle.
+// against the ~6.7 Hz (0.15 s ctrl_period, controller_node.cpp) control
+// cycle.
 // But it is real: if a board session ever sees timing-dependent behaviour
 // that changes when the beacon is present, this is the mechanism to suspect
 // first, and lengthening X5H_DIAG_BEACON_PERIOD_TICKS is the cheapest test.

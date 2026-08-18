@@ -121,8 +121,8 @@
 // IP_REASS_MAX_PBUFS so the stack can still receive packets even with the
 // maximum amount of fragments enqueued for reassembly" -- the doubled
 // "PBUF_POOL_SIZE > 2 * IP_REASS_MAX_PBUFS" variant of that rule applies
-// only with IPv6 reassembly also enabled, and LWIP_IPV6=0 above): 64 > 24
-// holds with real margin (2.7x, not just >1x), leaving pbufs available for
+// only with IPv6 reassembly also enabled, and LWIP_IPV6=0 above): 128 > 24
+// holds with real margin (5.3x, not just >1x), leaving pbufs available for
 // the TCPIP_MBOX_SIZE/socket-recvmbox queues above rather than reassembly
 // alone being able to claim the entire pool.
 //
