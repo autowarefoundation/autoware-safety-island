@@ -21,9 +21,15 @@
 // there as a pre-built static library, not compiled from source (see
 // CMakeLists.txt's "Pre-built CycloneDDS target library" section).
 //
-// Every definition here is #ifndef-guarded against lwip/sockets.h's own
-// (LWIP_IGMP=1) definitions, using the same literal values, so this becomes
-// a pure no-op if lwIP is ever reconfigured to define them itself.
+// Every macro here is #ifndef-guarded against lwip/sockets.h's own
+// (LWIP_IGMP=1 / LWIP_MULTICAST_TX_OPTIONS=1) definitions, using the same
+// literal values, so the macros contribute nothing if lwIP is ever
+// reconfigured to define them itself. struct ip_mreq cannot be guarded
+// that way (there is no #ifndef for a type), so it instead mirrors --
+// inverted -- the exact condition under which lwip/sockets.h defines its
+// own (`#if LWIP_IGMP`): with LWIP_IGMP=1, lwIP's typedef is the only
+// definition and this shim's copy is compiled out rather than redefining
+// against it.
 // setsockopt() calls using these values still resolve through
 // lwip_setsockopt()'s own IGMP-disabled code path at runtime (a graceful
 // no-op/ENOPROTOOPT, not a crash) -- acceptable because this transport
@@ -33,7 +39,7 @@
 #ifndef CDDS_MULTICAST_COMPAT_H_
 #define CDDS_MULTICAST_COMPAT_H_
 
-#include "lwip/inet.h"  // struct in_addr
+#include "lwip/inet.h"  // struct in_addr (also pulls in lwip/opt.h for LWIP_IGMP)
 
 #ifndef IP_MULTICAST_TTL
 #define IP_MULTICAST_TTL   5
@@ -51,8 +57,8 @@
 #define IP_DROP_MEMBERSHIP 4
 #endif
 
-#ifndef CDDS_MULTICAST_COMPAT_HAVE_IP_MREQ
-#define CDDS_MULTICAST_COMPAT_HAVE_IP_MREQ 1
+// Guarded on lwIP's own condition, inverted -- see the header comment.
+#if !LWIP_IGMP
 struct ip_mreq {
   struct in_addr imr_multiaddr;
   struct in_addr imr_interface;

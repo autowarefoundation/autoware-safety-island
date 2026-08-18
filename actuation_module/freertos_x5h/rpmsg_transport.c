@@ -250,9 +250,9 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 // smmu_core.c page-table walker), neither of which applies to the shallow
 // chain above. Verified against build.sh's actual link, using
 // -fstack-usage/objdump evidence gathered after the first successful build:
-// this is not a guess left unchecked the way rpmsg_netif.c's own 488-byte
-// tx frame was before an earlier review caught it (see that file's
-// s_tx_frame comment).
+// this is not a guess left unchecked the way rpmsg_netif.c's own 476-byte
+// (RPMSG_ETH_MAX_FRAME) tx frame was before an earlier review caught it
+// (see that file's s_tx_frame comment).
 #define RPMSG_POLL_TASK_STACK_WORDS (configMINIMAL_STACK_SIZE * 2)
 
 // ---- poll task priority -- review findings (Important #1 of an earlier
