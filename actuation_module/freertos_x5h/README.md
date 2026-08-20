@@ -55,6 +55,27 @@ no environment variables to export.
 
 Output: `build/freertos-x5h/actuation_x5h.elf`.
 
+### Actuation parameter profile (MRM demo)
+
+`--param-profile before|after` selects the compiled-in deceleration limits
+(default `after`, the tuned values that ship):
+
+```bash
+./build.sh --platform freertos-x5h -d build/freertos-x5h-before --param-profile before
+```
+
+`after` is the tuned profile; `before` is the CES 2026 untuned baseline, kept
+around so the MRM before/after demo can show the difference. See
+`include/common/actuation_param_profile.h` for the values themselves. The
+profile name is stamped into the boot banner and `.rodata`
+(`actuation_param_profile=<name>`) and checked by `check-elf-contract.sh`'s
+third argument, below.
+
+CI builds and uploads both as separate, non-confusable artifacts:
+`freertos-x5h-elfs` is the default (`after`) build, the tuned image that
+ships; `freertos-x5h-before-elfs` is the `before` build, the untuned demo
+baseline. Do not flash the wrong one.
+
 ## The netif-only board artifact (`netif_only_x5h.elf`)
 
 `./build.sh --platform freertos-x5h` builds this second ELF automatically,
@@ -78,7 +99,7 @@ module above it.
 ## Verify the ELF contract
 
 ```bash
-./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf
+./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf [service-name] [param-profile]
 ```
 
 Expected: `CONTRACT_PASS build/freertos-x5h/actuation_x5h.elf`. This script
@@ -86,8 +107,11 @@ checks the ELF's LOAD segments, `.text` base address, and the
 `.resource_table` section's address, size, and byte-level vdev/vring
 contents — the facts a hardware flash decision depends on. It must not be
 modified; a failure here means the build produced a different memory layout,
-not that the script is wrong. `build.sh` runs it against both
-`actuation_x5h.elf` and `netif_only_x5h.elf` on every build.
+not that the script is wrong. The optional second argument asserts the
+RPMsg service-name string (`rpmsg-eth`) made it into `.rodata`; the optional
+third argument asserts the actuation parameter profile string (`before` or
+`after`, see above) did too. `build.sh` runs it with both arguments, against
+both `actuation_x5h.elf` and `netif_only_x5h.elf`, on every build.
 
 ## Check the image budget
 

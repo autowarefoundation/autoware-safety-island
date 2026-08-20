@@ -4,8 +4,15 @@
 // Before/after actuation parameter profile for the MRM demo.
 //
 // "after" (the default, no define needed) is the tuned profile and matches
-// the values this tree carried before the profile switch existed, so an
-// unconfigured build is byte-identical to its predecessor on every target.
+// the values this tree carried before the profile switch existed: the
+// actuation parameter values and the controller code are unchanged on every
+// target. On Zephyr, S32Z2, and POSIX an unconfigured build is byte-identical
+// to its predecessor -- their own freertos_main.cpp (or equivalent) did not
+// change. On freertos_x5h the boot banner below now unconditionally prints
+// "actuation_param_profile=<name>", so an unconfigured build's .rodata
+// differs from its predecessor by that identity string alone; the string is
+// required in the "after" image too, so identity -- not byte-identity -- is
+// the guarantee this target gets.
 // "before" (-DACTUATION_PARAM_PROFILE_BEFORE) is the CES 2026 untuned
 // baseline: weak deceleration limits, so the follower cannot track the
 // MRM's decelerating trajectory closely and the vehicle stops long.
