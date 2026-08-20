@@ -169,11 +169,11 @@ jobs:
       # actually flashes, so it needs the same gates as its own named steps.
       - name: Re-verify ELF contract - actuation_x5h.elf (diag)
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth after
 
       - name: Re-verify ELF contract - netif_only_x5h.elf (diag)
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth after
 
       - name: Re-verify image budget - actuation_x5h.elf (diag)
         shell: bash
@@ -206,6 +206,10 @@ jobs:
         shell: bash
         run: ./build.sh --platform freertos-x5h -d build/freertos-x5h-before --param-profile before
 
+      # actuation_x5h.elf only, unlike the default and diag blocks above:
+      # build.sh still builds and internally checks netif_only_x5h.elf here
+      # too, but only actuation_x5h.elf is the flashed demo baseline that
+      # gets uploaded (below), so only it is re-verified as its own step.
       - name: Re-verify ELF contract - actuation_x5h.elf (before)
         shell: bash
         run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-before/actuation_x5h.elf rpmsg-eth before

@@ -644,8 +644,11 @@ target_compile_definitions(netif_only_x5h PRIVATE
 )
 
 # Before/after actuation parameter profile (MRM demo). "after" (default)
-# compiles byte-identically to a build made before this option existed;
-# "before" selects the CES 2026 untuned deceleration limits -- see
+# carries the same actuation parameter values and controller code as a build
+# made before this option existed; the boot banner's new
+# "actuation_param_profile=after" string means .rodata differs from that
+# predecessor by exactly that string, not byte-for-byte identical. "before"
+# selects the CES 2026 untuned deceleration limits -- see
 # include/common/actuation_param_profile.h. Applied to BOTH targets so the
 # banner (freertos_main.cpp, linked into both) reports one consistent name;
 # only actuation_x5h actually compiles the longitudinal controller.
