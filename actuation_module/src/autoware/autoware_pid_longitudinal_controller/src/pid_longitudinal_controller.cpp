@@ -27,6 +27,7 @@
 
 #include "common/logger/logger.hpp"
 #include "common/clock/clock.hpp"
+#include "common/actuation_param_profile.h"
 using namespace common::logger;
 
 namespace autoware::motion::control::pid_longitudinal_controller
@@ -151,15 +152,15 @@ PidLongitudinalController::PidLongitudinalController(Node & node)
   {
     auto & p = m_stopped_state_params;
     p.vel = node.declare_parameter<double>("stopped_vel", 0.0);  // [m/s]
-    p.acc = node.declare_parameter<double>("stopped_acc", -3.4);  // [m/s^2]
+    p.acc = node.declare_parameter<double>("stopped_acc", ACTUATION_PARAM_STOPPED_ACC);  // [m/s^2]
   }
 
   // parameters for emergency state
   {
     auto & p = m_emergency_state_params;
     p.vel = node.declare_parameter<double>("emergency_vel", 0.0);    // [m/s]
-    p.acc = node.declare_parameter<double>("emergency_acc", -5.0);    // [m/s^2]
-    p.jerk = node.declare_parameter<double>("emergency_jerk", -3.0);  // [m/s^3]
+    p.acc = node.declare_parameter<double>("emergency_acc", ACTUATION_PARAM_EMERGENCY_ACC);    // [m/s^2]
+    p.jerk = node.declare_parameter<double>("emergency_jerk", ACTUATION_PARAM_EMERGENCY_JERK);  // [m/s^3]
   }
 
   // parameters for acc feedback
@@ -171,11 +172,11 @@ PidLongitudinalController::PidLongitudinalController(Node & node)
 
   // parameters for acceleration limit
   m_max_acc = node.declare_parameter<double>("max_acc", 3.0);  // [m/s^2]
-  m_min_acc = node.declare_parameter<double>("min_acc", -5.0);  // [m/s^2]
+  m_min_acc = node.declare_parameter<double>("min_acc", ACTUATION_PARAM_MIN_ACC);  // [m/s^2]
 
   // parameters for jerk limit
   m_max_jerk = node.declare_parameter<double>("max_jerk", 2.0);                  // [m/s^3]
-  m_min_jerk = node.declare_parameter<double>("min_jerk", -5.0);                  // [m/s^3]
+  m_min_jerk = node.declare_parameter<double>("min_jerk", ACTUATION_PARAM_MIN_JERK);                  // [m/s^3]
   m_max_acc_cmd_diff = node.declare_parameter<double>("max_acc_cmd_diff", 50.0);  // [m/s^2 * s^-1]
 
   // parameters for slope compensation

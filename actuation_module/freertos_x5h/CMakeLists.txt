@@ -643,6 +643,22 @@ target_compile_definitions(netif_only_x5h PRIVATE
     X5H_NETIF_ONLY=1
 )
 
+# Before/after actuation parameter profile (MRM demo). "after" (default)
+# compiles byte-identically to a build made before this option existed;
+# "before" selects the CES 2026 untuned deceleration limits -- see
+# include/common/actuation_param_profile.h. Applied to BOTH targets so the
+# banner (freertos_main.cpp, linked into both) reports one consistent name;
+# only actuation_x5h actually compiles the longitudinal controller.
+set(ACTUATION_PARAM_PROFILE "after" CACHE STRING
+    "Actuation parameter profile: after (tuned, default) | before (untuned demo baseline)")
+if(ACTUATION_PARAM_PROFILE STREQUAL "before")
+    target_compile_definitions(actuation_x5h PRIVATE ACTUATION_PARAM_PROFILE_BEFORE=1)
+    target_compile_definitions(netif_only_x5h PRIVATE ACTUATION_PARAM_PROFILE_BEFORE=1)
+elseif(NOT ACTUATION_PARAM_PROFILE STREQUAL "after")
+    message(FATAL_ERROR
+        "ACTUATION_PARAM_PROFILE must be 'before' or 'after', got '${ACTUATION_PARAM_PROFILE}'")
+endif()
+
 target_include_directories(netif_only_x5h PRIVATE
     ${X5H_ACTUATION_DIR}/include
     ${X5H_ACTUATION_DIR}/include/platform/freertos/x5h
