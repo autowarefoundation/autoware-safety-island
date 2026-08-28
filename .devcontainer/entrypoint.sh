@@ -35,8 +35,8 @@ west zephyr-export > /dev/null 2>&1
 if [ -x "/usr/local/bin/FVP_BaseR_AEMv8R" ]; then
     echo -e "${COLOR_BLUE}FVP (Fixed Virtual Platform) available: ${COLOR_RESET}"
     /usr/local/bin/FVP_BaseR_AEMv8R --version | head -1
-    echo -e "${COLOR_BLUE}Usage: ./build.sh -t fvp_baser_aemv8r_smp${COLOR_RESET}"
-    echo -e "${COLOR_BLUE}       west build -d build/actuation_module --target run${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}Usage: ./build.sh --platform zephyr-fvp${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}       west build -d build/zephyr-fvp --target run${COLOR_RESET}"
 else
     echo -e "${COLOR_YELLOW}FVP runtime is unavailable in this container architecture.${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}FVP_BaseR_AEMv8R is installed only in the amd64 devcontainer image.${COLOR_RESET}"

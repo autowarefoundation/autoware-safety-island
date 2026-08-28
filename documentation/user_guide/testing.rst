@@ -82,8 +82,10 @@ Builds ``actuation_module/test/dds_loopback_test.cpp`` for Zephyr targets.
 Running tests
 **********************
 
-Zephyr test binaries are produced at ``build/actuation_module/zephyr/zephyr.elf``
-and are deployed in exactly the same way as the main application:
+Zephyr test binaries are produced at
+``build/<platform>/zephyr/zephyr.elf`` (``zephyr-fvp`` or ``zephyr-s32z``,
+or the directory passed with ``-d``) and are deployed in exactly the same
+way as the main application:
 
 - AVH: upload via ``./avh.py`` — see :doc:`avh`.
 - S32Z: flash via ``west flash`` — see :doc:`s32z_board`.

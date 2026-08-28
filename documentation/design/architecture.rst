@@ -116,7 +116,9 @@ For Zephyr targets (``zephyr-fvp`` and ``zephyr-s32z``):
 1. Compiles the CycloneDDS host tools (IDLC) under ``build/cyclonedds_host``.
 2. Invokes ``west build`` with the selected target
    (``fvp_baser_aemv8r_smp`` or ``s32z270dc2_rtu0_r52@D``).
-3. Produces ``build/actuation_module/zephyr/zephyr.elf``.
+3. Produces ``build/zephyr-fvp/zephyr/zephyr.elf`` or
+   ``build/zephyr-s32z/zephyr/zephyr.elf`` unless ``-d`` selects another
+   directory.
 
 For ``freertos-posix``:
 

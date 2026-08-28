@@ -19,7 +19,8 @@ Use ``freertos-posix`` when you want to validate FreeRTOS behavior locally. Use
 Prerequisites
 *************
 
-- Repository submodules initialized with ``git submodule update --init --recursive``.
+- Repository submodules initialized with
+  ``git submodule update --init cyclonedds zephyr freertos-kernel``.
 - A Linux environment with CMake, a C++17 compiler, Eigen3, and the repository's
   FreeRTOS and CycloneDDS submodules. The development container from
   :doc:`quickstart` is the recommended environment.

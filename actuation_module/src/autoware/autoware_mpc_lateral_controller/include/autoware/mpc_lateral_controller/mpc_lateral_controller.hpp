@@ -22,6 +22,7 @@
 #include "autoware/trajectory_follower_base/lateral_controller_base.hpp"
 #include "autoware/trajectory_follower_base/control_horizon.hpp"
 
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <string>
@@ -77,6 +78,7 @@ private:
   ResultWithReason m_mpc_solved_status{true};
 
   // trajectory buffer for detecting new trajectory
+  static constexpr std::size_t kMaxTrajectoryBufferSize = 20U;
   std::deque<TrajectoryMsg> m_trajectory_buffer;
 
   std::unique_ptr<MPC> m_mpc;  // MPC object for trajectory following.

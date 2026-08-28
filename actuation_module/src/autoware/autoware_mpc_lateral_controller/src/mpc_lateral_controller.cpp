@@ -345,10 +345,6 @@ bool MpcLateralController::isSteerConverged(const LateralMsg & cmd) const
 
 bool MpcLateralController::isReady(const trajectory_follower::InputData & input_data)
 {
-  setTrajectory(input_data.current_trajectory, input_data.current_odometry);
-  m_current_kinematic_state = input_data.current_odometry;
-  m_current_steering = input_data.current_steering;
-
   if (!m_mpc->hasVehicleModel()) {
     log_info_throttle("MPC does not have a vehicle model");
     return false;
@@ -357,8 +353,12 @@ bool MpcLateralController::isReady(const trajectory_follower::InputData & input_
     log_info_throttle("MPC does not have a QP solver");
     return false;
   }
-  if (m_mpc->m_reference_trajectory.empty()) {
+  if (input_data.current_trajectory.points.size() < 3) {
     log_info_throttle("trajectory size is zero.");
+    return false;
+  }
+  if (!isValidTrajectory(input_data.current_trajectory)) {
+    log_info_throttle("trajectory is invalid.");
     return false;
   }
 
@@ -383,20 +383,29 @@ void MpcLateralController::setTrajectory(
   m_mpc->setReferenceTrajectory(msg, m_trajectory_filtering_param, current_kinematics);
 
   // update trajectory buffer to check the trajectory shape change.
+  // Skip duplicate stamps so a stalled planner (or reused last sample) cannot
+  // grow the deque without bound. Cap by count as well as time window.
+  const auto & stamp = msg.header.stamp;
+  if (!m_trajectory_buffer.empty()) {
+    const auto & last_stamp = m_trajectory_buffer.back().header.stamp;
+    if (last_stamp.sec == stamp.sec && last_stamp.nanosec == stamp.nanosec) {
+      return;
+    }
+  }
+
   m_trajectory_buffer.push_back(m_current_trajectory);
-  while (1) { //TODO: a good replacement for rclcpp::ok() ?
+  const double first_trajectory_duration_time = 5.0;
+  const double duration_time =
+    m_has_received_first_trajectory ? m_new_traj_duration_time : first_trajectory_duration_time;
+  while (m_trajectory_buffer.size() > 1U) {
     const auto time_diff = Clock::toDouble(m_trajectory_buffer.back().header.stamp) -
                            Clock::toDouble(m_trajectory_buffer.front().header.stamp);
-
-    const double first_trajectory_duration_time = 5.0;
-    const double duration_time =
-      m_has_received_first_trajectory ? m_new_traj_duration_time : first_trajectory_duration_time;
-    if (time_diff < duration_time) {
-      m_has_received_first_trajectory = true;
+    if (time_diff < duration_time && m_trajectory_buffer.size() <= kMaxTrajectoryBufferSize) {
       break;
     }
     m_trajectory_buffer.pop_front();
   }
+  m_has_received_first_trajectory = true;
 }
 
 LateralMsg MpcLateralController::getStopControlCommand() const

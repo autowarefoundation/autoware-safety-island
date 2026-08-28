@@ -33,7 +33,7 @@ Resulting binary:
 
 .. code-block:: text
 
-  build/actuation_module/zephyr/zephyr.elf
+  build/zephyr-s32z/zephyr/zephyr.elf
 
 **********************
 Board-specific notes
@@ -77,13 +77,27 @@ Network setup
 ****************
 
 The S32Z and the Autoware main compute (e.g. an AVA Developer Platform or
-another host) must be on the same sub-network. The board is configured for
-DHCP and will obtain its address shortly after boot — watch the console for
-Zephyr ``dhcpv4`` log lines announcing the acquired address.
+another host) must be on the same L2 network. The Zephyr image requests DHCP
+— watch the console for ``dhcpv4`` log lines announcing the acquired address.
 
-Once the board has an address, bring up Autoware on the main compute and
-start the domain bridge so the safety island can receive planning data. See
-:doc:`avh` (section *Start Autoware*) for the Docker Compose flow.
+Do not reuse the AVH compose defaults for this path. ``demo/cyclonedds.xml``
+pins domain 2 to ``tap0``, which is the AVH VPN / FVP TAP interface, not the
+board Ethernet. Point domain 2 at the host NIC (or IP) on the same LAN as
+the board. ``demo/cyclonedds-s32z2.xml`` is a starting template for a
+``192.168.0.0/24`` bench; copy it and set ``NetworkInterface`` to the host
+interface if the LAN differs.
+
+From ``demo/``, start from the LAN template and point compose at it instead of
+the TAP file:
+
+.. code-block:: console
+
+  $ cp cyclonedds-s32z2.xml cyclonedds.lan.xml
+  $ # edit Domain 2 NetworkInterface to the host NIC or IP on the board LAN
+
+``demo/docker-compose.yaml`` bind-mounts ``./cyclonedds.xml``. Either copy
+the edited LAN file over that path or change the volume source to
+``cyclonedds.lan.xml``, then ``docker compose up``.
 
 If you have trouble with discovery or dropped messages, see
 :doc:`troubleshooting`.

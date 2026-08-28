@@ -9,9 +9,11 @@ The firmware `actuation_freertos_s32z2.elf` builds, links, and runs on real
 hardware: the FreeRTOS scheduler and 1 kHz tick come up, lwIP brings up NETC
 Ethernet 0 (RX and TX both flow), CycloneDDS creates its domain-2 participant,
 and the controller reaches `Controller Node Started` / `Actuation Safety Island
-is Live`, running the MPC/PID control loop at the 150 ms cadence. The
+is Live`, running the MPC/PID control loop on a 150 ms timer. The
 end-to-end control round-trip (host → board → `control_cmd` → host) is verified
-on the FreeRTOS POSIX runtime and being brought up on hardware.
+on the FreeRTOS POSIX runtime and is being brought up on hardware. The 150 ms
+value is the commanded timer period; measure the QP cycle on the bench before
+treating it as achieved cadence.
 
 The NXP RTD MCAL drivers (`Mcu`, `Clock_Ip`, `Siul2_Port_Ip`, `Uart`, `Gpt`,
 `Eth_43_NETC`) require post-build configuration structures (`*_PBcfg.c`)
@@ -288,19 +290,15 @@ LWIP_PATH=... \
   ./actuation_module/freertos_s32z2/scripts/verify-b1.sh
 ```
 
-Expected last line: `B-1 verification OK (N heartbeats)` against the
-`actuation alive ticks=` marker captured from `/dev/ttyUSB0`.
+Expected last line: `B-1 verification OK (startup banner + Live marker seen)`
+against the UART markers `FreeRTOS S32Z2 actuation starting...` and
+`Actuation Safety Island is Live` captured from `/dev/ttyUSB0`.
 
 ## Verify B-2
 
-Prerequisite: a DHCP server reachable by the kit's Ethernet 0. If the LAN
-has no DHCP, stand one up on the development host:
-
-```bash
-sudo apt install dnsmasq
-sudo dnsmasq --interface=<your-NIC> --dhcp-range=192.168.50.100,192.168.50.150,1h \
-             --bind-interfaces --no-daemon
-```
+Prerequisite: the kit Ethernet 0 and the host NIC are on `192.168.0.0/24`.
+The firmware uses a static address (`192.168.0.105/24`, gateway
+`192.168.0.101`). Do not run DHCP for this path.
 
 Then run the verification:
 
