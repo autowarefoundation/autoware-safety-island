@@ -87,17 +87,15 @@ the board. ``demo/cyclonedds-s32z2.xml`` is a starting template for a
 ``192.168.0.0/24`` bench; copy it and set ``NetworkInterface`` to the host
 interface if the LAN differs.
 
-From ``demo/``, start from the LAN template and point compose at it instead of
-the TAP file:
+From ``demo/``, replace the TAP XML that compose bind-mounts
+(``./cyclonedds.xml`` → ``/autoware/cyclonedds.xml``) with the LAN template
+before bringing the stack up:
 
 .. code-block:: console
 
-  $ cp cyclonedds-s32z2.xml cyclonedds.lan.xml
+  $ cp cyclonedds-s32z2.xml cyclonedds.xml
   $ # edit Domain 2 NetworkInterface to the host NIC or IP on the board LAN
-
-``demo/docker-compose.yaml`` bind-mounts ``./cyclonedds.xml``. Either copy
-the edited LAN file over that path or change the volume source to
-``cyclonedds.lan.xml``, then ``docker compose up``.
+  $ docker compose up
 
 If you have trouble with discovery or dropped messages, see
 :doc:`troubleshooting`.

@@ -47,16 +47,20 @@ list is fixed in ``demo/bridge/bridge-config.yaml``.
 
 Full topic list with message types: :doc:`topics`.
 
-The default AVH and hardware demo domains are configured through
-``demo/cyclonedds.xml``. The FreeRTOS POSIX local validation flow uses
+The default AVH / Zephyr FVP TAP demo domains are configured through
+``demo/cyclonedds.xml``. S32Z hardware (Zephyr or FreeRTOS) uses
+``demo/cyclonedds-s32z2.xml`` so Domain 2 binds the host NIC on the board LAN
+rather than ``tap0``. The FreeRTOS POSIX local validation flow uses
 ``demo/cyclonedds.posix.xml`` to pin Domain 2 to a multicast-capable host
-interface. The key tunables are shared across the two domains:
+interface. The key tunables are shared across the domains:
 
 - ``MaxMessageSize = 1400B`` — matches the safety-island MTU.
 - ``AllowMulticast = spdp`` — SPDP discovery over multicast, application
   traffic unicast.
 - In ``demo/cyclonedds.xml``, Domain 2 pins its interface to ``tap0`` for the
   AVH VPN or Zephyr FVP TAP path.
+- In ``demo/cyclonedds-s32z2.xml``, Domain 2 pins its interface to the host
+  LAN address (default ``192.168.0.1``) for S32Z hardware.
 - In ``demo/cyclonedds.posix.xml``, Domain 2 pins its interface to
   ``SAFETY_ISLAND_DDS_INTERFACE`` for the FreeRTOS POSIX local path.
 - If discovery stalls, verify the selected interface — see
