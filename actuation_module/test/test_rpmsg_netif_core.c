@@ -1,4 +1,15 @@
 // test_rpmsg_netif_core.c
+//
+// Review finding (Minor): every assertion in this file is a plain assert()
+// from <assert.h>, which glibc/newlib both compile out entirely under
+// NDEBUG. A build invoked with -DCMAKE_BUILD_TYPE=Release (which, on many
+// generators/toolchains, defines NDEBUG) would silently turn this whole
+// file into a no-op main() that always returns 0 -- a "passing" test that
+// tested nothing. Fail loudly at compile time instead.
+#ifdef NDEBUG
+#error "test_rpmsg_netif_core.c relies on assert(); build it without NDEBUG (do not pass -DCMAKE_BUILD_TYPE=Release for this target)"
+#endif
+
 #include <assert.h>
 #include <string.h>
 #include "rpmsg_netif_core.h"
