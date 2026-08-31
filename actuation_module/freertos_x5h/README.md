@@ -4,14 +4,22 @@ This directory contains the FreeRTOS build for the Renesas R-Car Gen5 X5H
 "Ironhide" board (Cortex-R52, Core1), running as a remoteproc-managed
 firmware image alongside Linux on the same SoC.
 
-## Status (Task 3 scaffold)
+## Status
 
-`actuation_x5h.elf` boots the R-Car BSP, brings up the console, starts the
-FreeRTOS scheduler, and prints `X5H_SCAFFOLD_ALIVE` once per second. It does
-**not** start the actuation module, bring up lwIP, or open an RPMsg
-transport endpoint yet:
+`actuation_x5h.elf` **links** the full actuation module — CycloneDDS, the
+controller, Eigen, and lwIP — but does not yet **run** it. Distinguishing the
+two matters here (review finding: an earlier revision of this section said the
+actuation module "lands in Task 4" as if it were still future work, when the
+full link landed in this PR):
 
-- The actuation module (CycloneDDS, controller) lands in Task 4.
+- Linked, in this PR: the actuation module, CycloneDDS cross-built as a
+  static library, lwIP, and the frozen resource-table/RPMsg glue. Everything
+  the ELF contract and the image budget are asserted against is therefore
+  real, not a placeholder.
+- Not yet running: `main()` (`freertos_main.cpp`) still starts only the
+  scaffold task, which boots the R-Car BSP, brings up the console, starts the
+  FreeRTOS scheduler and prints `X5H_SCAFFOLD_ALIVE` once per second. It does
+  not call `configure_network()` or the controller.
 - Real lwIP-over-RPMsg bring-up lands in Task 6 (`lwip_bring_up_blocking()`
   is currently a weak stub returning 0).
 - The RPMsg transport endpoint lands in Task 7.
@@ -28,10 +36,18 @@ extend the same target rather than re-deriving the layout.
 Everything here is public — no vendor portal downloads, no NDA-gated SDK,
 no environment variables to export.
 
-- The R-Car FreeRTOS BSP, vendored as the `rcar_bsp` git submodule:
+- Three git submodules: the R-Car FreeRTOS BSP (`rcar_bsp`), lwIP, and
+  CycloneDDS. `--recursive` is required, not optional: `rcar_bsp` carries the
+  FreeRTOS kernel as its own nested submodule at `FreeRTOS/Source`, which
+  every compile here includes via `-I.../FreeRTOS/Source/include`, so a
+  non-recursive init leaves that directory empty and the build fails on a
+  missing `FreeRTOS.h` rather than on a missing submodule.
 
   ```bash
-  git submodule update --init actuation_module/freertos_x5h/rcar_bsp
+  git submodule update --init --recursive \
+    actuation_module/freertos_x5h/rcar_bsp \
+    actuation_module/freertos_x5h/lwip \
+    cyclonedds
   ```
 
 - The pinned Arm GNU Toolchain 13.2.Rel1 `arm-none-eabi` toolchain, fetched

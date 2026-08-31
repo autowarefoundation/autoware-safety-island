@@ -33,7 +33,11 @@ if [ ! -x "$BIN/arm-none-eabi-gcc" ]; then
   trap 'rm -rf "$TMPDIR"' EXIT
   echo "fetch-toolchain: downloading arm-gnu-toolchain-13.2.rel1 (~179 MB)..." >&2
   curl -fL -o "$TMPDIR/toolchain.tar.xz" "$TARBALL_URL"
-  echo "$TARBALL_SHA256  $TMPDIR/toolchain.tar.xz" | sha256sum -c - || {
+  # sha256sum -c writes its "<file>: OK" line to stdout (not stderr), which
+  # would otherwise corrupt the bin path this script prints on stdout for
+  # callers doing `toolchain_bin=$(fetch-toolchain.sh)` -- redirect it to
+  # stderr like every other diagnostic in this script.
+  echo "$TARBALL_SHA256  $TMPDIR/toolchain.tar.xz" | sha256sum -c - >&2 || {
     echo "ERROR: downloaded toolchain tarball does not match the pinned sha256 $TARBALL_SHA256." >&2
     exit 1
   }
@@ -51,7 +55,14 @@ if [ ! -x "$BIN/arm-none-eabi-gcc" ]; then
 fi
 
 VERSION_OUT="$("$BIN/arm-none-eabi-gcc" --version)"
-echo "$VERSION_OUT" | grep -q '13\.2\.1 20231009' || {
+# Matched with bash's own test rather than `echo ... | grep -q`, for the reason
+# check-elf-contract.sh's header comment now spells out at length: a `grep -q`
+# at the end of a live pipe can exit before its writer finishes, and `set -o
+# pipefail` (above) then reports the resulting SIGPIPE as if the pattern were
+# absent. This particular capture is only ~280 bytes, far under the pipe
+# buffer, so it could not actually race -- but leaving one instance of the
+# shape around is how the next, larger one gets written.
+[[ "$VERSION_OUT" == *"13.2.1 20231009"* ]] || {
   echo "ERROR: toolchain at $BIN is not 13.2.Rel1 (arm-none-eabi-gcc 13.2.1 20231009)." >&2
   echo "Got: $(echo "$VERSION_OUT" | head -1)" >&2
   exit 1

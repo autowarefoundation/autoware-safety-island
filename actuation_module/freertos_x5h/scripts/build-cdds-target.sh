@@ -132,7 +132,24 @@ if [ -z "${nm_bin}" ]; then
     echo "ERROR: arm-none-eabi-nm not found on PATH; cannot verify the cdds_freertos_compat.h shim applied." >&2
     exit 1
 fi
-if "${nm_bin}" -u "${CDDS_TARGET_PREFIX}/lib/libddsc.a" 2>/dev/null | grep -q 'xTaskCreateFpu'; then
+# Capture nm's output before matching, never `nm | grep -q` (review finding;
+# same hazard and same fix as check-elf-contract.sh's readelf pipelines -- see
+# that script's "Pipe-and-early-exit hazard" header comment). Here the
+# polarity is what makes it dangerous: `grep -q` exits the instant it matches,
+# so a still-writing nm takes SIGPIPE (141), and `set -o pipefail` (top of
+# this script) hands that 141 to `if`, which then takes the FALSE branch --
+# i.e. this guard would silently pass in exactly the case it exists to catch,
+# a libddsc.a that DOES still reference xTaskCreateFpu. Undefined-symbol lists
+# for this archive measure ~102 KiB, well past the 64 KiB pipe buffer, so the
+# race is live rather than theoretical -- and it fails open rather than closed.
+#
+# The match below is bash's own pattern test, not `printf ... | grep -q` on the
+# captured string: routing 102 KiB back through a pipe to a consumer that still
+# exits on first match would reintroduce the identical race one step later,
+# with printf taking the SIGPIPE instead of nm. `[[ == * * ]]` involves no
+# pipe, no second process, and no exit-status laundering at all.
+nm_undefined="$("${nm_bin}" -u "${CDDS_TARGET_PREFIX}/lib/libddsc.a" 2>/dev/null)"
+if [[ "${nm_undefined}" == *xTaskCreateFpu* ]]; then
     echo "ERROR: libddsc.a still references xTaskCreateFpu directly." >&2
     echo "The -include ${LWIP_PORT_DIR}/cdds_freertos_compat.h flag (see this script's" >&2
     echo "own -DCMAKE_C_FLAGS line and that header's comment) did not take effect --" >&2

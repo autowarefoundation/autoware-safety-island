@@ -21,7 +21,7 @@
 #define LWIP_SOCKET                1   /* CycloneDDS uses sockets */
 #define LWIP_NETCONN               1
 
-// ---- Protocol scope: IPv4/UDP/ICMP only, no DHCP/IGMP/IPv6 ----
+// ---- Protocol scope: IPv4/UDP/ICMP only, no TCP/DHCP/IGMP/IPv6 ----
 // (the DDS network interface is a fixed static address --
 // CONFIG_DDS_NETWORK_INTERFACE=172.16.52.2 -- and Task 6's RPMsg netif has
 // no multicast-capable link layer, so IGMP has nothing to do)
@@ -29,6 +29,30 @@
 #define LWIP_DHCP                  0
 #define LWIP_IGMP                  0
 #define LWIP_ICMP                  1
+
+// LWIP_TCP (review finding): this section's heading claimed UDP/ICMP only,
+// but leaving LWIP_TCP unset takes lwIP's own default of 1 (lwip/opt.h), so
+// the entire TCP implementation was compiled and linked in. Nothing here
+// opens a TCP socket -- CycloneDDS on this target is configured UDP-only --
+// and unlike a --gc-sections link the dead code could not be dropped later:
+// CMakeLists.txt does NOT use --gc-sections, deliberately (see its own "ld
+// 2.42 --gc-sections+-O2+-g segfault" comment), so every TCP object stayed
+// resident in the 10 MiB Core1 slot. Turning it off makes the heading true
+// and the slot budget honest: measured on this target, the slot window drops
+// from 0x84d890 to 0x843c20, i.e. 40,048 bytes (39.1 KiB) of never-executed
+// TCP recovered, and `arm-none-eabi-nm` no longer shows any lwIP tcp_*
+// implementation symbol in actuation_x5h.elf (tcp_input / tcp_output /
+// tcp_write / tcp_connect / tcp_slowtmr all gone; udp_input, ip4_input,
+// icmp_input and etharp_output all still present, as they must be).
+//
+// Safe to disable at link level on this lwIP (2.2.1): the netconn/socket
+// entry points a TCP caller would reach are compiled unconditionally but
+// their TCP bodies are `#if LWIP_TCP`-guarded with `#else` stubs returning
+// ERR_ARG (api_lib.c's netconn_accept / netconn_listen_with_backlog), so
+// there is no undefined reference from sockets.c -- a would-be TCP caller
+// gets a runtime error instead of a broken build. TCP_MSS below is retained
+// because PBUF_POOL_BUFSIZE's derivation is written in terms of it.
+#define LWIP_TCP                   0
 
 // ---- Static pool sizing (this task's memory-risk gate) ----
 #define MEM_ALIGNMENT               4

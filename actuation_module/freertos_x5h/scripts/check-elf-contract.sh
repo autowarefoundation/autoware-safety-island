@@ -34,18 +34,38 @@
 #
 # Pipe-and-early-exit hazard: every readelf invocation below is captured into
 # a shell variable via plain command substitution BEFORE any pattern matching
-# happens, and no matching step ever sits at the far end of a live pipe from
-# readelf. This matters because `set -o pipefail` (below) combined with a
-# consumer that exits as soon as it finds a match (`grep -q`, or an awk action
-# with `exit`) turns a normal, harmless SIGPIPE into a spurious pipeline
-# failure if readelf is still writing when the consumer quits early -- and
-# under pipefail that failure is indistinguishable from "pattern not found",
-# so a `||fail` guard fires for the wrong reason even though the ELF is fully
-# conforming. (Measured on this ELF: about half of repeated runs of the old,
-# unfixed script failed this way.) Capturing full output first via
-# `var="$(readelf ...)"` waits for readelf to exit on its own before this
-# script does anything else with the output, so there is no live writer left
-# for a downstream `-q`/`exit` to signal.
+# happens. That much was already true in an earlier revision of this script
+# and is NOT sufficient by itself: capturing readelf's output only guarantees
+# readelf itself has exited before this script inspects the result, it says
+# nothing about whatever a LATER stage does with that captured string. A
+# revision of this script still piped the captured variable into a
+# quits-on-first-match consumer (`printf '%s\n' "$var" | grep -q ...`, or an
+# awk action containing `exit`), which recreates the exact same hazard one
+# step downstream: `grep -q`/`awk {exit}` can stop reading as soon as it finds
+# a match, closing its end of the pipe while `printf` still has unwritten
+# bytes queued for a full pipe buffer (64 KiB on Linux) -- `printf` then takes
+# SIGPIPE and exits 141, and under `set -o pipefail` (below) bash reports the
+# whole pipeline's status as the last non-zero exit among its stages scanning
+# right-to-left, i.e. 141, even though the consumer (rightmost, grep/awk)
+# itself exited 0 (found its match). That 141 is indistinguishable from
+# "pattern not found" to a `|| fail` guard, so it fires for the wrong reason
+# even though the ELF is fully conforming. This is size-dependent, not
+# flaky-timing-dependent: it reproduced 5/5 on this ELF's real 341,776-byte
+# `readelf -p .rodata` dump (comfortably over the 64 KiB pipe-buffer
+# threshold) and 0/5 on the header dump used for the ARM-machine check
+# earlier in this script, which is only a few hundred bytes. The fix actually
+# applied below is not "capture first" (already tried, insufficient) but
+# eliminating the live pipe at the matching step entirely: either a pure
+# in-process bash match (`[[ ... =~ ... ]]`, `case ... in *pattern*)`, no fork
+# at all) where only presence/absence is being tested, or feeding the already
+# -captured variable to awk via a here-string (`<<< "$var"`) where field
+# extraction is needed -- a here-string is backed by a temp file bash writes
+# and closes before the reader ever starts, so there is no live writer for a
+# quits-early reader to SIGPIPE, regardless of consumer behavior or data
+# size. Verified empirically for both shapes (grep -q and an early-exiting
+# awk action) against synthetic worst-case inputs (the match at the very
+# front of hundreds of KB of trailing data): the herestring/pure-match form
+# was 5/5 clean where the old piped form was 5/5 failing.
 #
 # Usage: check-elf-contract.sh <elf> [expected-service-name]
 # Exit 0 iff the ELF satisfies the contract (prints CONTRACT_PASS <elf>).
@@ -72,7 +92,10 @@ hex_to_dec() { # hex_digits (no 0x prefix) -> decimal on stdout
 
 hdr_dump="$(readelf -h "$ELF" 2>/dev/null || true)"
 [ -n "$hdr_dump" ] || fail "readelf could not parse '$ELF' as an ELF file"
-printf '%s\n' "$hdr_dump" | grep -qE 'Machine:[[:space:]]*ARM' || fail "not an ARM ELF: $ELF"
+# Pure in-process bash regex match (no fork, no pipe) -- see the
+# "Pipe-and-early-exit hazard" comment above for why this is not a
+# `printf ... | grep -q ...` pipe.
+[[ "$hdr_dump" =~ Machine:[[:space:]]*ARM ]] || fail "not an ARM ELF: $ELF"
 
 SLOT_LO=$(hex_to_dec 11600000)
 SLOT_HI=$(hex_to_dec 12000000)
@@ -122,11 +145,18 @@ done < <(readelf -lW "$ELF" | awk '$1 == "LOAD" {print $3, $7}')
 # not merely hypothetical). Strip the bracketed index (and surrounding
 # spaces) from $0 before field-splitting so the field numbers below are
 # stable regardless of index width: after stripping, $1=Name, $2=Type,
-# $3=Addr, $4=Off, $5=Size. Captured into a variable first for the same
-# early-exit-hazard reason described above.
+# $3=Addr, $4=Off, $5=Size. Captured into a variable first, then fed to awk
+# via a here-string (`<<<`, not a pipe) since this awk action does contain
+# `exit` -- the exact early-exit shape flagged in the "Pipe-and-early-exit
+# hazard" comment above. A here-string is backed by a temp file bash writes
+# and closes before awk starts reading, so there is no live writer for awk's
+# early exit to signal, regardless of how large `sw_dump` grows or where in
+# it `.resource_table` sits (currently near the end of the section list, so
+# this is not exploitable today with a live pipe either, but the fix should
+# not depend on that happening to stay true).
 sw_dump="$(readelf -SW "$ELF" 2>/dev/null || true)"
 [ -n "$sw_dump" ] || fail "readelf -SW produced no output for '$ELF'"
-rsc_line="$(printf '%s\n' "$sw_dump" | awk '{ sub(/^[ \t]*\[[ 0-9]+\][ \t]*/, "") } $1 == ".resource_table" && $2 == "PROGBITS" { print; exit }')"
+rsc_line="$(awk '{ sub(/^[ \t]*\[[ 0-9]+\][ \t]*/, "") } $1 == ".resource_table" && $2 == "PROGBITS" { print; exit }' <<< "$sw_dump")"
 [ -n "$rsc_line" ] || fail ".resource_table section not found in '$ELF'"
 
 rsc_addr_hex="$(printf '%s' "$rsc_line" | awk '{print $3}')"
@@ -179,7 +209,18 @@ field() { # byte_offset byte_length -> lowercase hex substring on stdout
 
 if [ -n "$SVC" ]; then
   svc_dump="$(readelf -p .rodata "$ELF" 2>/dev/null || true)"
-  printf '%s\n' "$svc_dump" | grep -qF -- "$SVC" || fail "service string '$SVC' not found in .rodata"
+  # Pure in-process bash substring match (a `case` glob test, no fork, no
+  # pipe at all) -- this is the exact site the "Pipe-and-early-exit hazard"
+  # comment above describes: this ELF's real .rodata dump is 341,776 bytes,
+  # `grep -qF` finds "$SVC" and exits long before `printf` finishes writing
+  # that many bytes into a 64 KiB pipe, and the resulting SIGPIPE-under-
+  # pipefail reads as "service string not found" even when it is present.
+  # `case` never spawns a reader that can race the (nonexistent, here)
+  # writer, so there is nothing to signal regardless of dump size.
+  case "$svc_dump" in
+    *"$SVC"*) ;;
+    *) fail "service string '$SVC' not found in .rodata" ;;
+  esac
 fi
 
 echo "CONTRACT_PASS $ELF"
