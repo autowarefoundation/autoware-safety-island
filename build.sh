@@ -33,7 +33,7 @@ BUILD_PLATFORM_SET=0
 NETWORK_PROFILE="default"
 DDS_NETWORK_INTERFACE=""
 CONTROL_CMD_OUTPUT_MODE=""
-RUNTIME_TARGET_LIST=("zephyr-fvp" "zephyr-s32z" "freertos-posix" "freertos-s32z2")
+RUNTIME_TARGET_LIST=("zephyr-fvp" "zephyr-s32z" "freertos-posix" "freertos-s32z2" "freertos-x5h")
 ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
 ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
 ZEPHYR_TARGET_SET=0
@@ -64,11 +64,13 @@ function usage() {
   echo -e "    zephyr-s32z      Zephyr on S32Z hardware."
   echo -e "    freertos-posix   FreeRTOS POSIX runtime for local validation."
   echo -e "    freertos-s32z2   FreeRTOS on S32Z2 hardware."
+  echo -e "    freertos-x5h     FreeRTOS on R-Car X5H hardware (scaffold: boots and prints only)."
   echo ""
   echo -e "${GREEN}    Examples:${NC}"
   echo -e "    $0 --platform zephyr-fvp --network tap -d build/zephyr-fvp-tap"
   echo -e "    $0 --platform freertos-posix -d build/freertos-posix --dds-interface wlp2s0 --control-output DDS_ONLY"
   echo -e "    $0 --platform freertos-s32z2 -d build/freertos-s32z2 --dds-interface 192.168.0.105"
+  echo -e "    $0 --platform freertos-x5h -d build/freertos-x5h"
 }
 
 function require_arg() {
@@ -215,6 +217,15 @@ function normalize_platform() {
         BUILD_DIR="build/freertos-s32z2"
       fi
       ;;
+    freertos-x5h)
+      if [ "${ZEPHYR_TARGET_SET}" = "1" ]; then
+        echo -e "${RED}-t is only valid for Zephyr platforms${NC}" 1>&2
+        exit 1
+      fi
+      if [ "${BUILD_DIR_SET}" = "0" ]; then
+        BUILD_DIR="build/freertos-x5h"
+      fi
+      ;;
     *)
       echo -e "${RED}Invalid platform: ${BUILD_PLATFORM}${NC}" 1>&2
       echo -e "${YELLOW}Valid platforms: ${RUNTIME_TARGET_LIST[*]}${NC}" 1>&2
@@ -233,13 +244,13 @@ function normalize_platform() {
     exit 1
   fi
 
-  if [ -n "${DDS_NETWORK_INTERFACE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
-    echo -e "${RED}--dds-interface is only valid for FreeRTOS platforms${NC}" 1>&2
+  if [ -n "${DDS_NETWORK_INTERFACE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
+    echo -e "${RED}--dds-interface is only valid for --platform freertos-posix, freertos-s32z2, or freertos-x5h${NC}" 1>&2
     exit 1
   fi
 
-  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ]; then
-    echo -e "${RED}--control-output is only valid for FreeRTOS platforms${NC}" 1>&2
+  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
+    echo -e "${RED}--control-output is only valid for --platform freertos-posix, freertos-s32z2, or freertos-x5h${NC}" 1>&2
     exit 1
   fi
 
@@ -254,10 +265,14 @@ function normalize_platform() {
     esac
   fi
 
-  if [ "${BUILD_PLATFORM}" = "freertos-s32z2" ] && [ "${BUILD_TEST_FLAG}" != "0" ]; then
-    echo -e "${RED}Test build options are not supported for --platform freertos-s32z2${NC}" 1>&2
-    exit 1
-  fi
+  case "${BUILD_PLATFORM}" in
+    freertos-s32z2|freertos-x5h)
+      if [ "${BUILD_TEST_FLAG}" != "0" ]; then
+        echo -e "${RED}Test build options are not supported for --platform ${BUILD_PLATFORM}${NC}" 1>&2
+        exit 1
+      fi
+      ;;
+  esac
 }
 
 function clean() {
@@ -420,6 +435,102 @@ function build_freertos_s32z2() {
   cmake --build "${app_build_dir}" -j"$(nproc)"
 }
 
+function build_freertos_x5h() {
+  echo -e "${GREEN}Building FreeRTOS X5H target...${NC}"
+  echo -e "${YELLOW}Task 4: full-linked actuation module + CycloneDDS + lwIP. Network bring-up (RPMsg netif) stays stubbed until Task 6.${NC}"
+
+  local app_build_dir
+  app_build_dir=$(realpath -m "${BUILD_DIR}")
+
+  local toolchain_bin
+  toolchain_bin=$("${ROOT_DIR}/actuation_module/freertos_x5h/scripts/fetch-toolchain.sh")
+  export PATH="${toolchain_bin}:${PATH}"
+
+  local x5h_dir="${ROOT_DIR}/actuation_module/freertos_x5h"
+  local rcar_bsp_dir="${x5h_dir}/rcar_bsp/FreeRTOS/Demo/R-Car_Gen5_CR52"
+  local cdds_target_build_dir="${FREERTOS_X5H_CDDS_TARGET_BUILD_DIR:-${app_build_dir}/cdds_target}"
+  local cdds_target_prefix="${FREERTOS_X5H_CDDS_TARGET_PREFIX:-${app_build_dir}/cdds_target_out}"
+
+  # autoware_msgs's IDL -> C generation (pulled in transitively via
+  # actuation_x5h's CMakeLists.txt) runs the host idlc, and CycloneDDS's own
+  # target build runs it too (on its own internal .idl files) -- both need
+  # the host tools built first. PATH/LD_LIBRARY_PATH are exported at the
+  # shell level (not just via CMake's ENV{PATH}, which only reaches the
+  # configure-time process) so the generated Makefiles' add_custom_command
+  # invocations of idlc -- run later by `cmake --build`, in a separate
+  # process tree -- can find it too. Mirrors build_freertos_s32z2()'s
+  # identical export pair.
+  build_cyclonedds_host
+  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
+  # Only prepend a ":" separator when LD_LIBRARY_PATH already has a value
+  # (review round 1 fix): the old unconditional
+  # "${CYCLONEDDS_HOST_PREFIX}/lib:${LD_LIBRARY_PATH:-}" left a trailing
+  # colon whenever LD_LIBRARY_PATH was unset (the common case), which the
+  # dynamic loader treats as an empty path component meaning "the current
+  # working directory" -- silently adding CWD to the loader search path.
+  if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:"${LD_LIBRARY_PATH}"
+  else
+    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib
+  fi
+
+  FREERTOS_X5H_BUILD_ROOT="${app_build_dir}" \
+  FREERTOS_X5H_CDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}" \
+  FREERTOS_X5H_CDDS_TARGET_BUILD_DIR="${cdds_target_build_dir}" \
+  FREERTOS_X5H_CDDS_TARGET_PREFIX="${cdds_target_prefix}" \
+    "${x5h_dir}/scripts/build-cdds-target.sh"
+
+  # -S points at the vendor's own BSP directory, not
+  # actuation_module/freertos_x5h: the vendor's CMakeLists.txt derives its
+  # BSP_DIR/FREERTOS_DIR from CMAKE_SOURCE_DIR, which is fixed to whatever
+  # -S names for the whole invocation and cannot be overridden from a child
+  # add_subdirectory() scope. -DCMAKE_PROJECT_INCLUDE pulls
+  # actuation_x5h back in via a deferred include() -- see
+  # actuation_module/freertos_x5h/cmake/inject_actuation_x5h.cmake for the
+  # full rationale. BOARD/RAM_REGION/MFIS_CHAN/UART_ID/CACHE/ENABLE_OPENAMP
+  # match Task 2's scripts/build-bsp-rpmsg-sample.sh (see AUDIT.md Section 6).
+  local x5h_args=(
+    -S "${rcar_bsp_dir}"
+    -B "${app_build_dir}"
+    -DCMAKE_TOOLCHAIN_FILE="${rcar_bsp_dir}/toolchain_arm_none_eabi.cmake"
+    -DCMAKE_PROJECT_INCLUDE="${x5h_dir}/cmake/inject_actuation_x5h.cmake"
+    -DBOARD=x5h_ironhide
+    -DENABLE_OPENAMP=1
+    -DRAM_REGION=2
+    -DMFIS_CHAN=1
+    -DUART_ID=1
+    -DCACHE=1
+    -DCDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}"
+    -DCDDS_TARGET_PREFIX="${cdds_target_prefix}"
+  )
+
+  if [ -n "${DDS_NETWORK_INTERFACE}" ]; then
+    x5h_args+=(-DCONFIG_DDS_NETWORK_INTERFACE="${DDS_NETWORK_INTERFACE}")
+  fi
+  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
+    x5h_args+=(-DCONFIG_CONTROL_CMD_OUTPUT_MODE="${CONTROL_CMD_OUTPUT_MODE}")
+  fi
+
+  cmake "${x5h_args[@]}"
+  # --target actuation_x5h, not a bare `cmake --build`: the vendor -S
+  # directory also defines its own hello_world/rpmsg_sample/etc. targets,
+  # and a bare build would compile all of them too.
+  cmake --build "${app_build_dir}" --target actuation_x5h -j"$(nproc)"
+
+  # A future rcar_bsp submodule bump is loud in most ways a layout change
+  # could break this target (renamed sources fail to configure, a second
+  # -T fails to link, a new vendor project() call duplicates a target) --
+  # but a bump that silently shifts .text or .resource_table to a different
+  # address is not loud at all unless something checks for it. Run the
+  # frozen-layout contract here so that check happens on every build, not
+  # only when someone remembers to run it by hand.
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf"
+
+  # Task 4's memory-risk gate: the full lwIP + CycloneDDS + actuation module
+  # link must fit the frozen 10 MiB Core1 boot-slot window.
+  "${x5h_dir}/scripts/check-image-budget.sh" "${app_build_dir}/actuation_x5h.elf"
+}
+
 ## MAIN ##
 parse_args "$@"
 normalize_platform
@@ -438,5 +549,8 @@ case "${BUILD_PLATFORM}" in
     ;;
   freertos-s32z2)
     build_freertos_s32z2
+    ;;
+  freertos-x5h)
+    build_freertos_x5h
     ;;
 esac
