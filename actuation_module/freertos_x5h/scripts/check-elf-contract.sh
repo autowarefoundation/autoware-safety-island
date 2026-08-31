@@ -67,13 +67,14 @@
 # front of hundreds of KB of trailing data): the herestring/pure-match form
 # was 5/5 clean where the old piped form was 5/5 failing.
 #
-# Usage: check-elf-contract.sh <elf> [expected-service-name]
+# Usage: check-elf-contract.sh <elf> [expected-service-name] [expected-param-profile]
 # Exit 0 iff the ELF satisfies the contract (prints CONTRACT_PASS <elf>).
 # Exit 1 with "CONTRACT_FAIL: <reason>" on stderr otherwise.
 set -euo pipefail
 
 ELF="${1:-}"
 SVC="${2:-}"
+PROFILE="${3:-}"
 
 fail() {
   echo "CONTRACT_FAIL: $1" >&2
@@ -87,7 +88,7 @@ hex_to_dec() { # hex_digits (no 0x prefix) -> decimal on stdout
   echo $((16#$1))
 }
 
-[ -n "$ELF" ] || fail "usage: check-elf-contract.sh <elf> [expected-service-name]"
+[ -n "$ELF" ] || fail "usage: check-elf-contract.sh <elf> [expected-service-name] [expected-param-profile]"
 [ -f "$ELF" ] || fail "no such file: $ELF"
 
 hdr_dump="$(readelf -h "$ELF" 2>/dev/null || true)"
@@ -208,8 +209,11 @@ field() { # byte_offset byte_length -> lowercase hex substring on stdout
 [ "$(field 0x64 4)" = "00100000" ] || fail "vring[1].align is not 0x1000: got 0x$(field 0x64 4)"
 [ "$(field 0x68 4)" = "00010000" ] || fail "vring[1].num is not 0x100: got 0x$(field 0x68 4)"
 
+if [ -n "$SVC" ] || [ -n "$PROFILE" ]; then
+  rodata_dump="$(readelf -p .rodata "$ELF" 2>/dev/null || true)"
+fi
+
 if [ -n "$SVC" ]; then
-  svc_dump="$(readelf -p .rodata "$ELF" 2>/dev/null || true)"
   # Pure in-process bash substring match (a `case` glob test, no fork, no
   # pipe at all) -- this is the exact site the "Pipe-and-early-exit hazard"
   # comment above describes: this ELF's real .rodata dump is 341,776 bytes,
@@ -218,9 +222,16 @@ if [ -n "$SVC" ]; then
   # pipefail reads as "service string not found" even when it is present.
   # `case` never spawns a reader that can race the (nonexistent, here)
   # writer, so there is nothing to signal regardless of dump size.
-  case "$svc_dump" in
+  case "$rodata_dump" in
     *"$SVC"*) ;;
     *) fail "service string '$SVC' not found in .rodata" ;;
+  esac
+fi
+
+if [ -n "$PROFILE" ]; then
+  case "$rodata_dump" in
+    *"actuation_param_profile=${PROFILE}"*) ;;
+    *) fail "profile string 'actuation_param_profile=${PROFILE}' not found in .rodata" ;;
   esac
 fi
 

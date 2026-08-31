@@ -23,6 +23,7 @@ on:
     branches:
       - feat/freertos-x5h-target
       - feat/freertos-x5h-netif
+      - feat/x5h-actuation-param-profiles
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -135,11 +136,11 @@ jobs:
 
       - name: Re-verify ELF contract - actuation_x5h.elf
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf rpmsg-eth after
 
       - name: Re-verify ELF contract - netif_only_x5h.elf
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/netif_only_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/netif_only_x5h.elf rpmsg-eth after
 
       - name: Re-verify image budget - actuation_x5h.elf
         shell: bash
@@ -168,11 +169,11 @@ jobs:
       # actually flashes, so it needs the same gates as its own named steps.
       - name: Re-verify ELF contract - actuation_x5h.elf (diag)
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth after
 
       - name: Re-verify ELF contract - netif_only_x5h.elf (diag)
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth after
 
       - name: Re-verify image budget - actuation_x5h.elf (diag)
         shell: bash
@@ -193,6 +194,39 @@ jobs:
           path: |
             build/freertos-x5h-diag/actuation_x5h.elf
             build/freertos-x5h-diag/netif_only_x5h.elf
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # MRM before/after demo: the untuned "before" parameter profile, built
+      # into its own -d directory so the default build above is untouched. A
+      # board session is only ever authorised to flash a CI-built image, and
+      # the demo needs both profiles -- the default build IS the "after"
+      # image (verified above), this one is the "before".
+      - name: Build freertos-x5h before-profile (untuned actuation params)
+        shell: bash
+        run: ./build.sh --platform freertos-x5h -d build/freertos-x5h-before --param-profile before
+
+      # actuation_x5h.elf only, unlike the default and diag blocks above:
+      # build.sh still builds and internally checks netif_only_x5h.elf here
+      # too, but only actuation_x5h.elf is the flashed demo baseline that
+      # gets uploaded (below), so only it is re-verified as its own step.
+      - name: Re-verify ELF contract - actuation_x5h.elf (before)
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-before/actuation_x5h.elf rpmsg-eth before
+
+      - name: Re-verify image budget - actuation_x5h.elf (before)
+        shell: bash
+        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h-before/actuation_x5h.elf
+
+      # A SEPARATE artifact name (same rule as freertos-x5h-diag-elfs): an
+      # operator fetching a flash image must not be able to confuse the
+      # untuned demo baseline with the tuned image that ships.
+      - name: Upload freertos-x5h before-profile ELF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-x5h-before-elfs
+          path: build/freertos-x5h-before/actuation_x5h.elf
           if-no-files-found: ignore
           retention-days: 7
 
