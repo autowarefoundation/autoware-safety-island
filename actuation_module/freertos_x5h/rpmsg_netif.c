@@ -124,7 +124,6 @@ static err_t rpmsg_netif_linkoutput(struct netif *nif, struct pbuf *p) {
 }
 
 err_t rpmsg_netif_init(struct netif *nif) {
-    s_netif = nif;
     nif->name[0] = 'r'; nif->name[1] = 'p';
     nif->mtu = RPMSG_ETH_MTU;
     nif->hwaddr_len = ETH_HWADDR_LEN;
@@ -133,5 +132,21 @@ err_t rpmsg_netif_init(struct netif *nif) {
     nif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_ETHERNET;
     nif->output = etharp_output;
     nif->linkoutput = rpmsg_netif_linkoutput;
+    // s_netif is published LAST, after every field above is in place (review
+    // finding). It used to be the first statement in this function, which
+    // opened a window the rx path could observe: rpmsg_poll_task runs at
+    // RPMSG_POLL_TASK_PRIORITY, above the task calling netif_add(), so it can
+    // preempt anywhere in here. lwIP's netif_add() assigns netif->input (its
+    // `input` argument, tcpip_input) BEFORE invoking this init callback and
+    // leaves netif->flags at 0 until we set them (netif.c: `netif->flags = 0`
+    // then `netif->input = input` then `init(netif)`), so a frame delivered in
+    // that window passed glue_rx_deliver()'s NULL check, reached a fully-armed
+    // tcpip_input() with flags still 0, and was routed by
+    // `inp->flags & (NETIF_FLAG_ETHARP | NETIF_FLAG_ETHERNET)` to ip_input
+    // instead of ethernet_input -- i.e. an Ethernet frame parsed as an IP
+    // header. Publishing last closes the window: until this store, the rx path
+    // takes the s_rx_drop_no_netif branch, which is the correct, counted
+    // outcome for a frame that arrives before the netif exists.
+    s_netif = nif;
     return ERR_OK;
 }
