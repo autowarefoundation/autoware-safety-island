@@ -37,12 +37,37 @@
    why this file no longer includes lwip/tcpip.h for that macro itself. */
 #include "rpmsg_transport.h"
 
-// wrapped in do/while(0) (review finding, Minor): without it, `if (cond)
-// LPRINTF(...);` with no braces only guards the printf() call -- the
-// vTaskDelay(10) after it runs unconditionally, every time, regardless of
-// `cond`. None of today's call sites happen to be written that way, but an
-// unbraced two-statement macro is a latent footgun for the next one that is.
-#define LPRINTF(format, ...) do { printf(format, ##__VA_ARGS__); vTaskDelay(10); } while (0)
+// No vTaskDelay() here (review finding). The vendor BSP's rpmsg sample
+// defines its LPRINTF as `printf(...); vTaskDelay(10);`
+// (rcar_bsp/.../sample_apps/rpmsg_sample/rpmsg-echo.c and its siblings) and
+// this macro inherited that, which put a 10-tick -- 10 ms at this port's
+// configTICK_RATE_HZ of 1000 -- unconditional stall on two paths that must
+// not stall:
+//
+//   - rpmsg_poll_task, via rpmsg_netif_print_stats_if_changed() below. The
+//     poll loop is the only thing draining the vrings, and its own pacing is
+//     a deliberate vTaskDelay(1); a stats line turned that into 11 ms with
+//     nothing servicing inbound frames.
+//   - ept_unbind(), which runs inside platform_poll()'s OpenAMP name-service
+//     callback, i.e. also on rpmsg_poll_task and also mid-virtqueue-
+//     processing.
+//
+// Dropping the delay costs nothing, because it was never load-bearing for
+// console integrity on this board: printf reaches the BSP's own _write()
+// (drivers/serial/serial.c) -> outbyte() -> console_putc() ->
+// uart_rcar_poll_out() (drivers/serial/scif.c), which busy-waits on
+// SCFSR_TDFE until the transmit FIFO has room. Output is therefore lossless
+// with or without a delay -- the vendor's own pacing workaround for the
+// unfixed HSCIF issue is confined to a separate printf_delay() helper this
+// port never calls. The one caller whose cadence could have depended on the
+// delay, rpmsg_vdev_heartbeat_task() below, paces itself with an explicit
+// vTaskDelay(RPMSG_VDEV_HEARTBEAT_PERIOD_TICKS) and, if anything, now reports
+// its elapsed seconds slightly more accurately.
+//
+// Still wrapped in do/while(0) (earlier review finding, Minor): with the
+// delay gone the macro is a single statement, but the wrapper is what keeps
+// `if (cond) LPRINTF(...);` correct for whatever the next edit adds back.
+#define LPRINTF(format, ...) do { printf(format, ##__VA_ARGS__); } while (0)
 #define LPERROR(format, ...) LPRINTF("ERROR: " format, ##__VA_ARGS__)
 
 // A frame that does not fit inside one RPMsg buffer after OpenAMP's own

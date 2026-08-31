@@ -257,6 +257,27 @@
 // itself), not a bigger number here.
 #define TCPIP_MBOX_SIZE              64
 #define DEFAULT_UDP_RECVMBOX_SIZE    64
+
+// MEMP_NUM_TCPIP_MSG_INPKT (review finding, and it invalidates part of the
+// arithmetic above): TCPIP_MBOX_SIZE is NOT the inbound burst ceiling, and
+// raising it to 64 on its own bought nothing. On the path this port actually
+// uses -- LWIP_TCPIP_CORE_LOCKING_INPUT is unset, so netif->input()
+// (tcpip_input) takes tcpip.c's `tcpip_inpkt()` branch -- every inbound frame
+// first needs a `struct tcpip_msg` from the MEMP_TCPIP_MSG_INPKT pool, and
+// only then gets posted to the mailbox. That pool defaults to 8
+// (lwip/opt.h), so the effective ceiling was min(8, 64) = 8: the 9th frame
+// in flight got ERR_MEM out of memp_malloc() and was dropped and counted as
+// rx_drop_input_err (rpmsg_netif.c) -- a mailbox with 56 free slots behind
+// a pool with none.
+//
+// Sized to 64 to match TCPIP_MBOX_SIZE, since one pool entry backs exactly
+// one mailbox entry between tcpip_input() and tcpip_thread()'s dequeue;
+// anything smaller re-imposes itself as the real limit and makes the
+// TCPIP_MBOX_SIZE reasoning above wrong again. RAM cost is small and comes
+// out of lwIP's memp area, not MEM_SIZE: `struct tcpip_msg` is a small
+// tagged union (a few pointers plus a type enum), so 64 of them is on the
+// order of a kilobyte against the 10 MiB Core1 slot.
+#define MEMP_NUM_TCPIP_MSG_INPKT     64
 // DEFAULT_TCP_RECVMBOX_SIZE/DEFAULT_ACCEPTMBOX_SIZE/DEFAULT_RAW_RECVMBOX_SIZE
 // (review finding, Minor): lwIP's own lwip/opt.h defaults every one of these
 // to 0 when not set here. sys_arch.c's sys_mbox_new() (this port) passes
@@ -269,6 +290,19 @@
 // lwipopts.h set all five of these for the identical reason. Set now, before
 // it is needed, rather than left as a latent __BKPT waiting for the first
 // TCP/raw/accept caller.
+//
+// Narrowed since LWIP_TCP was set to 0 above: with TCP compiled out, a TCP
+// or accept netconn can no longer be created at all (netconn_new() rejects
+// NETCONN_TCP, and api_lib.c's netconn_accept/netconn_listen_with_backlog
+// are the ERR_ARG stubs), so DEFAULT_TCP_RECVMBOX_SIZE and
+// DEFAULT_ACCEPTMBOX_SIZE are now unreachable by construction rather than
+// merely unused -- they are kept, at no cost, so that re-enabling LWIP_TCP
+// does not silently reintroduce the __BKPT this block exists to prevent.
+// DEFAULT_RAW_RECVMBOX_SIZE is the one that still matters as live
+// protection: LWIP_RAW is the lwIP default here too (0 in lwip/opt.h on this
+// version, so also unreachable today) -- but unlike TCP it is not disabled
+// by an explicit line in this file, so it is one lwipopts edit away from
+// being reachable.
 #define DEFAULT_TCP_RECVMBOX_SIZE    32
 #define DEFAULT_ACCEPTMBOX_SIZE      16
 #define DEFAULT_RAW_RECVMBOX_SIZE    16
