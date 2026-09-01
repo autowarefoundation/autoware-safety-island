@@ -38,6 +38,20 @@ Changed
 - ``freertos-s32z2`` can be selected through ``build.sh --platform``; it remains
   a hardware-specific target that requires NXP-licensed SDK inputs.
 
+Fixed
+-----
+
+- Wait for ``/system/operation_mode/state`` before the first control tick.
+- Bound the MPC trajectory-shape buffer and ingest the trajectory once per
+  tick.
+- Drop per-tick PID INFO logs that blocked the S32Z2 UART on the control
+  thread.
+- Align AVH and user-guide ELF paths with ``build.sh`` platform defaults
+  (``build/<platform>/zephyr/zephyr.elf``).
+- Key CycloneDDS CI/release caches on the submodule gitlink SHA.
+- Correct documented Zephyr/CycloneDDS pins, public submodule init, and S32Z
+  DDS/network runbooks.
+
 ******
 v0.1.0
 ******

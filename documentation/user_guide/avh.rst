@@ -61,8 +61,8 @@ From inside the development container:
   $ ./avh.py --deploy --ssh
 
 This authenticates, creates or finds the instance, uploads
-``build/actuation_module/zephyr/zephyr.elf``, reboots the instance, and
-streams the console over SSH until you disconnect.
+``build/zephyr-fvp/zephyr/zephyr.elf`` (override with ``--firmware``),
+reboots the instance, and streams the console over SSH until you disconnect.
 
 Deploy via the web UI
 =====================

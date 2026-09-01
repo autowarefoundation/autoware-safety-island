@@ -584,7 +584,7 @@ void PidLongitudinalController::updateControlState(const ControlData & control_d
   if (m_control_state == ControlState::STOPPED) {
     // debug print
     if (has_nonzero_target_vel && !departure_condition_from_stopped) {
-      log_info("target speed > 0, but departure condition is not met. Keep STOPPED.\n");
+      log_debug("target speed > 0, but departure condition is not met. Keep STOPPED.\n");
     }
 
     if (departure_condition_from_stopped) {
@@ -601,7 +601,7 @@ void PidLongitudinalController::updateControlState(const ControlData & control_d
       if (m_enable_keep_stopped_until_steer_convergence && keep_stopped_condition) {
         // debug print
         if (has_nonzero_target_vel) {
-          log_info("target speed > 0, but keep stop condition is met. Keep STOPPED.\n");
+          log_debug("target speed > 0, but keep stop condition is met. Keep STOPPED.\n");
         }
 
         // TODO: disabled for simplicity
@@ -669,7 +669,7 @@ PidLongitudinalController::Motion PidLongitudinalController::calcCtrlCmd(
     m_debug_values.setValues(DebugValues::TYPE::ACC_CMD_JERK_LIMITED, ctrl_cmd_as_pedal_pos.acc);
     m_debug_values.setValues(DebugValues::TYPE::ACC_CMD_SLOPE_APPLIED, ctrl_cmd_as_pedal_pos.acc);
 
-    log_info("[Stopped]. vel: %3.3f, acc: %3.3f\n", ctrl_cmd_as_pedal_pos.vel, ctrl_cmd_as_pedal_pos.acc);
+    log_debug("[Stopped]. vel: %3.3f, acc: %3.3f\n", ctrl_cmd_as_pedal_pos.vel, ctrl_cmd_as_pedal_pos.acc);
   } else {
     Motion raw_ctrl_cmd{
       control_data.interpolated_traj.points.at(target_idx).longitudinal_velocity_mps,
@@ -683,7 +683,7 @@ PidLongitudinalController::Motion PidLongitudinalController::calcCtrlCmd(
         raw_ctrl_cmd.acc = applyVelocityFeedback(control_data);
         raw_ctrl_cmd = keepBrakeBeforeStop(control_data, raw_ctrl_cmd, target_idx);
 
-        log_info(
+        log_debug(
           "[feedback control]  vel: %3.3f, acc: %3.3f, dt: %3.3f, v_curr: %3.3f, v_ref: %3.3f "
           "feedback_ctrl_cmd.ac: %3.3f\n",
           raw_ctrl_cmd.vel, raw_ctrl_cmd.acc, control_data.dt, control_data.current_motion.vel,
@@ -695,7 +695,7 @@ PidLongitudinalController::Motion PidLongitudinalController::calcCtrlCmd(
           m_vel_hist, m_delay_compensation_time);
         raw_ctrl_cmd.vel = m_stopped_state_params.vel;
 
-        log_info("[smooth stop]: Smooth stopping. vel: %3.3f, acc: %3.3f\n", raw_ctrl_cmd.vel,
+        log_debug("[smooth stop]: Smooth stopping. vel: %3.3f, acc: %3.3f\n", raw_ctrl_cmd.vel,
           raw_ctrl_cmd.acc);
       }
       raw_ctrl_cmd.acc = std::clamp(raw_ctrl_cmd.acc, m_min_acc, m_max_acc);
@@ -716,7 +716,7 @@ PidLongitudinalController::Motion PidLongitudinalController::calcCtrlCmd(
 
     const double acc_cmd = raw_ctrl_cmd.acc - m_lpf_acc_error->getValue() * m_acc_feedback_gain;
     m_debug_values.setValues(DebugValues::TYPE::ACC_CMD_ACC_FB_APPLIED, acc_cmd);
-    log_info("[acc feedback]: raw_ctrl_cmd.acc: %1.3f, control_data.current_motion.acc: %1.3f, acc_cmd: "
+    log_debug("[acc feedback]: raw_ctrl_cmd.acc: %1.3f, control_data.current_motion.acc: %1.3f, acc_cmd: "
       "%1.3f\n",
       raw_ctrl_cmd.acc, control_data.current_motion.acc, acc_cmd);
 
@@ -735,7 +735,7 @@ PidLongitudinalController::Motion PidLongitudinalController::calcCtrlCmd(
   //TODO: check if this is available
   updateDebugVelAcc(control_data);
 
-  log_info("[final output]: acc: %3.3f, v_curr: %3.3f\n", ctrl_cmd_as_pedal_pos.acc,
+  log_debug("[final output]: acc: %3.3f, v_curr: %3.3f\n", ctrl_cmd_as_pedal_pos.acc,
     control_data.current_motion.vel);
 
   return ctrl_cmd_as_pedal_pos;

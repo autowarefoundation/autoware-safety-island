@@ -18,10 +18,14 @@ The demo DDS configuration pins domain 2 to a specific interface. If that
 interface does not exist or does not carry multicast, CycloneDDS discovery will
 stall.
 
-For AVH, S32Z hardware, and Zephyr FVP TAP flows, ``demo/cyclonedds.xml`` pins
-domain 2 to ``tap0``. If OpenVPN or local TAP setup creates a different
-interface, edit ``demo/cyclonedds.xml`` and update the domain-2
-``NetworkInterface`` name.
+For AVH and Zephyr FVP TAP flows, ``demo/cyclonedds.xml`` pins domain 2 to
+``tap0``. If OpenVPN or local TAP setup creates a different interface, edit
+``demo/cyclonedds.xml`` and update the domain-2 ``NetworkInterface`` name.
+
+For Zephyr S32Z and FreeRTOS S32Z2 hardware, domain 2 must use the host
+interface on the board LAN, not ``tap0``. Start from
+``demo/cyclonedds-s32z2.xml`` (see :doc:`s32z_board` and
+:doc:`freertos_s32z2`).
 
 For ``freertos-posix``, the compose override uses
 ``demo/cyclonedds.posix.xml`` and reads ``SAFETY_ISLAND_DDS_INTERFACE``. Use the

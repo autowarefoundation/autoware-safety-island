@@ -86,9 +86,9 @@ Main Components
    * - Component
      - Version
    * - Zephyr RTOS
-     - `3.6.0 <https://github.com/zephyrproject-rtos/zephyr/commit/6aeb7a2b96c2b212a34f00c0ad3862ac19e826e8>`_
+     - `3.5.99 <https://github.com/zephyrproject-rtos/zephyr/commit/339cd5a45fd2ebba064ef462b71c657336ca0dfe>`_
    * - CycloneDDS
-     - `0.11.x <https://github.com/eclipse-cyclonedds/cyclonedds/commit/7c253ad3c4461b10dc4cac36a257b097802cd043>`_
+     - `0.11.0 (AWF fork) <https://github.com/autowarefoundation/cyclonedds/commit/2baf07a217cc7674226778a1659b09e333e863a3>`_
    * - Autoware
      - `2025.02 <https://github.com/autowarefoundation/autoware/tree/2025.02>`_
    * - Autoware.Universe

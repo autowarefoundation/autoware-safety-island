@@ -21,7 +21,7 @@ from avh_api_async.exceptions import ApiException as AvhAPIException
 from datetime import datetime
 
 # Configuration
-FIRMWARE_PATH = 'build/actuation_module/zephyr/zephyr.elf'
+DEFAULT_FIRMWARE_PATH = 'build/zephyr-fvp/zephyr/zephyr.elf'
 BOOT_TIMEOUT_SECONDS = 7200  # 2 hours
 STATE_CHECK_INTERVAL = 2  # seconds
 
@@ -147,9 +147,9 @@ async def find_instance(api_instance, instance_name, instance_flavor):
         sys.exit(1)
 
 
-async def upload_firmware(api_instance, instance_id):
+async def upload_firmware(api_instance, instance_id, firmware_path):
     """Upload firmware to the instance"""
-    firmware_path = Path(FIRMWARE_PATH)
+    firmware_path = Path(firmware_path)
     
     if not firmware_path.exists():
         print(f"❌ Firmware file not found: {firmware_path}")
@@ -286,6 +286,11 @@ def parse_arguments():
     parser.add_argument('--deploy', action='store_true', help='Deploy firmware to instance')
     parser.add_argument('--reboot', action='store_true', help='Reboot instance')
     parser.add_argument('--ssh', action='store_true', help='Connect to instance console')
+    parser.add_argument(
+        '--firmware',
+        default=os.getenv('AVH_FIRMWARE_PATH', DEFAULT_FIRMWARE_PATH),
+        help=f'Path to the Zephyr ELF (default: {DEFAULT_FIRMWARE_PATH})',
+    )
     
     args = parser.parse_args()
     
@@ -341,7 +346,7 @@ async def main(args):
         
         # Deploy new firmware
         if args.deploy:
-            await upload_firmware(api_instance, instance_id)
+            await upload_firmware(api_instance, instance_id, args.firmware)
         
         # Reboot instance
         if args.reboot:
