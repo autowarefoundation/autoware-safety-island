@@ -18,4 +18,5 @@ Runtime design, DDS topic contracts, and forward-looking design work.
     topics
     can_output
     can_carla_integration
+    can_carla_implementation_plan
     freertos-s32z2-bringup
