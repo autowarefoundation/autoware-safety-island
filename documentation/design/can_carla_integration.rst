@@ -43,9 +43,10 @@ Shared decisions
 - **One host bridge, one sink.** Open-loop and closed-loop share the same
   SocketCAN → decode → CARLA Python API process. Closed-loop does not add a
   second command path through ``autoware_carla_interface``.
-- **PR 1 local runtime is** ``freertos-posix`` **plus** ``vcan``. Zephyr
-  FVP TAP UDP is a follow-on PR on the same ``vcan0`` decoder; native FVP
-  CAN stays loopback-only. S32Z hardware CAN is out of this stack.
+- **PR 1 local runtime is** ``freertos-posix`` **plus** ``vcan``.
+- **PR 3 local runtime is** ``zephyr-fvp --network tap`` plus a UDP
+  batch tunnel onto the same ``vcan0`` decoder. Native FVP CAN stays
+  loopback-only. S32Z hardware CAN is out of this stack.
 - **CI never launches CARLA.** GitHub Actions covers encode → transport →
   decode. The visual CARLA loop is a documented host demo.
 - **Mock is test-only.** Runtime CAN output does not fall back to the
@@ -79,10 +80,6 @@ Components
    publisher) on domain 2. Do not start planning simulator or Open AD Kit in
    this loop.
 
-Follow-on (not #49): Zephyr FVP UDP tunnel over TAP, host gateway onto
-``vcan0``, same decoder. Native ``zephyr,can-loopback`` stays the FVP
-unit-test path. Requires updating issue #43 out-of-scope.
-
 Control mapping
 ===============
 
@@ -110,11 +107,10 @@ Known limits
 - Placeholder CAN IDs, not a production DBC.
 - Open-loop CARLA motion will not match rosbag odometry.
 - Mapping cannot recover jerk from the current frames.
-- FVP TAP UDP is a follow-on PR, not this demo.
+- FVP TAP UDP is PR 3, not this demo.
 - S32Z hardware CAN is not this demo.
 
-Closed-loop with Open AD Kit is the next stacked PR. CAN-FD is a parallel
-sketch PR on the same SocketCAN base.
+Closed-loop with Open AD Kit is PR 2. Zephyr FVP is PR 3. CAN-FD is PR 4.
 
 **********************
 Closed-loop (PR 2)
@@ -177,4 +173,84 @@ Known limits
 - GPU host and Open AD Kit image pull required.
 - Humble-only while Open AD Kit CARLA is Humble-only.
 - Placeholder DBC and simple actuator mapping still apply.
-- CES / FVP virtual-CAN is not this PR.
+- CES / FVP virtual-CAN is PR 3, not this PR.
+
+**********************
+Zephyr FVP (PR 3)
+**********************
+
+Goal: the same open-loop and closed-loop CARLA demos as PR 1 and PR 2,
+with Safety Island on ``zephyr-fvp --network tap`` instead of
+``freertos-posix``. Frames still terminate on ``vcan0``. The host
+decoder, watchdog, and CARLA bridge do not change.
+
+Native FVP CAN stays ``zephyr,can-loopback`` (unit tests only). This PR
+is a UDP batch tunnel over the existing TAP Ethernet path.
+
+.. mermaid::
+
+   graph LR
+       FVP[zephyr-fvp TAP]
+       TAP[LAN91C111 tap0]
+       GW[UDP-to-CAN gateway]
+       VCAN[SocketCAN vcan0]
+       Bridge[Host CAN-CARLA bridge]
+       CARLA[CARLA ego]
+
+       FVP -->|48-byte UDP batch| TAP
+       TAP --> GW
+       GW -->|0x100 0x101 0x102| VCAN
+       VCAN --> Bridge
+       Bridge -->|VehicleAckermannControl| CARLA
+
+Open-loop
+=========
+
+Same as PR 1, except the producer:
+
+- Build ``zephyr-fvp`` with ``--network tap --control-output CAN_ONLY``
+  (or ``DDS_AND_CAN``).
+- FVP ``192.168.10.2`` sends one UDP datagram per command to
+  ``192.168.10.1:5555``.
+- ``demo/can_tunnel_bridge/`` validates the datagram and injects classic
+  frames onto ``vcan0``.
+- Rosbag or canned DDS inputs on domain 2. No Open AD Kit.
+
+Closed-loop
+===========
+
+Same Open AD Kit rules as PR 2 (``CAN_ONLY``, sensors-only
+``autoware_carla_interface``, no dual-drive). Safety Island is
+``zephyr-fvp`` TAP plus the gateway, not ``freertos-posix``.
+
+Kconfig
+=======
+
+``CONTROL_CMD_OUTPUT_CAN_ONLY`` / ``DDS_AND_CAN`` must not ``select CAN``.
+Only ``CONFIG_CONTROL_CMD_CAN_TRANSPORT_NATIVE`` selects ``CAN``.
+``CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL`` selects ``NET_UDP`` /
+``NET_IPV4`` and does not require ``zephyr,canbus``.
+``platform_can.h`` includes ``zephyr_can_udp_tunnel.h`` on the TAP path
+so ``zephyr_can.h`` is not compiled.
+
+Watchdog
+========
+
+POSIX stays at 0.5 s. FVP is not real-time; the FVP demo and TAP
+integration job use a much larger configured timeout.
+
+Validation
+==========
+
+- Privilege-free: UDP pack/unpack unit tests; native loopback
+  ``--can-output-test`` unchanged.
+- Privileged: FVP TAP + gateway → ``vcan0`` → same decoder as PR 1.
+  No CARLA in CI.
+- Manual: PR 1 and PR 2 host demos with ``zephyr-fvp`` as the producer.
+
+Known limits
+============
+
+- CAN-over-UDP, not classic CAN end-to-end.
+- S32Z hardware CAN remains out of this stack.
+- CAN-FD is PR 4.
