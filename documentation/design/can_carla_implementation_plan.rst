@@ -83,9 +83,8 @@ Shared decisions
   ``autoware_carla_interface``.
 - **PR 1 (#49) local runtime is** ``freertos-posix`` **plus** ``vcan``.
   That matches issue #43 / PR #49 acceptance.
-- **Zephyr FVP TAP UDP is a follow-on PR**, not #49. It reuses the same
-  ``vcan0`` decoder after #43's "FVP host-bridged CAN" out-of-scope line
-  is updated. Native FVP CAN stays loopback-only.
+- **PR 3 is Zephyr FVP TAP UDP** (open-loop and closed-loop). It reuses
+  the same ``vcan0`` decoder. Native FVP CAN stays loopback-only.
 - **Native Zephyr S32Z is unchanged.** It keeps ``zephyr,canbus`` / ``&can0``.
   Hardware CAN into the host is out of this stack.
 - **Embedded FreeRTOS CAN is out of this stack.** ``freertos-s32z2`` and
@@ -411,13 +410,13 @@ PR 1 (#49) — ``freertos-posix`` + ``vcan``
 
 6. **Docs**
    Keep this page, :doc:`can_carla_integration`, and :doc:`can_output`
-   aligned. Closed-loop (PR 2) and CAN-FD (PR 3) stay stacked on the
-   same ``vcan0`` decoder.
+   aligned. Closed-loop is PR 2. Zephyr FVP is PR 3. CAN-FD is PR 4.
 
-Follow-on PR — Zephyr FVP TAP tunnel
-====================================
+PR 3 — Zephyr FVP TAP tunnel
+============================
 
-Update issue #43 / PR #49 out-of-scope before landing this PR.
+Open-loop and closed-loop with ``zephyr-fvp --network tap``. Same
+``vcan0`` decoder as PR 1 / PR 2.
 
 7. **Zephyr UDP transport and gateway**
    Kconfig as above (output modes do not ``select CAN``), TAP conf
@@ -444,8 +443,7 @@ Privilege-free (existing job, no extra capabilities)
 - Zephyr FVP ``zephyr,can-loopback`` on ``--can-output-test``.
 - Decoder state-machine unit tests, including wrap, ignored unknown
   IDs, contiguous accept after reject, and timeout.
-- Follow-on PR: UDP datagram pack/unpack and rejection of malformed
-  lengths.
+- PR 3: UDP datagram pack/unpack and rejection of malformed lengths.
 
 Privileged integration (explicit capabilities)
 ==============================================
@@ -458,7 +456,7 @@ no ``vcan`` / ``tun``.
 - PR 1: FreeRTOS POSIX ``ip link add vcan0 type vcan``,
   ``SAFETY_ISLAND_CAN_IFACE=vcan0``, encode → SocketCAN → decode.
   Watchdog: stop the producer and assert safe-stop (0.5 s).
-- Follow-on PR: Zephyr FVP TAP ``tap0`` at ``192.168.10.1/24``, FVP at
+- PR 3: Zephyr FVP TAP ``tap0`` at ``192.168.10.1/24``, FVP at
   ``192.168.10.2``, gateway → ``vcan0`` → same decoder, with the FVP
   timeout.
 
