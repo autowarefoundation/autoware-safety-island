@@ -6,6 +6,7 @@
 
 #include "autoware/autoware_msgs/messages.hpp"
 #include "common/can/control_command_can_output.hpp"
+#include "common/can/control_command_decoder.hpp"
 #include "common/can/control_command_encoder.hpp"
 #include "common/can/control_command_output_mode.hpp"
 #include "common/logger/logger.hpp"
@@ -142,7 +143,7 @@ static void assert_frame_equals(
   }
 }
 
-#if defined(PLATFORM_FREERTOS)
+#if defined(PLATFORM_FREERTOS_CAN_MOCK)
 static void test_freertos_can_output_records_frames()
 {
   using common::can::ControlCommandCanOutput;
@@ -162,7 +163,135 @@ static void test_freertos_can_output_records_frames()
   ASSERT_MSG(read_u16_le(common::can::platform::recorded_can_frame_at(2), 2) == 0U, "first send sequence");
   ASSERT_MSG(read_u16_le(common::can::platform::recorded_can_frame_at(5), 2) == 1U, "second send sequence");
 }
+
+static void test_failed_batch_does_not_advance_sequence()
+{
+  using common::can::ControlCommandCanOutput;
+  using common::can::ControlCommandOutputMode;
+
+  common::can::platform::reset_recorded_can_frames();
+  ControlCommandCanOutput output;
+  ASSERT_MSG(output.init(), "mock initializes");
+
+  auto nan_msg = make_sample_control_msg();
+  nan_msg.longitudinal.velocity = std::numeric_limits<float>::quiet_NaN();
+  ASSERT_MSG(!output.send(nan_msg, ControlCommandOutputMode::CAN_ONLY), "encode failure is reported");
+
+  common::can::platform::mock_send_fail_from = 1U;
+  ASSERT_MSG(!output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY), "mid-batch failure is reported");
+  ASSERT_MSG(common::can::platform::recorded_can_frame_count() == 1U, "failed batch recorded the first frame only");
+
+  common::can::platform::mock_send_fail_from = std::numeric_limits<std::size_t>::max();
+  ASSERT_MSG(output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY), "retry after failure succeeds");
+  ASSERT_MSG(common::can::platform::recorded_can_frame_count() == 4U, "retry records three more frames");
+  ASSERT_MSG(read_u16_le(common::can::platform::recorded_can_frame_at(3), 2) == 0U, "sequence is unchanged after failed batch");
+}
 #endif
+
+static void test_decoder_round_trip_and_watchdog()
+{
+  using common::can::ControlCommandDecoder;
+  using common::can::ControlCommandOutputMode;
+  using common::can::DecoderEvent;
+
+  const auto encoded = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 7U);
+  ASSERT_MSG(encoded.ok, "sample command encodes");
+
+  ControlCommandDecoder decoder;
+  ASSERT_MSG(decoder.feed(encoded.frames[0], 0.0) == DecoderEvent::Stored, "lateral stored");
+  ASSERT_MSG(decoder.feed(encoded.frames[1], 0.0) == DecoderEvent::Stored, "longitudinal stored");
+  ASSERT_MSG(decoder.feed(encoded.frames[2], 0.0) == DecoderEvent::Accepted, "status commits");
+  ASSERT_MSG(decoder.has_command(), "decoder has a command");
+  ASSERT_MSG(decoder.command().sequence == 7U, "decoded sequence");
+  ASSERT_MSG(std::fabs(decoder.command().steering_tire_angle - 0.125F) < 1e-6F, "decoded steer");
+  ASSERT_MSG(std::fabs(decoder.command().velocity - 12.25F) < 1e-4F, "decoded velocity");
+
+  common::can::CanFrame unknown{};
+  unknown.id = 0x200U;
+  unknown.dlc = 8U;
+  ASSERT_MSG(decoder.feed(unknown, 0.1) == DecoderEvent::Ignored, "unknown id ignored");
+
+  const auto next = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 9U);
+  ASSERT_MSG(decoder.feed(next.frames[0], 0.2) == DecoderEvent::Stored, "gap lateral stored");
+  ASSERT_MSG(decoder.feed(next.frames[1], 0.2) == DecoderEvent::Stored, "gap longitudinal stored");
+  ASSERT_MSG(decoder.feed(next.frames[2], 0.2) == DecoderEvent::Rejected, "sequence gap rejected");
+
+  const auto contiguous = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 8U);
+  ASSERT_MSG(decoder.feed(contiguous.frames[0], 0.3) == DecoderEvent::Stored, "contiguous lateral stored");
+  ASSERT_MSG(decoder.feed(contiguous.frames[1], 0.3) == DecoderEvent::Stored, "contiguous longitudinal stored");
+  ASSERT_MSG(decoder.feed(contiguous.frames[2], 0.3) == DecoderEvent::Accepted, "contiguous sequence accepted");
+
+  ASSERT_MSG(decoder.poll_watchdog(0.7, 0.5) == DecoderEvent::Ignored, "watchdog quiet inside timeout");
+  ASSERT_MSG(decoder.poll_watchdog(0.81, 0.5) == DecoderEvent::SafeStop, "watchdog fires");
+  ASSERT_MSG(decoder.in_safe_stop(), "decoder is in safe stop");
+
+  const auto after_stop = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 40U);
+  ASSERT_MSG(decoder.feed(after_stop.frames[0], 1.0) == DecoderEvent::Stored, "rebaseline lateral");
+  ASSERT_MSG(decoder.feed(after_stop.frames[1], 1.0) == DecoderEvent::Stored, "rebaseline longitudinal");
+  ASSERT_MSG(decoder.feed(after_stop.frames[2], 1.0) == DecoderEvent::Accepted, "rebaseline accepts any sequence");
+}
+
+static void test_decoder_sequence_wrap()
+{
+  using common::can::ControlCommandDecoder;
+  using common::can::ControlCommandOutputMode;
+  using common::can::DecoderEvent;
+
+  ControlCommandDecoder decoder;
+  const auto last = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 65535U);
+  ASSERT_MSG(decoder.feed(last.frames[0], 0.0) == DecoderEvent::Stored, "wrap start lateral");
+  ASSERT_MSG(decoder.feed(last.frames[1], 0.0) == DecoderEvent::Stored, "wrap start longitudinal");
+  ASSERT_MSG(decoder.feed(last.frames[2], 0.0) == DecoderEvent::Accepted, "wrap start accepted");
+
+  const auto wrapped = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 0U);
+  ASSERT_MSG(decoder.feed(wrapped.frames[0], 0.1) == DecoderEvent::Stored, "wrap lateral");
+  ASSERT_MSG(decoder.feed(wrapped.frames[1], 0.1) == DecoderEvent::Stored, "wrap longitudinal");
+  ASSERT_MSG(decoder.feed(wrapped.frames[2], 0.1) == DecoderEvent::Accepted, "65535 wraps to 0");
+}
+
+static void test_decoder_frame_assembly()
+{
+  using common::can::ControlCommandDecoder;
+  using common::can::ControlCommandOutputMode;
+  using common::can::DecoderEvent;
+
+  const auto encoded = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 0U);
+  ASSERT_MSG(encoded.ok, "sample encodes");
+
+  ControlCommandDecoder reorder;
+  ASSERT_MSG(reorder.feed(encoded.frames[1], 0.0) == DecoderEvent::Stored, "longitudinal first");
+  ASSERT_MSG(reorder.feed(encoded.frames[0], 0.0) == DecoderEvent::Stored, "lateral second");
+  ASSERT_MSG(reorder.feed(encoded.frames[2], 0.0) == DecoderEvent::Accepted, "reordered commit");
+
+  ControlCommandDecoder duplicate_decoder;
+  common::can::CanFrame duplicate = encoded.frames[0];
+  duplicate.data[0] = static_cast<uint8_t>(duplicate.data[0] + 1U);
+  ASSERT_MSG(duplicate_decoder.feed(encoded.frames[0], 0.0) == DecoderEvent::Stored, "first lateral");
+  ASSERT_MSG(duplicate_decoder.feed(duplicate, 0.0) == DecoderEvent::Stored, "duplicate lateral replaces");
+  ASSERT_MSG(duplicate_decoder.feed(encoded.frames[1], 0.0) == DecoderEvent::Stored, "longitudinal");
+  ASSERT_MSG(duplicate_decoder.feed(encoded.frames[2], 0.0) == DecoderEvent::Accepted, "commit after duplicate");
+
+  common::can::CanFrame bad = encoded.frames[0];
+  bad.dlc = 7U;
+  ControlCommandDecoder dlc_decoder;
+  ASSERT_MSG(dlc_decoder.feed(bad, 0.0) == DecoderEvent::Ignored, "bad DLC ignored");
+  ASSERT_MSG(dlc_decoder.feed(encoded.frames[1], 0.0) == DecoderEvent::Stored, "longitudinal stored");
+  ASSERT_MSG(dlc_decoder.feed(encoded.frames[2], 0.0) == DecoderEvent::Rejected, "commit without lateral");
+
+  common::can::CanFrame extended = encoded.frames[0];
+  extended.extended = true;
+  ControlCommandDecoder ext_decoder;
+  ASSERT_MSG(ext_decoder.feed(extended, 0.0) == DecoderEvent::Ignored, "extended ignored");
+  ASSERT_MSG(ext_decoder.feed(encoded.frames[1], 0.0) == DecoderEvent::Stored, "longitudinal only");
+  ASSERT_MSG(ext_decoder.feed(encoded.frames[2], 0.0) == DecoderEvent::Rejected, "commit without valid lateral");
+}
 
 #if defined(PLATFORM_ZEPHYR) && defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
 CAN_MSGQ_DEFINE(zephyr_can_rx_msgq, 8);
@@ -236,8 +365,12 @@ int main()
   test_encoder_payloads();
   test_dds_only_encoding_has_no_frames();
   test_non_finite_values_are_rejected();
-#if defined(PLATFORM_FREERTOS)
+  test_decoder_round_trip_and_watchdog();
+  test_decoder_sequence_wrap();
+  test_decoder_frame_assembly();
+#if defined(PLATFORM_FREERTOS_CAN_MOCK)
   test_freertos_can_output_records_frames();
+  test_failed_batch_does_not_advance_sequence();
 #elif defined(PLATFORM_ZEPHYR)
   #if defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
   test_zephyr_can_output_loopback();

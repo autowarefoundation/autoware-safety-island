@@ -47,23 +47,18 @@ public:
       return false;
     }
 
-    const uint16_t sequence = sequence_;
-    ++sequence_;
-    const auto encoded = encode_control_command(msg, mode, sequence);
+    const auto encoded = encode_control_command(msg, mode, sequence_);
     if (!encoded.ok) {
       common::logger::log_error("CAN control command encoding failed: %s", encoded.error);
       return false;
     }
 
-    for (std::size_t index = 0U; index < encoded.count; ++index) {
-      if (!platform::can_send(encoded.frames[index])) {
-        common::logger::log_error(
-          "CAN frame send failed for frame id=0x%03x",
-          static_cast<unsigned int>(encoded.frames[index].id));
-        return false;
-      }
+    if (!platform::can_send_batch(encoded.frames.data(), encoded.count)) {
+      common::logger::log_error("CAN control command batch send failed");
+      return false;
     }
 
+    ++sequence_;
     return true;
   }
 

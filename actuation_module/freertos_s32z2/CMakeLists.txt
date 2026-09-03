@@ -179,6 +179,10 @@ else()
     message(FATAL_ERROR "Unsupported CONFIG_CONTROL_CMD_OUTPUT_MODE=${CONFIG_CONTROL_CMD_OUTPUT_MODE}. Use DDS_ONLY, CAN_ONLY, or DDS_AND_CAN.")
 endif()
 
+if(NOT CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "DDS_ONLY")
+    message(FATAL_ERROR "CAN output is not supported on freertos-s32z2. Use DDS_ONLY.")
+endif()
+
 configure_file(
     ${ACTUATION_DIR}/include/platform/freertos/freertos_config_generated.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/generated/freertos_config_generated.h
