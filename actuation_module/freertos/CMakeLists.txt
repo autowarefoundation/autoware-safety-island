@@ -51,7 +51,7 @@ set(CDDS_TARGET_PREFIX ${REPO_ROOT}/build/cyclonedds_target_out CACHE PATH "Cycl
 
 # ---- Platform definition ----
 set(PLATFORM_FREERTOS ON)
-add_compile_definitions(PLATFORM_FREERTOS=1)
+add_compile_definitions(PLATFORM_FREERTOS=1 PLATFORM_FREERTOS_POSIX=1)
 
 # ---- Configurable values ----
 # These defaults mirror Zephyr Kconfig unless noted otherwise.
@@ -67,8 +67,9 @@ set(CONFIG_THREAD_STACK_SIZE 262144 CACHE STRING "Thread stack size in bytes")
 set(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX 0 CACHE STRING "DHCP delay (0 for simulator)")
 set(CONFIG_ENABLE_SNTP OFF CACHE BOOL "Enable SNTP time sync")
 
-# FreeRTOS POSIX defaults to DDS_AND_CAN so CI exercises the mock CAN path.
-set(CONFIG_CONTROL_CMD_OUTPUT_MODE "DDS_AND_CAN" CACHE STRING "Control command output mode: DDS_ONLY, CAN_ONLY, DDS_AND_CAN")
+# Runtime default is DDS_ONLY. SocketCAN is opt-in via --control-output and
+# SAFETY_ISLAND_CAN_IFACE. The in-memory mock is compiled only for --can-output-test.
+set(CONFIG_CONTROL_CMD_OUTPUT_MODE "DDS_ONLY" CACHE STRING "Control command output mode: DDS_ONLY, CAN_ONLY, DDS_AND_CAN")
 set_property(CACHE CONFIG_CONTROL_CMD_OUTPUT_MODE PROPERTY STRINGS "DDS_ONLY" "CAN_ONLY" "DDS_AND_CAN")
 
 set(CONFIG_CONTROL_CMD_OUTPUT_DDS_ONLY 0)
@@ -214,6 +215,22 @@ target_compile_options(actuation_freertos PRIVATE
     -Wall -Wextra -Wno-unused-parameter
     -fexceptions -frtti
 )
+
+if(BUILD_TEST STREQUAL "4")
+    target_compile_definitions(actuation_freertos PRIVATE PLATFORM_FREERTOS_CAN_MOCK=1)
+endif()
+
+add_executable(can_vcan_roundtrip ${ACTUATION_DIR}/test/can_vcan_roundtrip.cpp)
+set_source_files_properties(${ACTUATION_DIR}/test/can_vcan_roundtrip.cpp PROPERTIES
+    COMPILE_DEFINITIONS "main=main"
+)
+target_include_directories(can_vcan_roundtrip PRIVATE
+    ${ACTUATION_DIR}/include
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+    ${CYCLONEDDS_INCLUDE_DIR}
+)
+target_link_libraries(can_vcan_roundtrip PRIVATE autoware_msgs pthread)
+target_compile_options(can_vcan_roundtrip PRIVATE -Wall -Wextra -Wno-unused-parameter -fexceptions)
 
 # ---- Host-compiled rpmsg_netif_core unit test (Task 5) ----
 # rpmsg_netif_core.{c,h} is deliberately OS-free, lwIP-free C so its framing
