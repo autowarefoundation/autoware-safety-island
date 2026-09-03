@@ -115,3 +115,66 @@ Known limits
 
 Closed-loop with Open AD Kit is the next stacked PR. CAN-FD is a parallel
 sketch PR on the same SocketCAN base.
+
+**********************
+Closed-loop (PR 2)
+**********************
+
+Goal: Autoware planning against CARLA, Safety Island as the controller,
+actuation still over CAN into the same host bridge.
+
+This layer depends on the open-loop SocketCAN backend and bridge. It does
+not add a second command sink.
+
+.. mermaid::
+
+   graph LR
+       subgraph carla_stack [Open AD Kit CARLA]
+           Sensors[autoware_carla_interface<br/>sensors only]
+           Planning[Autoware planning]
+           CARLA2[CARLA ego]
+       end
+
+       Bridge2[Host CAN-CARLA bridge]
+       DDS[domain bridge]
+       SI2[Safety Island<br/>CAN_ONLY]
+
+       CARLA2 --> Sensors
+       Sensors --> Planning
+       Planning -->|trajectory odom steer accel| DDS
+       DDS --> SI2
+       SI2 -->|classic CAN| Bridge2
+       Bridge2 -->|VehicleControl| CARLA2
+
+Rules
+=====
+
+- Safety Island builds with ``CAN_ONLY`` so
+  ``/control/trajectory_follower/control_cmd`` is not also published over DDS.
+- Autoware's onboard trajectory follower stays stubbed, same pattern as
+  ``demo/launch/control.launch.xml``.
+- ``autoware_carla_interface`` keeps sensor and localization publication.
+  Its vehicle-command apply path must be disabled or otherwise prevented from
+  fighting the CAN bridge. If a launch flag is missing upstream, document the
+  overlay used here rather than forking Open AD Kit.
+- Same placeholder frames, same mapping, same ``vcan0`` iface.
+- Compose glue lives in this repository and starts beside the Open AD Kit
+  CARLA sample. Do not vendor Open AD Kit sources.
+
+Validation
+==========
+
+- Manual: Town01 (or the Open AD Kit default), set a goal, engage, confirm
+  the ego moves under SI CAN commands and that ``candump vcan0`` shows
+  ``0x100`` / ``0x101`` / ``0x102``.
+- Confirm Autoware is not also applying ``control_cmd`` to CARLA (no dual
+  drive).
+- Still no CARLA job in this repository's GitHub Actions.
+
+Known limits
+============
+
+- GPU host and Open AD Kit image pull required.
+- Humble-only while Open AD Kit CARLA is Humble-only.
+- Placeholder DBC and simple actuator mapping still apply.
+- CES / FVP virtual-CAN is not this PR.
