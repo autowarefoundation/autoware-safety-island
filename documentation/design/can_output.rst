@@ -64,7 +64,11 @@ this to ``&can0`` in ``actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay``.
 Real bus validation requires the board CAN pins to be connected to an external
 CAN transceiver and bus.
 
-``freertos-posix`` uses an in-memory mock backend. The test program
+``freertos-posix`` uses an in-memory mock backend by default. The test program
 ``actuation_module/test/can_output_test.cpp`` validates the encoder, output
 modes, and recorded mock frames. CI builds and runs this as the FreeRTOS CAN
 output test phase.
+
+Host SocketCAN (``vcan`` or a real adapter) and the CARLA ego bridge are
+specified in :doc:`can_carla_integration`. That path is stacked work on top of
+this placeholder contract; it does not change the frame layout.
