@@ -2,6 +2,7 @@
 #define PLATFORM__ZEPHYR__CAN_H_
 
 #include <atomic>
+#include <cstddef>
 #include <cstring>
 #include <errno.h>
 
@@ -148,6 +149,16 @@ inline bool can_send(const CanFrame & frame)
   return true;
 }
 
+inline bool can_send_batch(const CanFrame * frames, const std::size_t count)
+{
+  for (std::size_t index = 0U; index < count; ++index) {
+    if (!can_send(frames[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 #else
 
 inline bool can_init()
@@ -156,6 +167,11 @@ inline bool can_init()
 }
 
 inline bool can_send(const CanFrame &)
+{
+  return false;
+}
+
+inline bool can_send_batch(const CanFrame *, const std::size_t)
 {
   return false;
 }

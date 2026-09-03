@@ -331,6 +331,10 @@ else()
     message(FATAL_ERROR "Unsupported CONFIG_CONTROL_CMD_OUTPUT_MODE=${CONFIG_CONTROL_CMD_OUTPUT_MODE}. Use DDS_ONLY, CAN_ONLY, or DDS_AND_CAN.")
 endif()
 
+if(NOT CONFIG_CONTROL_CMD_OUTPUT_MODE STREQUAL "DDS_ONLY")
+    message(FATAL_ERROR "CAN output is not supported on freertos-x5h. Use DDS_ONLY.")
+endif()
+
 # ${X5H_ACTUATION_DIR}, not CMAKE_CURRENT_SOURCE_DIR: see the header comment
 # at the top of this file -- CMAKE_CURRENT_SOURCE_DIR is the vendor's own
 # directory under a plain include().

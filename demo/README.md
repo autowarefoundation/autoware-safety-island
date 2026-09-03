@@ -32,6 +32,22 @@ Build and run the FreeRTOS POSIX runtime from the repository root with the same 
 
 Replace `wlp2s0` with the multicast-capable interface on your host, for example `eth0`.
 
+## FreeRTOS POSIX CAN to CARLA (open-loop)
+
+Bring up virtual CAN, build with CAN output, and run the host bridge. Details:
+`demo/can_carla_bridge/README.md`.
+
+```bash
+sudo ip link add vcan0 type vcan
+sudo ip link set up vcan0
+
+./build.sh --platform freertos-posix -d build/freertos-posix \
+  --control-output CAN_ONLY --dds-interface lo
+
+SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
+python3 demo/can_carla_bridge/bridge.py --interface vcan0 --dry-run
+```
+
 From this `demo/` directory, verify the bridge output:
 
 ```bash
