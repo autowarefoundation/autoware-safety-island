@@ -45,7 +45,8 @@ function usage() {
   echo -e "${GREEN}                         default: zephyr-fvp.${NC}"
   echo -e "${GREEN}    --network          ${NC}Network profile: default, tap. tap is valid for zephyr-fvp."
   echo -e "${GREEN}    --dds-interface    ${NC}DDS interface/IP selector for FreeRTOS targets."
-  echo -e "${GREEN}    --control-output   ${NC}FreeRTOS control output: DDS_ONLY, CAN_ONLY, DDS_AND_CAN."
+  echo -e "${GREEN}    --control-output   ${NC}Control output: DDS_ONLY, CAN_ONLY, DDS_AND_CAN."
+  echo -e "${GREEN}                         FreeRTOS and zephyr-fvp (CAN modes on FVP need --network tap).${NC}"
   echo -e "${GREEN}    -t                 ${NC}Zephyr target board: ${ZEPHYR_TARGET_LIST[*]}"
   echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]}.${NC}"
   echo -e "${GREEN}    -d                 ${NC}Build directory. Default: ${BUILD_DIR}."
@@ -68,6 +69,7 @@ function usage() {
   echo ""
   echo -e "${GREEN}    Examples:${NC}"
   echo -e "    $0 --platform zephyr-fvp --network tap -d build/zephyr-fvp-tap"
+  echo -e "    $0 --platform zephyr-fvp --network tap --control-output CAN_ONLY -d build/zephyr-fvp-tap-can"
   echo -e "    $0 --platform freertos-posix -d build/freertos-posix --dds-interface wlp2s0 --control-output DDS_ONLY"
   echo -e "    $0 --platform freertos-s32z2 -d build/freertos-s32z2 --dds-interface 192.168.0.105"
   echo -e "    $0 --platform freertos-x5h -d build/freertos-x5h"
@@ -249,9 +251,20 @@ function normalize_platform() {
     exit 1
   fi
 
-  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
-    echo -e "${RED}--control-output is only valid for --platform freertos-posix, freertos-s32z2, or freertos-x5h${NC}" 1>&2
+  if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ] && [ "${BUILD_PLATFORM}" != "zephyr-fvp" ]; then
+    echo -e "${RED}--control-output is only valid for --platform freertos-posix, freertos-s32z2, freertos-x5h, or zephyr-fvp${NC}" 1>&2
     exit 1
+  fi
+
+  if [ "${BUILD_PLATFORM}" = "zephyr-fvp" ]; then
+    case "${CONTROL_CMD_OUTPUT_MODE}" in
+      CAN_ONLY|DDS_AND_CAN)
+        if [ "${NETWORK_PROFILE}" != "tap" ] && [ "${BUILD_TEST_FLAG}" != "4" ]; then
+          echo -e "${RED}zephyr-fvp CAN output requires --network tap (native loopback is --can-output-test only)${NC}" 1>&2
+          exit 1
+        fi
+        ;;
+    esac
   fi
 
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
@@ -334,10 +347,14 @@ function build_zephyr_actuation_module() {
     extra_conf_files+=("${board_conf}")
   fi
 
+  local use_udp_tunnel=0
   if [ "${NETWORK_PROFILE}" = "tap" ]; then
     extra_conf_files+=("${ROOT_DIR}/actuation_module/boards/fvp_baser_aemv8r_smp_tap_network.conf")
     local fvp_tap_interface="${FVP_TAP_INTERFACE:-tap0}"
     export ARMFVP_EXTRA_FLAGS="${ARMFVP_EXTRA_FLAGS:-} -C bp.hostbridge.userNetworking=0 -C bp.hostbridge.interfaceName=${fvp_tap_interface}"
+    if [ "${BUILD_TEST_FLAG}" = "4" ] || [ "${CONTROL_CMD_OUTPUT_MODE}" = "CAN_ONLY" ] || [ "${CONTROL_CMD_OUTPUT_MODE}" = "DDS_AND_CAN" ]; then
+      use_udp_tunnel=1
+    fi
   fi
 
   # Add device tree overlay only for ARM board variant
@@ -347,13 +364,22 @@ function build_zephyr_actuation_module() {
 
   local can_loopback_conf="${ROOT_DIR}/actuation_module/boards/${target_base}_can_loopback.conf"
   local can_loopback_overlay="${ROOT_DIR}/actuation_module/boards/${target_base}_can_loopback.overlay"
-  if [ "${BUILD_TEST_FLAG}" = "4" ]; then
+  if [ "${BUILD_TEST_FLAG}" = "4" ] && [ "${use_udp_tunnel}" != "1" ]; then
     if [ -f "${can_loopback_conf}" ]; then
       extra_conf_files+=("${can_loopback_conf}")
     fi
     if [ -f "${can_loopback_overlay}" ]; then
       build_args+=(-DEXTRA_DTC_OVERLAY_FILE="${can_loopback_overlay}")
     fi
+  fi
+
+  if [ "${use_udp_tunnel}" = "1" ]; then
+    if [ "${CONTROL_CMD_OUTPUT_MODE}" = "DDS_AND_CAN" ]; then
+      extra_conf_files+=("${ROOT_DIR}/actuation_module/boards/fvp_baser_aemv8r_smp_output_dds_and_can.conf")
+    else
+      extra_conf_files+=("${ROOT_DIR}/actuation_module/boards/fvp_baser_aemv8r_smp_output_can_only.conf")
+    fi
+    extra_conf_files+=("${ROOT_DIR}/actuation_module/boards/fvp_baser_aemv8r_smp_can_udp_tunnel.conf")
   fi
 
   if [ "${#extra_conf_files[@]}" -gt 0 ]; then

@@ -98,3 +98,29 @@ Privilege-free (no CARLA):
   $ python3 demo/can_carla_bridge/test_decoder.py
   $ python3 demo/can_carla_bridge/test_bridge.py
   $ python3 demo/carla-closed-loop/test_contract.py
+  $ python3 demo/can_tunnel_bridge/test_datagram.py
+
+**********************
+Zephyr FVP TAP
+**********************
+
+Same open-loop and closed-loop host demos, with Safety Island on
+``zephyr-fvp --network tap`` instead of ``freertos-posix``. Frames still
+land on ``vcan0``. Native FVP CAN stays loopback-only.
+
+.. code-block:: console
+
+  $ sudo ip tuntap add dev tap0 mode tap user "$(id -un)" 2>/dev/null || true
+  $ sudo ip addr replace 192.168.10.1/24 dev tap0
+  $ sudo ip link set dev tap0 up
+  $ sudo ip link add vcan0 type vcan
+  $ sudo ip link set up vcan0
+  $ python3 demo/can_tunnel_bridge/gateway.py --bind 192.168.10.1 --port 5555
+  $ ./build.sh --platform zephyr-fvp --network tap --control-output CAN_ONLY \
+      -d build/zephyr-fvp-tap-can
+  $ west build -d build/zephyr-fvp-tap-can --target run
+  $ python3 demo/can_carla_bridge/bridge.py --interface vcan0 --timeout 5 \
+      --role ego_vehicle
+
+FVP is not real-time; use a larger ``--timeout`` than the 0.5 s POSIX default.
+Closed-loop still starts Open AD Kit ``safety-island-carla-simulation`` first.

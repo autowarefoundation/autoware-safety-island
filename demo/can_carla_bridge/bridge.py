@@ -44,7 +44,7 @@ def map_ackermann(
         abs(command.steering_tire_rotation_rate) if command.steering_rate_defined else cfg.slew
     )
     acceleration = command.acceleration if command.acceleration_defined else cfg.default_accel
-    if abs(command.velocity) <= STOP_SPEED or acceleration <= -1.0:
+    if abs(command.velocity) <= STOP_SPEED:
         return {
             "steer": steer,
             "steer_speed": steer_speed,

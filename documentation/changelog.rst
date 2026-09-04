@@ -34,6 +34,8 @@ Added
   Island ``CAN_ONLY``, domain-bridge on loopback, and host CAN-CARLA
   bridge. Autoware plus CARLA compose lives in Open AD Kit
   ``deployments/safety-island-carla-simulation/``.
+- Zephyr FVP TAP UDP CAN tunnel: one 48-byte datagram per command onto the
+  same ``vcan0`` decoder as FreeRTOS POSIX. Native FVP CAN stays loopback.
 
 Changed
 -------
