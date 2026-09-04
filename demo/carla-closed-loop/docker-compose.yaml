@@ -1,0 +1,16 @@
+services:
+  safety-island-bridge:
+    network_mode: host
+    build:
+      context: ../bridge
+      args:
+        ROS_DISTRO: humble
+    volumes:
+      - ./cyclonedds.xml:/autoware/cyclonedds.xml
+      - ./bridge-config.yaml:/autoware/bridge-config.yaml
+    environment:
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      ROS_DOMAIN_ID: 1
+      CYCLONEDDS_URI: file:///autoware/cyclonedds.xml
+    command: >
+      ros2 run domain_bridge domain_bridge --wait-for-publisher false /autoware/bridge-config.yaml

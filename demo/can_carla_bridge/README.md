@@ -24,8 +24,9 @@ Feed canned DDS inputs on domain 2 (rosbag or `--dds-publisher`). Then:
 
 ```bash
 python3 bridge.py --interface vcan0 --dry-run
-python3 bridge.py --interface vcan0 --host 127.0.0.1 --port 2000
+python3 bridge.py --interface vcan0 --host 127.0.0.1 --port 2000 --role ego_vehicle
 ```
 
 `--dry-run` prints decoded Ackermann fields and does not need CARLA.
-Watchdog timeout defaults to 0.5 s.
+Watchdog timeout defaults to 0.5 s. `--role` defaults to `ego_vehicle`
+(Open AD Kit). Closed-loop: `demo/carla-closed-loop/README.md`.
