@@ -19,6 +19,7 @@ hardware on S32Z.
 
    quickstart
    freertos_posix
+   can_carla_closed_loop
    avh
    s32z_board
    freertos_s32z2

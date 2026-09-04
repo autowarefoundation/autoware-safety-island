@@ -233,14 +233,7 @@ double calcLongitudinalOffsetToSegment(
   }
 
   if (seg_idx >= overlap_removed_points.size() - 1) {
-    const std::string error_message(
-      "[autoware_motion_utils] " + std::string(__func__) +
-      ": Longitudinal offset calculation is not supported for the same points.");
-    if (throw_exception) {
-      std::exit(1);
-    }
-    log_error("Trajectory: %s Return NaN since no_throw option is enabled. The maintainer must check the code.", error_message.c_str());
-    return std::nan("");
+    return 0.0;
   }
 
   const auto p_front = autoware::universe_utils::getPoint(overlap_removed_points.at(seg_idx));

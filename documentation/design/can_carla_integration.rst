@@ -113,5 +113,76 @@ Known limits
 - FVP TAP UDP is a follow-on PR, not this demo.
 - S32Z hardware CAN is not this demo.
 
-Closed-loop with Open AD Kit is the next stacked PR. CAN-FD is a parallel
-sketch PR on the same SocketCAN base.
+Closed-loop with Open AD Kit is PR 2. Zephyr FVP is a follow-on PR. CAN-FD
+is a parallel sketch on the same SocketCAN base.
+
+**********************
+Closed-loop (PR 2)
+**********************
+
+Goal: Autoware planning against CARLA, Safety Island as the controller,
+actuation still over CAN into the same host bridge.
+
+This layer depends on the open-loop SocketCAN backend and bridge. It does
+not add a second command sink.
+
+.. mermaid::
+
+   graph LR
+       subgraph carla_stack [Open AD Kit CARLA]
+           Sensors[autoware_carla_interface<br/>sensors only]
+           Planning[Autoware planning]
+           CARLA2[CARLA ego]
+       end
+
+       Bridge2[Host CAN-CARLA bridge]
+       DDS[domain bridge]
+       SI2[Safety Island<br/>CAN_ONLY]
+
+       CARLA2 --> Sensors
+       Sensors --> Planning
+       Planning -->|trajectory odom steer accel| DDS
+       DDS --> SI2
+       SI2 -->|classic CAN| Bridge2
+       Bridge2 -->|VehicleAckermannControl| CARLA2
+
+Rules
+=====
+
+- Safety Island builds with ``CAN_ONLY`` so
+  ``/control/trajectory_follower/control_cmd`` is not also published over DDS.
+- Autoware's onboard trajectory follower stays running so Auto/Engage can
+  set ``AUTONOMOUS``. It must not actuate CARLA: sensors-only
+  ``autoware_carla_interface`` skips ``apply_control()`` and remaps command
+  topics off the live path.
+- ``autoware_carla_interface`` keeps sensor and localization publication and
+  the CARLA world tick. It has no upstream sensor-only flag:
+  ``SensorLoop`` calls ``ego.apply_control()`` every tick. The overlay
+  ``demo/carla-closed-loop/overlay/patch_sensors_only.py`` skips that call.
+  Remap the raw-vehicle converter off the live command topics. Do not fork
+  Open AD Kit or Autoware Universe.
+- Same placeholder frames, same mapping, same ``vcan0`` iface.
+- Autoware plus CARLA compose lives in Open AD Kit
+  ``deployments/safety-island-carla-simulation/``. This repository starts
+  the domain-bridge, SI POSIX ``CAN_ONLY``, ``vcan0``, and the CAN-CARLA
+  bridge beside that deployment. Do not vendor Open AD Kit sources here.
+
+Validation
+==========
+
+- Manual: start Open AD Kit ``safety-island-carla-simulation`` (no
+  ``--drive``), then this repo's domain-bridge, SI ``CAN_ONLY``, and
+  CAN-CARLA bridge. Town01, set a goal, engage, confirm the ego moves
+  under SI CAN commands and that ``candump vcan0`` shows ``0x100`` /
+  ``0x101`` / ``0x102``.
+- Confirm Autoware is not also applying ``control_cmd`` to CARLA (no dual
+  drive): ``apply_control`` is patched out and the converter is remapped.
+- Still no CARLA job in this repository's GitHub Actions.
+
+Known limits
+============
+
+- GPU host and Open AD Kit image pull required.
+- Humble-only while Open AD Kit CARLA is Humble-only.
+- Placeholder DBC and simple actuator mapping still apply.
+- CES / FVP virtual-CAN is not this PR.
