@@ -68,9 +68,10 @@ def test_bridge_config_inputs() -> None:
         assert f"{topic}:" in text
         assert msg_type in text
         idx = text.index(topic)
-        chunk = text[idx : idx + 200]
+        chunk = text[idx : idx + 280]
         assert "from_domain: 1" in chunk
         assert "to_domain: 2" in chunk
+    assert "durability: transient_local" in text
 
 
 def test_topics_matrix() -> None:

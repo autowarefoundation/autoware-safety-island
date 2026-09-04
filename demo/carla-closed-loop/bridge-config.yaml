@@ -13,6 +13,11 @@ topics:
     type: autoware_adapi_v1_msgs/msg/OperationModeState
     from_domain: 1
     to_domain: 2
+    qos:
+      reliability: reliable
+      durability: transient_local
+      history: keep_last
+      depth: 1
   localization/kinematic_state:
     type: nav_msgs/msg/Odometry
     from_domain: 1

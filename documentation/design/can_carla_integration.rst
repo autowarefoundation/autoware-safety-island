@@ -186,7 +186,3 @@ Known limits
 - Humble-only while Open AD Kit CARLA is Humble-only.
 - Placeholder DBC and simple actuator mapping still apply.
 - CES / FVP virtual-CAN is not this PR.
-- The ego can overshoot the RViz goal by a few metres. SI PID loses the
-  stop line past the last trajectory point; CAN Ackermann braking lags.
-- ``/system/operation_mode/state`` is latched. Start the domain-bridge
-  and SI before Auto, or SI may never leave STOPPED.

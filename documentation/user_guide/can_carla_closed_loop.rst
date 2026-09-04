@@ -75,7 +75,9 @@ forwards the five controller inputs 1 → 2 and does not forward
 ``control_cmd`` (``CAN_ONLY``). Open AD Kit publishes
 ``/planning/trajectory``; the bridge remaps it to
 ``/planning/scenario_planning/trajectory`` on domain 2 for the SI
-subscriber.
+subscriber. ``/system/operation_mode/state`` is bridged with
+``transient_local`` durability so a late-joining SI still sees
+``AUTONOMOUS``.
 
 **********************
 Pins
@@ -84,21 +86,6 @@ Pins
 ``demo/carla-closed-loop/pins.env`` records the Open AD Kit git SHA and
 image refs after the first working host run. CARLA 0.9.16 is already
 digest-pinned. Component tags stay floating until that run.
-
-**********************
-Known issues
-**********************
-
-The ego can stop a few metres past the RViz goal. Autoware's trajectory
-ends at the goal with zero speed; the Safety Island PID then loses the
-stop line (``calcLongitudinalOffsetToSegment`` returns NaN once the ego
-is beyond the last point) and the CAN-to-CARLA Ackermann mapping adds
-braking delay. This is on the SI control/actuation path, not planning.
-
-Start the domain-bridge and Safety Island **before** clicking Auto.
-``/system/operation_mode/state`` is latched and not periodic; a bridge
-that joins after Engage may never forward ``AUTONOMOUS``, and SI stays
-STOPPED.
 
 **********************
 Tests
