@@ -107,6 +107,8 @@ If discovery stalls, check that ``SAFETY_ISLAND_DDS_INTERFACE`` and
 ``--dds-interface`` name the same multicast-capable host interface. See
 :doc:`troubleshooting`.
 
+Closed-loop Autoware planning against CARLA is :doc:`can_carla_closed_loop`.
+
 *************
 Test Builds
 *************

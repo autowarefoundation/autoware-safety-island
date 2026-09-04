@@ -60,16 +60,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--default-accel", type=float, default=1.0)
     parser.add_argument("--brake-accel", type=float, default=3.0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--role", default="ego_vehicle")
     return parser.parse_args()
 
 
-def find_ego(world):
-    for actor in world.get_actors():
-        if "vehicle" not in actor.type_id:
-            continue
-        if actor.attributes.get("role_name") == "hero":
-            return actor
-    vehicles = world.get_actors().filter("vehicle.*")
+def find_ego(world, role: str = "ego_vehicle"):
+    vehicles = [
+        actor for actor in world.get_actors() if "vehicle" in getattr(actor, "type_id", "")
+    ]
+    for wanted in (role, "ego_vehicle", "hero"):
+        for actor in vehicles:
+            if actor.attributes.get("role_name") == wanted:
+                return actor
     if not vehicles:
         raise RuntimeError("no CARLA vehicle found")
     return vehicles[0]
@@ -101,7 +103,7 @@ def main() -> int:
         carla = carla_mod
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
-        vehicle = find_ego(client.get_world())
+        vehicle = find_ego(client.get_world(), args.role)
 
     decoder = ControlCommandDecoder()
     last_steer = 0.0

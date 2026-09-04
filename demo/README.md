@@ -55,6 +55,31 @@ docker compose -f docker-compose.yaml -f docker-compose.posix.yaml exec safety-i
   'source /opt/ros/humble/setup.bash && source /opt/autoware/setup.bash && ROS_DOMAIN_ID=1 ros2 topic echo --once /control/trajectory_follower/control_cmd'
 ```
 
+## Open AD Kit closed-loop CAN to CARLA
+
+Autoware plus CARLA runs from Open AD Kit
+`deployments/safety-island-carla-simulation/`. This repository starts the
+domain-bridge, Safety Island `CAN_ONLY`, and the CAN-CARLA bridge. Details:
+`carla-closed-loop/README.md`.
+
+From the repository root:
+
+```bash
+export SAFETY_ISLAND_REPO=$PWD
+# in the Open AD Kit checkout:
+#   cd deployments/safety-island-carla-simulation && ./start.sh
+
+sudo ip link add vcan0 type vcan
+sudo ip link set up vcan0
+
+docker compose -f demo/carla-closed-loop/docker-compose.yaml up -d
+
+./build.sh --platform freertos-posix -d build/freertos-posix \
+  --control-output CAN_ONLY --dds-interface lo
+SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
+python3 demo/can_carla_bridge/bridge.py --interface vcan0 --role ego_vehicle
+```
+
 ## Zephyr FVP Safety Island
 
 The Zephyr FVP runtime uses the default compose file because `cyclonedds.xml` already pins DDS Domain 2 to `tap0`.
