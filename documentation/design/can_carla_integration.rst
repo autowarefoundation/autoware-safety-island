@@ -151,8 +151,10 @@ Rules
 
 - Safety Island builds with ``CAN_ONLY`` so
   ``/control/trajectory_follower/control_cmd`` is not also published over DDS.
-- Autoware's onboard trajectory follower stays stubbed, same pattern as
-  ``demo/launch/control.launch.xml``.
+- Autoware's onboard trajectory follower stays running so Auto/Engage can
+  set ``AUTONOMOUS``. It must not actuate CARLA: sensors-only
+  ``autoware_carla_interface`` skips ``apply_control()`` and remaps command
+  topics off the live path.
 - ``autoware_carla_interface`` keeps sensor and localization publication and
   the CARLA world tick. It has no upstream sensor-only flag:
   ``SensorLoop`` calls ``ego.apply_control()`` every tick. The overlay
@@ -184,3 +186,7 @@ Known limits
 - Humble-only while Open AD Kit CARLA is Humble-only.
 - Placeholder DBC and simple actuator mapping still apply.
 - CES / FVP virtual-CAN is not this PR.
+- The ego can overshoot the RViz goal by a few metres. SI PID loses the
+  stop line past the last trajectory point; CAN Ackermann braking lags.
+- ``/system/operation_mode/state`` is latched. Start the domain-bridge
+  and SI before Auto, or SI may never leave STOPPED.

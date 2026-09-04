@@ -2,7 +2,8 @@ inputs:
   - topic: /vehicle/status/steering_status
     type: autoware_vehicle_msgs/msg/SteeringReport
     direction: 1_to_2
-  - topic: /planning/scenario_planning/trajectory
+  - topic: /planning/trajectory
+    remap: /planning/scenario_planning/trajectory
     type: autoware_planning_msgs/msg/Trajectory
     direction: 1_to_2
   - topic: /localization/kinematic_state

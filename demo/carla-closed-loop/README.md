@@ -21,9 +21,10 @@ From the Open AD Kit checkout (no `--drive`):
 
 ```bash
 export SAFETY_ISLAND_REPO=/path/to/autoware-safety-island
-cd deployments/safety-island-carla-simulation
-./start.sh
+./openadkit run safety-island-carla-simulation --gpu
 ```
+
+Do not start `carla-simulation` first and recreate `carla-interface`.
 
 Then from this repository:
 
@@ -42,8 +43,10 @@ SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
 python3 demo/can_carla_bridge/bridge.py --interface vcan0 --role ego_vehicle
 ```
 
-In RViz: set a goal, engage. `candump vcan0` should show `0x100` / `0x101`
-/ `0x102`. Autoware must not apply `VehicleControl` to the ego.
+In RViz: set a goal, engage Auto. `candump vcan0` should show `0x100` /
+`0x101` / `0x102`. Autoware's follower may still compute; it must not apply
+`VehicleControl` to the ego. The domain-bridge remaps `/planning/trajectory`
+to `/planning/scenario_planning/trajectory` on domain 2.
 
 ## Pins
 

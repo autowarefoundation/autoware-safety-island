@@ -11,12 +11,13 @@
     </General>
 
     <Sizing>
-      <ReceiveBufferSize>16384B</ReceiveBufferSize>
-      <ReceiveBufferChunkSize>2048B</ReceiveBufferChunkSize>
+      <ReceiveBufferSize>2097152B</ReceiveBufferSize>
+      <ReceiveBufferChunkSize>131072B</ReceiveBufferChunkSize>
     </Sizing>
 
     <Discovery>
-      <ParticipantIndex>none</ParticipantIndex>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
     </Discovery>
   </Domain>
 
@@ -30,12 +31,13 @@
     </General>
 
     <Sizing>
-      <ReceiveBufferSize>16384B</ReceiveBufferSize>
-      <ReceiveBufferChunkSize>2048B</ReceiveBufferChunkSize>
+      <ReceiveBufferSize>2097152B</ReceiveBufferSize>
+      <ReceiveBufferChunkSize>131072B</ReceiveBufferChunkSize>
     </Sizing>
 
     <Discovery>
-      <ParticipantIndex>none</ParticipantIndex>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
     </Discovery>
   </Domain>
 </CycloneDDS>

@@ -17,14 +17,14 @@ Two repositories
 **********************
 
 - **Open AD Kit** ``deployments/safety-island-carla-simulation/``: CARLA,
-  sensors-only ``autoware_carla_interface``, Autoware planning with the
-  stubbed trajectory follower.
+  sensors-only ``autoware_carla_interface``. Autoware's trajectory follower
+  stays running so Auto/Engage works; it must not actuate CARLA.
 - **This repository**: domain-bridge, ``freertos-posix`` ``CAN_ONLY``,
   ``vcan0``, and ``demo/can_carla_bridge``.
 
 Do not vendor Open AD Kit sources here. Set ``SAFETY_ISLAND_REPO`` to this
 checkout when starting the Open AD Kit deployment so it can bind-mount
-``demo/launch/control.launch.xml`` and the sensors-only overlay.
+the sensors-only overlay.
 
 **********************
 Host loop
@@ -38,8 +38,11 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
    .. code-block:: console
 
      $ export SAFETY_ISLAND_REPO=/path/to/autoware-safety-island
-     $ cd /path/to/openadkit/deployments/safety-island-carla-simulation
-     $ ./start.sh
+     $ cd /path/to/openadkit
+     $ ./openadkit run safety-island-carla-simulation --gpu
+
+   Do not start ``carla-simulation`` first and recreate
+   ``carla-interface``. That leaves a second ego in CARLA and breaks NDT.
 
 2. From this repository:
 
@@ -58,7 +61,8 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
 
 Confirm Autoware is not applying ``VehicleControl`` to the ego. The overlay
 skips ``apply_control()``; the CAN bridge applies
-``VehicleAckermannControl``.
+``VehicleAckermannControl``. Autoware Auto/Engage is required so SI sees
+``AUTONOMOUS``; it does not mean Autoware drives CARLA.
 
 **********************
 DDS
@@ -68,7 +72,10 @@ Open AD Kit pins domain 1 to loopback. Closed-loop CycloneDDS in
 ``demo/carla-closed-loop/cyclonedds.xml`` pins domains 1 and 2 to ``lo``.
 Build the Safety Island with ``--dds-interface lo``. The domain-bridge
 forwards the five controller inputs 1 → 2 and does not forward
-``control_cmd`` (``CAN_ONLY``).
+``control_cmd`` (``CAN_ONLY``). Open AD Kit publishes
+``/planning/trajectory``; the bridge remaps it to
+``/planning/scenario_planning/trajectory`` on domain 2 for the SI
+subscriber.
 
 **********************
 Pins
@@ -77,6 +84,21 @@ Pins
 ``demo/carla-closed-loop/pins.env`` records the Open AD Kit git SHA and
 image refs after the first working host run. CARLA 0.9.16 is already
 digest-pinned. Component tags stay floating until that run.
+
+**********************
+Known issues
+**********************
+
+The ego can stop a few metres past the RViz goal. Autoware's trajectory
+ends at the goal with zero speed; the Safety Island PID then loses the
+stop line (``calcLongitudinalOffsetToSegment`` returns NaN once the ego
+is beyond the last point) and the CAN-to-CARLA Ackermann mapping adds
+braking delay. This is on the SI control/actuation path, not planning.
+
+Start the domain-bridge and Safety Island **before** clicking Auto.
+``/system/operation_mode/state`` is latched and not periodic; a bridge
+that joins after Engage may never forward ``AUTONOMOUS``, and SI stays
+STOPPED.
 
 **********************
 Tests

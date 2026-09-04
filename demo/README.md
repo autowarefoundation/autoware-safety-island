@@ -67,7 +67,7 @@ From the repository root:
 ```bash
 export SAFETY_ISLAND_REPO=$PWD
 # in the Open AD Kit checkout:
-#   cd deployments/safety-island-carla-simulation && ./start.sh
+#   ./openadkit run safety-island-carla-simulation --gpu
 
 sudo ip link add vcan0 type vcan
 sudo ip link set up vcan0
