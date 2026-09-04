@@ -63,13 +63,11 @@ config CONTROL_CMD_OUTPUT_DDS_ONLY
 
 config CONTROL_CMD_OUTPUT_CAN_ONLY
 	bool "CAN only"
-	select CAN
 	help
 	  Send final control commands only through CAN.
 
 config CONTROL_CMD_OUTPUT_DDS_AND_CAN
 	bool "DDS and CAN"
-	select CAN
 	help
 	  Publish final control commands through DDS and send placeholder CAN frames.
 
@@ -78,6 +76,40 @@ endchoice
 config CONTROL_CMD_CAN_OUTPUT
 	bool
 	default y if CONTROL_CMD_OUTPUT_CAN_ONLY || CONTROL_CMD_OUTPUT_DDS_AND_CAN
+
+choice CONTROL_CMD_CAN_TRANSPORT
+	prompt "CAN control-command transport"
+	default CONTROL_CMD_CAN_TRANSPORT_NATIVE
+	depends on CONTROL_CMD_CAN_OUTPUT
+	help
+	  Native CAN requires zephyr,canbus. The UDP tunnel does not.
+
+config CONTROL_CMD_CAN_TRANSPORT_NATIVE
+	bool "Native CAN controller"
+	select CAN
+	help
+	  Use chosen zephyr,canbus (S32Z hardware or FVP loopback tests).
+
+config CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL
+	bool "UDP tunnel over TAP"
+	select NET_IPV4
+	select NET_UDP
+	help
+	  One 48-byte UDP datagram per three-frame command. Does not
+	  select CAN and does not require zephyr,canbus.
+
+endchoice
+
+config CONTROL_CMD_CAN_TUNNEL_PEER
+	string "UDP tunnel peer IPv4 address"
+	default "192.168.10.1"
+	depends on CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL
+
+config CONTROL_CMD_CAN_TUNNEL_PORT
+	int "UDP tunnel peer UDP port"
+	default 5555
+	range 1 65535
+	depends on CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL
 
 config CONTROL_CMD_DDS_OUTPUT
 	bool

@@ -84,4 +84,8 @@ python3 "${ROOT_DIR}/demo/can_carla_bridge/test_decoder.py"
 python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
 echo "CAN bridge checks OK"
 
+echo "Phase 7 - CAN UDP tunnel pack/unpack"
+python3 "${ROOT_DIR}/demo/can_tunnel_bridge/test_datagram.py"
+echo "CAN UDP datagram tests OK"
+
 echo "FreeRTOS POSIX runtime validation OK"
