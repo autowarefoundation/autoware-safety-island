@@ -79,14 +79,25 @@ std::pair<TrajectoryPointMsg, size_t> lerpTrajectoryPoint(
 {
   TrajectoryPointMsg interpolated_point;
 
+  if (points.size() < 2) {
+    return std::make_pair(points.front(), static_cast<size_t>(0));
+  }
+
   const size_t seg_idx = autoware::motion_utils::findFirstNearestSegmentIndexWithSoftConstraints(
     points, pose, max_dist, max_yaw);
+  if (seg_idx >= points.size() - 1) {
+    return std::make_pair(points.back(), points.size() - 2);
+  }
 
   const double len_to_interpolated =
     autoware::motion_utils::calcLongitudinalOffsetToSegment(points, seg_idx, pose.position);
   const double len_segment =
     autoware::motion_utils::calcSignedArcLength(points, seg_idx, seg_idx + 1);
-  const double interpolate_ratio = std::clamp(len_to_interpolated / len_segment, 0.0, 1.0);
+  double interpolate_ratio = 0.0;
+  if (std::isfinite(len_to_interpolated) && std::isfinite(len_segment) &&
+      std::abs(len_segment) > 1.0e-6) {
+    interpolate_ratio = std::clamp(len_to_interpolated / len_segment, 0.0, 1.0);
+  }
 
   {
     const size_t i = seg_idx;
