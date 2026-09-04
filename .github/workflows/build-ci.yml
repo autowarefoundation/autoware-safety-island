@@ -140,3 +140,51 @@ jobs:
       - name: Run SocketCAN vcan roundtrip
         shell: bash
         run: .github/scripts/run-freertos-vcan-ci.sh
+
+  build-zephyr-fvp-tap:
+    name: Zephyr FVP TAP
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
+      options: --cap-add=NET_ADMIN --device /dev/net/tun
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Trust workspace (container runs as root)
+        shell: bash
+        run: git config --global --add safe.directory '*'
+
+      - name: Initialize build submodules (private s32ct_config excluded)
+        shell: bash
+        run: git submodule update --init --recursive cyclonedds zephyr freertos-kernel
+
+      - name: Restore Zephyr workspace cache
+        id: zephyr-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .west
+            zephyr
+            actuation_module/zephyr_modules
+          key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
+          restore-keys: zephyr-workspace-
+
+      - name: Initialize Zephyr workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip3 install -q -r zephyr/scripts/requirements-base.txt
+          pip3 install -q -r zephyr/scripts/requirements-build-test.txt
+          if [ "${{ steps.zephyr-cache.outputs.cache-hit }}" != "true" ]; then
+            [ -d .west ] || west init -l actuation_module
+            west update
+          fi
+          west zephyr-export
+
+      - name: Run Zephyr FVP TAP tunnel
+        shell: bash
+        run: .github/scripts/run-zephyr-fvp-tap-ci.sh

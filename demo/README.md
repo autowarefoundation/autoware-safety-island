@@ -115,6 +115,25 @@ Run FVP:
 west build -d build/zephyr-fvp-tap --target run
 ```
 
+## Zephyr FVP CAN to CARLA (TAP UDP)
+
+FVP has no host-reachable CAN IP. Classic frames reach `vcan0` as one UDP
+datagram per command. Details: `demo/can_tunnel_bridge/README.md`.
+
+```bash
+sudo ip tuntap add dev tap0 mode tap user "$(id -un)" 2>/dev/null || true
+sudo ip addr replace 192.168.10.1/24 dev tap0
+sudo ip link set dev tap0 up
+sudo ip link add vcan0 type vcan
+sudo ip link set up vcan0
+
+./build.sh --platform zephyr-fvp --network tap --control-output CAN_ONLY \
+  -d build/zephyr-fvp-tap-can
+python3 demo/can_tunnel_bridge/gateway.py --bind 192.168.10.1 --port 5555
+west build -d build/zephyr-fvp-tap-can --target run
+python3 demo/can_carla_bridge/bridge.py --interface vcan0 --timeout 5 --role ego_vehicle
+```
+
 From this `demo/` directory, verify the bridge output:
 
 ```bash

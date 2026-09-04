@@ -5,6 +5,7 @@
 #include <limits>
 
 #include "autoware/autoware_msgs/messages.hpp"
+#include "common/can/can_udp_tunnel.hpp"
 #include "common/can/control_command_can_output.hpp"
 #include "common/can/control_command_decoder.hpp"
 #include "common/can/control_command_encoder.hpp"
@@ -13,9 +14,14 @@
 #include "platform/platform_can.h"
 
 #if defined(PLATFORM_ZEPHYR)
-  #include <zephyr/device.h>
-  #include <zephyr/drivers/can.h>
   #include <zephyr/kernel.h>
+  #if defined(CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL) && \
+    CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL
+    #include "common/dds/network_config.hpp"
+  #elif defined(CONFIG_CAN)
+    #include <zephyr/device.h>
+    #include <zephyr/drivers/can.h>
+  #endif
 #endif
 
 using common::logger::log_error;
@@ -293,7 +299,52 @@ static void test_decoder_frame_assembly()
   ASSERT_MSG(ext_decoder.feed(encoded.frames[2], 0.0) == DecoderEvent::Rejected, "commit without valid lateral");
 }
 
-#if defined(PLATFORM_ZEPHYR) && defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
+static void test_udp_tunnel_pack_unpack()
+{
+  using common::can::ControlCommandOutputMode;
+  const auto encoded = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 42U);
+  ASSERT_MSG(encoded.ok, "sample encodes for UDP tunnel");
+
+  const auto packed = common::can::pack_can_udp_tunnel(encoded.frames.data(), encoded.count, 42U);
+  ASSERT_MSG(packed.ok, "pack succeeds");
+  ASSERT_MSG(packed.bytes[0] == 0x43U, "magic C");
+  ASSERT_MSG(packed.bytes[1] == 0x54U, "magic T");
+  ASSERT_MSG(packed.bytes[2] == 1U, "version 1");
+  ASSERT_MSG(packed.bytes[3] == 0x01U, "classic batch flag");
+  ASSERT_MSG(packed.bytes[6] == 0U && packed.bytes[7] == 0U && packed.bytes[47] == 0U, "reserved zero");
+
+  const auto unpacked = common::can::unpack_can_udp_tunnel(packed.bytes.data(), packed.bytes.size());
+  ASSERT_MSG(unpacked.ok, "unpack succeeds");
+  ASSERT_MSG(unpacked.sequence == 42U, "header sequence");
+  assert_frame_equals(unpacked.frames[0], encoded.frames[0], "unpacked lateral");
+  assert_frame_equals(unpacked.frames[1], encoded.frames[1], "unpacked longitudinal");
+  assert_frame_equals(unpacked.frames[2], encoded.frames[2], "unpacked status");
+
+  ASSERT_MSG(
+    !common::can::unpack_can_udp_tunnel(packed.bytes.data(), 47U).ok, "short datagram rejected");
+  auto swapped = packed.bytes;
+  swapped[0] = 0x54U;
+  swapped[1] = 0x43U;
+  ASSERT_MSG(!common::can::unpack_can_udp_tunnel(swapped.data(), swapped.size()).ok, "TC magic rejected");
+  auto bad_version = packed.bytes;
+  bad_version[2] = 2U;
+  ASSERT_MSG(!common::can::unpack_can_udp_tunnel(bad_version.data(), bad_version.size()).ok, "version rejected");
+  auto bad_flags = packed.bytes;
+  bad_flags[3] = 0U;
+  ASSERT_MSG(!common::can::unpack_can_udp_tunnel(bad_flags.data(), bad_flags.size()).ok, "flags rejected");
+  auto bad_reserved = packed.bytes;
+  bad_reserved[47] = 1U;
+  ASSERT_MSG(
+    !common::can::unpack_can_udp_tunnel(bad_reserved.data(), bad_reserved.size()).ok,
+    "reserved rejected");
+  ASSERT_MSG(
+    !common::can::pack_can_udp_tunnel(encoded.frames.data(), encoded.count, 41U).ok,
+    "sequence mismatch rejected");
+}
+
+#if defined(PLATFORM_ZEPHYR) && defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && \
+  CONFIG_CONTROL_CMD_CAN_OUTPUT && defined(CONFIG_CAN)
 CAN_MSGQ_DEFINE(zephyr_can_rx_msgq, 8);
 
 static common::can::CanFrame to_common_can_frame(const struct can_frame & frame)
@@ -358,6 +409,25 @@ static void test_zephyr_can_output_loopback()
 }
 #endif
 
+#if defined(PLATFORM_ZEPHYR) && defined(CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL) && \
+  CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL
+static void test_zephyr_can_udp_tunnel_send()
+{
+  using common::can::ControlCommandCanOutput;
+  using common::can::ControlCommandOutputMode;
+
+  ASSERT_MSG(configure_network() == 0, "TAP network configures");
+  ControlCommandCanOutput output;
+  ASSERT_MSG(output.init(), "CAN UDP tunnel initializes");
+  ASSERT_MSG(
+    output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY),
+    "first CAN UDP send succeeds");
+  ASSERT_MSG(
+    output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY),
+    "second CAN UDP send succeeds");
+}
+#endif
+
 int main()
 {
   log_info("=== Starting CAN output tests ===");
@@ -368,11 +438,15 @@ int main()
   test_decoder_round_trip_and_watchdog();
   test_decoder_sequence_wrap();
   test_decoder_frame_assembly();
+  test_udp_tunnel_pack_unpack();
 #if defined(PLATFORM_FREERTOS_CAN_MOCK)
   test_freertos_can_output_records_frames();
   test_failed_batch_does_not_advance_sequence();
 #elif defined(PLATFORM_ZEPHYR)
-  #if defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
+  #if defined(CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL) && \
+    CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL
+  test_zephyr_can_udp_tunnel_send();
+  #elif defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
   test_zephyr_can_output_loopback();
   #else
   log_error("Zephyr CAN output test requires CONFIG_CONTROL_CMD_CAN_OUTPUT");

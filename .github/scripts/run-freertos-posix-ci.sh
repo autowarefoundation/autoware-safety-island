@@ -88,4 +88,8 @@ python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
 python3 "${ROOT_DIR}/demo/carla-closed-loop/test_contract.py"
 echo "closed-loop contract OK"
 
+echo "Phase 7 - CAN UDP tunnel pack/unpack"
+python3 "${ROOT_DIR}/demo/can_tunnel_bridge/test_datagram.py"
+echo "CAN UDP datagram tests OK"
+
 echo "FreeRTOS POSIX runtime validation OK"

@@ -43,6 +43,11 @@ SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
 python3 demo/can_carla_bridge/bridge.py --interface vcan0 --role ego_vehicle
 ```
 
+Zephyr FVP instead of `freertos-posix`: TAP at `192.168.10.1/24`, then
+`demo/can_tunnel_bridge/gateway.py` and
+`./build.sh --platform zephyr-fvp --network tap --control-output CAN_ONLY`.
+Use `--timeout 5` on the CAN-CARLA bridge. See `../can_tunnel_bridge/README.md`.
+
 In RViz: set a goal, engage Auto. `candump vcan0` should show `0x100` /
 `0x101` / `0x102`. Autoware's follower may still compute; it must not apply
 `VehicleControl` to the ego. The domain-bridge remaps `/planning/trajectory`
