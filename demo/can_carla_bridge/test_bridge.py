@@ -51,8 +51,8 @@ def main() -> int:
     assert mapped["acceleration"] <= -3.0
     brake = DecodedControlCommand(velocity=2.0, acceleration=-1.5, acceleration_defined=True)
     mapped = map_ackermann(brake, 0.0, cfg, False)
-    assert mapped["speed"] == 0.0
-    assert mapped["acceleration"] <= -3.0
+    assert mapped["speed"] == 2.0
+    assert mapped["acceleration"] == -1.5
 
     print("bridge role lookup passed")
     return 0

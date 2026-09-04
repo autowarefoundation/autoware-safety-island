@@ -1,0 +1,4 @@
+services:
+  safety-island-bridge:
+    volumes:
+      - ./cyclonedds.fvp-tap.xml:/autoware/cyclonedds.xml
