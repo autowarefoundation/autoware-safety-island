@@ -4,10 +4,11 @@ topics:
     type: autoware_vehicle_msgs/msg/SteeringReport
     from_domain: 1
     to_domain: 2
-  planning/scenario_planning/trajectory:
+  planning/trajectory:
     type: autoware_planning_msgs/msg/Trajectory
     from_domain: 1
     to_domain: 2
+    remap: planning/scenario_planning/trajectory
   system/operation_mode/state:
     type: autoware_adapi_v1_msgs/msg/OperationModeState
     from_domain: 1

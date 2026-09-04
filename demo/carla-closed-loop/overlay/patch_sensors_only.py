@@ -7,6 +7,14 @@ import sys
 from pathlib import Path
 
 APPLY = "self.ego_actor.apply_control(ego_action)"
+SPAWN_ANCHOR = "        spawn_point, randomize = self._parse_spawn_point()\n"
+DESTROY_BLOCK = (
+    "        for actor in list(self.world.get_actors()):\n"
+    '            if "vehicle" in getattr(actor, "type_id", "") and actor.attributes.get(\n'
+    '                "role_name"\n'
+    '            ) in ("ego_vehicle", "hero"):\n'
+    "                actor.destroy()\n"
+)
 
 
 def patch_sensors_only(text: str) -> str:
@@ -25,6 +33,14 @@ def patch_sensors_only(text: str) -> str:
     return "".join(lines)
 
 
+def patch_destroy_leftover_egos(text: str) -> str:
+    if DESTROY_BLOCK in text:
+        return text
+    if SPAWN_ANCHOR not in text:
+        return text
+    return text.replace(SPAWN_ANCHOR, DESTROY_BLOCK + SPAWN_ANCHOR, 1)
+
+
 def main() -> int:
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/opt/autoware")
     matches = sorted(root.glob("**/autoware_carla_interface/carla_autoware.py"))
@@ -36,14 +52,15 @@ def main() -> int:
         return 1
     path = matches[0]
     original = path.read_text()
-    updated = patch_sensors_only(original)
-    if APPLY not in original:
-        print(f"already sensors-only: {path}")
-        return 0
+    updated = patch_destroy_leftover_egos(patch_sensors_only(original))
     if updated == original:
-        print("apply_control not patched", file=sys.stderr)
+        print(f"already patched: {path}")
+        return 0
+    try:
+        path.write_text(updated)
+    except OSError as error:
+        print(f"could not write {path}: {error}", file=sys.stderr)
         return 1
-    path.write_text(updated)
     print(f"sensors-only: patched {path}")
     return 0
 

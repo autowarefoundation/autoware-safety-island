@@ -103,7 +103,9 @@ def main() -> int:
         carla = carla_mod
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
-        vehicle = find_ego(client.get_world(), args.role)
+        world = client.get_world()
+        world.wait_for_tick(seconds=10.0)
+        vehicle = find_ego(world, args.role)
 
     decoder = ControlCommandDecoder()
     last_steer = 0.0

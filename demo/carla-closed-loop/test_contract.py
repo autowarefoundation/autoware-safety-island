@@ -11,11 +11,17 @@ OVERLAY = ROOT / "overlay"
 BRIDGE = ROOT.parent / "can_carla_bridge"
 
 sys.path.insert(0, str(OVERLAY))
-from patch_sensors_only import APPLY, patch_sensors_only  # noqa: E402
+from patch_sensors_only import (  # noqa: E402
+    APPLY,
+    DESTROY_BLOCK,
+    SPAWN_ANCHOR,
+    patch_destroy_leftover_egos,
+    patch_sensors_only,
+)
 
 EXPECTED_INPUTS = {
     "vehicle/status/steering_status": "autoware_vehicle_msgs/msg/SteeringReport",
-    "planning/scenario_planning/trajectory": "autoware_planning_msgs/msg/Trajectory",
+    "planning/trajectory": "autoware_planning_msgs/msg/Trajectory",
     "system/operation_mode/state": "autoware_adapi_v1_msgs/msg/OperationModeState",
     "localization/kinematic_state": "nav_msgs/msg/Odometry",
     "localization/acceleration": "geometry_msgs/msg/AccelWithCovarianceStamped",
@@ -39,9 +45,25 @@ def test_overlay_skips_apply() -> None:
     assert patch_sensors_only(patched) == patched
 
 
+def test_overlay_destroys_leftover_egos() -> None:
+    sample = (
+        "        CarlaDataProvider.set_client(client)\n"
+        "        spawn_point, randomize = self._parse_spawn_point()\n"
+        "        self.ego_actor = CarlaDataProvider.request_new_actor(\n"
+        "            self.vehicle_type, spawn_point, self.agent_role_name, random_location=randomize\n"
+        "        )\n"
+    )
+    patched = patch_destroy_leftover_egos(sample)
+    assert DESTROY_BLOCK in patched
+    assert SPAWN_ANCHOR in patched
+    assert patched.index("actor.destroy()") < patched.index("request_new_actor")
+    assert patch_destroy_leftover_egos(patched) == patched
+
+
 def test_bridge_config_inputs() -> None:
     text = (ROOT / "bridge-config.yaml").read_text()
     assert "control/trajectory_follower/control_cmd" not in text
+    assert "remap: planning/scenario_planning/trajectory" in text
     for topic, msg_type in EXPECTED_INPUTS.items():
         assert f"{topic}:" in text
         assert msg_type in text
@@ -54,6 +76,7 @@ def test_bridge_config_inputs() -> None:
 def test_topics_matrix() -> None:
     text = (ROOT / "topics.yaml").read_text()
     assert "outputs: []" in text
+    assert "remap: /planning/scenario_planning/trajectory" in text
     for topic, msg_type in EXPECTED_INPUTS.items():
         assert f"/{topic}" in text
         assert msg_type in text
@@ -79,6 +102,7 @@ def test_overlay_files_exist() -> None:
 
 def main() -> int:
     test_overlay_skips_apply()
+    test_overlay_destroys_leftover_egos()
     test_bridge_config_inputs()
     test_topics_matrix()
     test_pins_carla_digest()
