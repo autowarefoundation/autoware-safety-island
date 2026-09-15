@@ -256,7 +256,7 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 // thread's mailbox -- see lwip_bringup.c's netif_add() call site -- so
 // nothing in lwIP's own protocol stack ever recurses onto THIS task's
 // stack). None of those frames hold a stack-local buffer sized anywhere
-// near RPMSG_ETH_MAX_FRAME (476B): unlike the vendor sample's own
+// near RPMSG_ETH_MAX_FRAME (1514B): unlike the vendor sample's own
 // rpmsg_endpoint_cb() (`char payload[RPMSG_BUFFER_SIZE]`, a 512-byte
 // stack-local it copies into before echoing), ept_cb() above forwards the
 // data pointer straight through with no local copy, and glue_rx_deliver()
@@ -265,6 +265,16 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 // (rpmsg_netif.c's s_tx_frame, hoisted to file scope for exactly this
 // reason) does not recur here because there is no per-call local frame
 // buffer on this path at all.
+//
+// Re-checked at the 1500-byte MTU (Task 4's RPMSG_ETH_MAX_FRAME == 1514):
+// the three facts above are unchanged by the frame-size raise -- s_tx_frame
+// (rpmsg_netif.c) is still file-scope `static`, so it grows in `.bss`, not
+// on any stack; ept_cb() above still forwards the data pointer with no
+// local copy; glue_rx_deliver() still copies into a pool-allocated pbuf,
+// not a stack buffer. So the "no stack-local buffer anywhere near frame
+// size" premise still holds and the 2048-byte stack conclusion below is
+// unaffected -- the raise moves bytes in `.bss` and the pbuf pool, not on
+// this task's stack.
 //
 // configMINIMAL_STACK_SIZE * 2 (2048 bytes / 512 words): matches this exact
 // vendor tree's own precedent for tasks with real (non-trivial, multi-frame)
@@ -276,7 +286,7 @@ static void ept_unbind(struct rpmsg_endpoint *ept) {
 // smmu_core.c page-table walker), neither of which applies to the shallow
 // chain above. Verified against build.sh's actual link, using
 // -fstack-usage/objdump evidence gathered after the first successful build:
-// this is not a guess left unchecked the way rpmsg_netif.c's own 476-byte
+// this is not a guess left unchecked the way rpmsg_netif.c's own 1514-byte
 // (RPMSG_ETH_MAX_FRAME) tx frame was before an earlier review caught it
 // (see that file's s_tx_frame comment).
 #define RPMSG_POLL_TASK_STACK_WORDS (configMINIMAL_STACK_SIZE * 2)

@@ -13,8 +13,8 @@ extern "C" {
 #endif
 
 #define RPMSG_ETH_SERVICE   "rpmsg-eth"
-#define RPMSG_ETH_MTU       462
-#define RPMSG_ETH_MAX_FRAME (RPMSG_ETH_MTU + 14)   /* + Ethernet header */
+#define RPMSG_ETH_MTU       1500
+#define RPMSG_ETH_MAX_FRAME (RPMSG_ETH_MTU + 14)   /* + Ethernet header = 1514 */
 
 typedef struct {
     int (*tx)(void *ctx, const void *frame, unsigned len); /* 0 on success */

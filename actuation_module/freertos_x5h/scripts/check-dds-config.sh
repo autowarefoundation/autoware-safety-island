@@ -281,8 +281,8 @@ if [ ! -f "${RPMSG_NETIF_CORE_H}" ]; then
 else
     require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: service name is not rpmsg-eth" \
         'RPMSG_ETH_SERVICE[[:space:]]+"rpmsg-eth"'
-    require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: MTU is not 462" \
-        'RPMSG_ETH_MTU[[:space:]]+462'
+    require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: MTU is not 1500" \
+        'RPMSG_ETH_MTU[[:space:]]+1500'
     require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: max frame is not (RPMSG_ETH_MTU + 14)" \
         'RPMSG_ETH_MAX_FRAME[[:space:]]+\(RPMSG_ETH_MTU \+ 14\)'
     require_match "${X5H_CMAKE}" "FreeRTOS side: RPMSG_BUFFER_SIZE is not 2048 (must equal the kernel's MAX_RPMSG_BUF_SIZE)" \
@@ -309,5 +309,5 @@ echo "  FreeRTOS side (${X5H_CMAKE#${REPO_ROOT}/}): interface=172.16.52.2 peer=1
 echo "  Linux side    (${ARM64_BUILD_SCRIPT#${REPO_ROOT}/}): interface=tap0 peer=172.16.52.2 domain=2 multicast=disabled max_msg_size=434 max_rexmit_msg_size=434 fragment_size=348"
 echo "  Linux side    (edge_ecu_peer/cyclonedds-x5h.xml, doc cross-check): domain=2 peer=172.16.52.2 multicast=disabled (exactly one <Peer>)"
 echo "  FreeRTOS side (${LWIP_BRINGUP#${REPO_ROOT}/}): ip=172.16.52.2 netmask=255.255.255.0 gw=172.16.52.1"
-echo "  RPMsg side    (${RPMSG_NETIF_CORE_H#${REPO_ROOT}/}): service=rpmsg-eth mtu=462 max_frame=(mtu+14)"
+echo "  RPMsg side    (${RPMSG_NETIF_CORE_H#${REPO_ROOT}/}): service=rpmsg-eth mtu=1500 max_frame=(mtu+14)"
 echo "  RPMsg side    (${RPMSG_NETIF_C#${REPO_ROOT}/}): CR52 mac=02:5c:52:00:00:02"

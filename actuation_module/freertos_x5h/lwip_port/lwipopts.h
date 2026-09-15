@@ -7,10 +7,11 @@
 // see actuation_module/freertos_x5h/scripts/check-image-budget.sh -- and
 // give it a correct, live-verified thread-priority layout).
 //
-// PBUF_POOL_BUFSIZE/TCP_MSS/MTU below are all sized around the 462-byte
-// RPMsg/OpenAMP payload budget the transport uses: MTU 462, TCP_MSS =
-// MTU - 40 (IPv4 20 + TCP 20) = 422, PBUF_POOL_BUFSIZE = one full 462-byte
-// frame plus lwIP's own pbuf/ETH/IP header overhead, rounded up.
+// PBUF_POOL_BUFSIZE/TCP_MSS/MTU below are all sized around the 1500-byte
+// RPMsg/OpenAMP payload budget the transport uses: MTU 1500, TCP_MSS =
+// MTU - 40 (IPv4 20 + TCP 20) = 1460, PBUF_POOL_BUFSIZE = one full
+// 1514-byte frame (1500 MTU + 14-byte Ethernet header) plus lwIP's own
+// pbuf/ETH/IP header overhead, rounded up.
 #ifndef PLATFORM_FREERTOS_X5H_LWIP_PORT_LWIPOPTS_H_
 #define PLATFORM_FREERTOS_X5H_LWIP_PORT_LWIPOPTS_H_
 
@@ -75,8 +76,8 @@
 // silently caps effective burst absorption well below the "64" the old
 // comment implied, to roughly 40 pbufs by the review's estimate.
 // Doubled to 128 rather than just correcting the comment: the cost is small
-// (128 * PBUF_POOL_BUFSIZE(520 B) = 65536 B total, i.e. +64 * 520 B =
-// +33280 B / +32.5 KiB over the previous 64) against the 10 MiB Core1 slot
+// (128 * PBUF_POOL_BUFSIZE(1560 B) = 199680 B total, i.e. +64 * 1560 B =
+// +99840 B / +97.5 KiB over the previous 64) against the 10 MiB Core1 slot
 // (~1.7 MiB free at 83.0%, see check-image-budget.sh output), and it
 // directly raises the real ceiling instead of leaving mailbox/reassembly
 // sizing arguments that describe a headroom this pool cannot actually
@@ -89,52 +90,18 @@
 // a real workload that needs more than ~2x the effective absorption the old
 // 64-deep pool gave; nothing observed on this link so far implies that.
 #define PBUF_POOL_SIZE              128
-#define PBUF_POOL_BUFSIZE           520   /* one full frame + pbuf overhead */
-// MEMP_NUM_REASSDATA / IP_REASS_MAX_PBUFS (Task 21) -- previously left at
-// lwIP's own defaults (5 / 10), which this file never mentioned even though
-// they matter more than most values it does spell out: with the pre-Task-21
-// CONFIG_DDS_MAX_MSG_SIZE (1400 B, ~4 IP fragments on this link's 434 B UDP
-// payload -- see the TCPIP_MBOX_SIZE comment above for that arithmetic), 10
-// pbufs across ALL concurrent reassemblies was only about two datagrams in
-// flight before lwIP started evicting the oldest partial one -- and losing
-// one fragment, or an evicted partial, silently discards the whole
-// datagram, with no IP-level retransmission (common/dds/config.hpp's own
-// Task 21 comment).
-//
-// Task 21's item 1 (CONFIG_DDS_MAX_MSG_SIZE/FRAGMENT_SIZE=434/348) makes
-// every RTPS-level fragment fit in one UDP datagram of its own (<=432 B,
-// see common/dds/config.hpp's derivation), so a single RTPS fragment never
-// itself needs IP reassembly -- but ddsi__cfgelems.h's own documented
-// caveat -- "especially for very low values of MaxMessageSize... larger
-// payloads may sporadically be observed (currently up to 1192 B)" -- means
-// CycloneDDS's ceiling is best-effort, not absolute, so reassembly capacity
-// is still needed for that residual case:
-//   worst-case residual fragments per datagram = ceil(1192 / 434) = 3.
-// MEMP_NUM_REASSDATA=8 budgets for up to 8 such oversized datagrams
-// reassembling concurrently (a discovery burst can carry the one SPDP
-// participant announce plus several SEDP endpoint announces close
-// together; this codebase's DDS entity count is small enough that 8 is a
-// generous, not exact, ceiling on how many could plausibly overlap).
-// IP_REASS_MAX_PBUFS = MEMP_NUM_REASSDATA * 3 = 24 follows directly from
-// that pairing. Sanity-checked against lwip/src/include/lwip/opt.h's own
-// documented invariant on this value ("configure PBUF_POOL_SIZE >
-// IP_REASS_MAX_PBUFS so the stack can still receive packets even with the
-// maximum amount of fragments enqueued for reassembly" -- the doubled
-// "PBUF_POOL_SIZE > 2 * IP_REASS_MAX_PBUFS" variant of that rule applies
-// only with IPv6 reassembly also enabled, and LWIP_IPV6=0 above): 128 > 24
-// holds with real margin (5.3x, not just >1x), leaving pbufs available for
-// the TCPIP_MBOX_SIZE/socket-recvmbox queues above rather than reassembly
-// alone being able to claim the entire pool.
-//
-// What would make this wrong: if a real discovery burst turns out to carry
-// materially more than 8 concurrently-oversized datagrams, the 9th+ would
-// still evict the oldest partial reassembly exactly as before this change,
-// just at a higher watermark -- diagnosable the same way Task 18 found the
-// original mailbox-overflow defect (rx_drop_input_err/the reassembly
-// timeout path), not a silent regression.
+#define PBUF_POOL_BUFSIZE           1560  /* one full 1514-byte frame + pbuf overhead */
+// Reassembly sizing after the 1500-byte MTU. DDS is configured with
+// MaxMessageSize 1400 (see edge_ecu_peer/cyclonedds-x5h.xml and the Linux
+// side's cyclonedds-x5h.xml), which fits one 1472-byte UDP payload, so no
+// datagram the peer sends is IP-fragmented by design. MEMP_NUM_REASSDATA 8
+// and IP_REASS_MAX_PBUFS 24 stay as a safety net for a misconfigured peer
+// (a 1400-byte sample plus headers never needs more than 2 pbufs, so 24
+// covers 8 concurrent datagrams with margin). PBUF_POOL_SIZE 128 > 24 keeps
+// lwip/opt.h's documented invariant.
 #define MEMP_NUM_REASSDATA            8
 #define IP_REASS_MAX_PBUFS           24
-#define TCP_MSS                     422   /* MTU 462 - 40 */
+#define TCP_MSS                     1460  /* MTU 1500 - 40 */
 // 8, not the S32Z2 bench's 16: CycloneDDS opens up to 5 UDP sockets for a
 // single participant with multicast (unicast disc+data, multicast
 // disc+data, one transmit conn), but CONFIG_DDS_DISABLE_MULTICAST=1 on this

@@ -14,9 +14,18 @@
 #include <string.h>
 #include "rpmsg_netif_core.h"
 
-static unsigned char last_tx[600]; static unsigned last_tx_len; static int tx_rc;
+/* The wire constants are frozen with the Linux daemon (openadkit
+ * rpmsg-eth.c MAX_FRAME_LEN 1514). A change on one side only is a silent
+ * link failure on the board, so pin them here. */
+_Static_assert(RPMSG_ETH_MTU == 1500, "RPMSG_ETH_MTU must be 1500");
+_Static_assert(RPMSG_ETH_MAX_FRAME == 1514, "RPMSG_ETH_MAX_FRAME must be 1514");
+
+/* Sized to RPMSG_ETH_MAX_FRAME, not a round number: rpmsg_netif_core_tx/rx
+ * only ever forward a frame to these mocks after checking len <=
+ * RPMSG_ETH_MAX_FRAME, so this is the largest copy either mock ever sees. */
+static unsigned char last_tx[RPMSG_ETH_MAX_FRAME]; static unsigned last_tx_len; static int tx_rc;
 static int mock_tx(void *ctx, const void *f, unsigned l) { (void)ctx; memcpy(last_tx, f, l); last_tx_len = l; return tx_rc; }
-static unsigned char last_rx[600]; static unsigned last_rx_len;
+static unsigned char last_rx[RPMSG_ETH_MAX_FRAME]; static unsigned last_rx_len;
 static void mock_rx(void *ctx, const void *f, unsigned l) { (void)ctx; memcpy(last_rx, f, l); last_rx_len = l; }
 
 int main(void) {

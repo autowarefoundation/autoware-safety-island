@@ -35,9 +35,9 @@ static unsigned s_rx_drop_no_pbuf;
 static unsigned s_rx_drop_input_err;
 
 // Outbound frame staging buffer. File-scope static, not a linkoutput()
-// stack-local: RPMSG_ETH_MAX_FRAME is 476 bytes, and every task on this port
+// stack-local: RPMSG_ETH_MAX_FRAME is 1514 bytes, and every task on this port
 // (including the socket-send caller under LOCK_TCPIP_CORE(), see
-// lwip_bringup.c) runs on a 1 KiB-class FreeRTOS stack. A 476-byte
+// lwip_bringup.c) runs on a 1 KiB-class FreeRTOS stack. A 1514-byte
 // stack-local here would have stacked on top of the caller's own frame on
 // the same path -- confirmed via -fstack-usage/objdump measurement of the
 // worst-case call chain (see rpmsg_transport.c's own stack-sizing comment
