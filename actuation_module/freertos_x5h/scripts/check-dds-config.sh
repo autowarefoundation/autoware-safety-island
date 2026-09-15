@@ -285,6 +285,8 @@ else
         'RPMSG_ETH_MTU[[:space:]]+462'
     require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: max frame is not (RPMSG_ETH_MTU + 14)" \
         'RPMSG_ETH_MAX_FRAME[[:space:]]+\(RPMSG_ETH_MTU \+ 14\)'
+    require_match "${X5H_CMAKE}" "FreeRTOS side: RPMSG_BUFFER_SIZE is not 2048 (must equal the kernel's MAX_RPMSG_BUF_SIZE)" \
+        'RPMSG_BUFFER_SIZE=2048'
 fi
 if [ ! -f "${RPMSG_NETIF_C}" ]; then
     record_fail "missing RPMsg netif glue: ${RPMSG_NETIF_C#${REPO_ROOT}/}"

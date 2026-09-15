@@ -238,10 +238,18 @@ set_target_properties(actuation_x5h PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
+# RPMSG_BUFFER_SIZE=2048 mirrors the kernel patch
+# openadkit kernel/patches/0001-rpmsg-virtio-raise-buffer-size-to-2048.patch.
+# OpenAMP's rpmsg_virtio.h only reads this under #ifndef, and in the device
+# role the buffers themselves come from the vrings Linux publishes, so the
+# library build (ExternalProject, vendor CMake) does not need it. Our own
+# translation units do: rpmsg_transport.c's static assert derives the
+# 1514-byte frame ceiling from it.
 target_compile_definitions(actuation_x5h PRIVATE
     PLATFORM_FREERTOS=1
     PLATFORM_FREERTOS_X5H=1
     MFIS_CHAN=${MFIS_CHAN}
+    RPMSG_BUFFER_SIZE=2048
 )
 
 # Unlike freertos_s32z2, no target_compile_options()/target_link_libraries(dummy)/
@@ -641,6 +649,7 @@ target_compile_definitions(netif_only_x5h PRIVATE
     PLATFORM_FREERTOS_X5H=1
     MFIS_CHAN=${MFIS_CHAN}
     X5H_NETIF_ONLY=1
+    RPMSG_BUFFER_SIZE=2048
 )
 
 target_include_directories(netif_only_x5h PRIVATE

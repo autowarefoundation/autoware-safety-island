@@ -84,8 +84,9 @@
 // incomplete type here and does not compile. Reaching into the internal header
 // to recover one integer would couple this target to OpenAMP's private layout
 // for no benefit. 16 is the on-wire RPMsg header size the spec's buffer budget
-// is already derived from (512-byte buffer - 16-byte header = 496 payload),
-// so it is the same number the frozen constants were computed against.
+// is already derived from (2048-byte buffer - 16-byte header = 2032 payload,
+// which leaves 518 bytes above the 1514-byte frame ceiling), so it is the
+// same number the frozen constants were computed against.
 #define RPMSG_HDR_BYTES 16
 _Static_assert(RPMSG_ETH_MAX_FRAME <= RPMSG_BUFFER_SIZE - RPMSG_HDR_BYTES,
                "RPMSG_ETH_MAX_FRAME must fit within one RPMsg buffer after the header");
