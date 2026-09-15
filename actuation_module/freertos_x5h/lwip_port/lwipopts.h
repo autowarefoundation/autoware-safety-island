@@ -160,34 +160,42 @@
 // glue_rx_deliver() (rpmsg_netif.c) does one `pbuf_alloc(PBUF_RAW, len,
 // PBUF_POOL)` per inbound RPMsg message and hands it straight to
 // netif->input(), which is what queues into TCPIP_MBOX -- before IP
-// reassembly, before UDP demux. Item 1 (CONFIG_DDS_MAX_MSG_SIZE/
-// FRAGMENT_SIZE=434/348) does not change how many link frames a given
-// sample costs: the total bytes on the wire for a sample are roughly the
-// same either way, and this link's per-frame payload capacity (~434 B) is
-// unchanged, so the total frame count a sample needs is roughly conserved
-// regardless of whether CycloneDDS internally slices it into one big
-// IP-fragmented UDP datagram or several small RTPS-fragmented ones -- the
-// brief's own Fact 1 established exactly this (a 1400 B payload costs the
-// same ~4 link frames whoever splits it). So item 1 relieves close to zero
-// TCPIP_MBOX pressure; it is the reassembly-loss fix (item 1's real job),
-// not a mailbox-pressure fix.
+// reassembly, before UDP demux. Under Task 21's 434/348 sizing, this
+// link's per-frame payload capacity was ~434 B (462 MTU - 20 IPv4 - 8 UDP),
+// and a sample's total link-frame count was roughly the same whether
+// CycloneDDS internally sliced it into one big IP-fragmented UDP datagram
+// or several small RTPS-fragmented ones -- the brief's own Fact 1
+// established exactly this (a 1400 B payload cost the same ~4 link frames
+// whoever split it). So item 1 relieved close to zero TCPIP_MBOX pressure
+// back then; it was the reassembly-loss fix (item 1's real job), not a
+// mailbox-pressure fix.
 //
-// DEFAULT_UDP_RECVMBOX_SIZE goes the OTHER way under item 1, and by more
+// DEFAULT_UDP_RECVMBOX_SIZE went the OTHER way under item 1, and by more
 // than a little: before, a large sample (e.g. Trajectory ~908 B, Odometry
 // ~724 B -- exactly the Linux->CR52 traffic behind the no_firstcontact
 // failure this task exists to fix) arrived as its IP fragments got
 // silently reassembled by lwIP into ONE complete UDP datagram before ever
 // reaching the socket layer, so it cost few DEFAULT_UDP_RECVMBOX entries
 // (one per RTPS-level fragment CycloneDDS itself used, not per IP
-// fragment). After item 1, each RTPS fragment IS its own complete,
-// unfragmented UDP datagram (see common/dds/config.hpp's derivation: a
-// single fragment now fits under the IP MTU on its own), so it is
-// delivered to the socket recvmbox directly, with NO IP reassembly step to
-// coalesce it with its siblings first -- a sample that used to need N
-// small reassembly buffers behind ~1 recvmbox entry now needs N separate
-// recvmbox entries instead. Trajectory (~908 B / 348 B-per-fragment = 3
-// fragments) roughly triples its DEFAULT_UDP_RECVMBOX demand versus the
-// pre-Task-21 shape.
+// fragment). After item 1, each RTPS fragment became its own complete,
+// unfragmented UDP datagram at the 434/348 sizing's ~434 B per-frame
+// capacity, so it was delivered to the socket recvmbox directly, with no
+// IP reassembly step to coalesce it with its siblings first -- a sample
+// that used to need N small reassembly buffers behind ~1 recvmbox entry
+// now needed N separate recvmbox entries instead. Trajectory (~908 B / 348
+// B-per-fragment = 3 fragments) roughly tripled its DEFAULT_UDP_RECVMBOX
+// demand versus the pre-Task-21 shape.
+//
+// UPDATE (Task 5): the 434/348 sizing above is gone. This link now runs a
+// 1400 B max message size (common/dds/config.hpp's own #ifndef default,
+// see that file's "DDS datagram sizing" comment) and a 1344 B fragment
+// size (CycloneDDS's own default) on the 1500 B MTU rpmsg_netif_core.h now
+// carries. Per-frame UDP payload capacity is ~1472 B (1500 - 20 - 8), not
+// ~434 B, so Trajectory (~908 B) and Odometry (~724 B) each now fit inside
+// ONE fragment, needing ONE recvmbox entry apiece instead of three. Both
+// mailboxes' real demand went DOWN, not up, so the conclusion below (64
+// for both) is unaffected -- it is now a conservative margin, not the
+// tight fit Task 21 originally computed.
 //
 // Both mailboxes are raised to 64 anyway, and 64 is still the right number
 // -- but for a different reason than "absorbs more datagrams per burst":

@@ -11,9 +11,16 @@
       own comment on CONFIG_DDS_NETWORK_INTERFACE=tap0)
     - multicast disabled: the RPMsg link is point-to-point, so there is no
       multicast to fall back on in either direction.
-    - max message size 1400B, fragment size 1344B: CycloneDDS's own
-      defaults, unchanged since the RPMsg-netif MTU was raised to 1500B and
-      the earlier 434/348 sizing (Task 21, for a 462-byte MTU) was deleted.
+    - max message size 1400B: common/dds/config.hpp's own #ifndef
+      CONFIG_DDS_MAX_MSG_SIZE default, NOT CycloneDDS's own default (which is
+      14720B). Listing it here is load-bearing, not decoration: a future
+      CYCLONEDDS_URI-honoring consumer that skipped this element would fall
+      back to Cyclone's 14720B default and IP-fragment on this 1500B-MTU
+      link, the exact failure this branch exists to prevent.
+    - fragment size 1344B: this one IS CycloneDDS's own default fragment
+      size, listed here as part of the record, not because it needs pinning.
+    Both replace the earlier 434/348 sizing (Task 21, for a 462-byte MTU),
+    deleted now that the RPMsg-netif MTU is 1500B.
 
   NOTE (Task 8 self-review): the actuation_module DDS wrapper
   (common/dds/dds.hpp / config.hpp) calls dds_create_domain_with_rawconfig()
@@ -29,10 +36,13 @@
   / -DCONFIG_DDS_PEER and a CONFIG_DDS_DISABLE_MULTICAST compile definition
   (see scripts/build-edge-ecu-peer-arm64.sh). The MaxMessageSize/FragmentSize
   values below are not baked into the peer binaries via a -D flag like the
-  other four; they are simply CycloneDDS's own defaults, which is also what
-  the CR52 firmware compiles in by default (common/dds/config.hpp's
-  #ifndef CONFIG_DDS_MAX_MSG_SIZE), so both ends already agree without
-  either side setting anything.
+  other four; the peer binaries reach 1400B the same way the CR52 firmware
+  does, by compiling common/dds/config.hpp's #ifndef CONFIG_DDS_MAX_MSG_SIZE
+  default. That is NOT a CycloneDDS default; Cyclone's own MaxMessageSize
+  default is 14720B. 1344B, however, is a genuine CycloneDDS default that
+  neither side overrides. So both ends already agree without either side setting
+  anything, but only because both compile the same header; a consumer that
+  does not would need this element to avoid Cyclone's 14720B default.
 -->
 <CycloneDDS>
   <Domain Id="2">

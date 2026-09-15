@@ -25,9 +25,12 @@
 # unicast peer, is required on this point-to-point link). The DDS-sizing
 # knobs (CONFIG_DDS_MAX_MSG_SIZE/CONFIG_DDS_MAX_REXMIT_MSG_SIZE/
 # CONFIG_DDS_FRAGMENT_SIZE) Task 21 once set here for a 462-byte RPMsg MTU
-# are gone now that the MTU is 1500B: this side runs CycloneDDS's own
-# defaults (1400/1456/1344), matching config.hpp's #ifndef default and the
-# Linux peer's cyclonedds-x5h.xml.
+# are gone now that the MTU is 1500B: this side compiles the same
+# common/dds/config.hpp as the CR52 firmware, so its max message size is
+# 1400B (config.hpp's own #ifndef CONFIG_DDS_MAX_MSG_SIZE default, NOT a
+# CycloneDDS default -- Cyclone's own default is 14720B); its rexmit max
+# message size and fragment size, 1456B/1344B, ARE genuine CycloneDDS
+# defaults, left untouched. Matches the Linux peer's cyclonedds-x5h.xml.
 # check-dds-config.sh asserts this literal compile-definition string
 # appears, uncommented, in THIS file -- see that script's Important-1 fix
 # comment for why the Linux-side source of truth is this script, not
