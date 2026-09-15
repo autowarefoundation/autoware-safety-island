@@ -70,18 +70,29 @@ record_fail() {
     fail_reasons+=("$1")
 }
 
-require_match() {
-    # require_match <file> <description> <grep -E pattern>
+strip_comments() {
+    # strip_comments <file>: print <file> with comments blanked out, so
+    # callers can grep only active (non-comment) lines. Shared by
+    # require_match and require_absent below -- both need the exact same
+    # per-language stripping rule, and the three lessons that rule embeds
+    # (comment syntax, the grep-exit-1 trap, the sed/grep pipe race) apply
+    # equally to a "must be present" check and a "must be absent" one.
     #
-    # Strips comments -- both full-line ('#...') and trailing
-    # ('code  # comment') -- before matching, so a stale/commented-out
-    # reference to the right text -- e.g. `# add_compile_definitions(...)`
-    # or `-DCONFIG_DDS_PEER=172.16.52.9  # -DCONFIG_DDS_PEER=172.16.52.2` --
-    # cannot satisfy the check the way an active, uncommented line would.
-    # (Review round 2, Minor #3: the previous version only stripped
-    # full-line comments, so a trailing comment containing the right text
-    # could falsely satisfy a check on the *actual*, wrong, code before it
-    # on the same line.)
+    # Comment syntax is per-language, and getting this wrong is not a
+    # theoretical risk: the `#` rule below is correct for CMake/shell but
+    # catastrophic for C, where it strips every `#define` -- i.e. exactly the
+    # lines these checks exist to find. Not hypothetical either: it made all
+    # six C-side assertions unsatisfiable the first time they ran, reporting
+    # "not found" for constants that were present and correct.
+    #
+    # C/C++ sources therefore get `//` stripping instead (`*.hpp` added
+    # alongside the pre-existing `*.c`/`*.h` so config.hpp's own
+    # CONFIG_DDS_MAX_MSG_SIZE assertion below does not fall into the `#`
+    # branch and blank out its own `#define` line the same way). Block
+    # comments (/* */) are deliberately NOT handled -- doing that correctly
+    # needs multi-line state, and a `#define` of a wire constant sitting
+    # inside a block comment is a shape this codebase does not have. Said
+    # plainly so nobody reads this helper as more general than it is.
     #
     # sed -E 's/(^|[[:space:]])#.*$//' is used instead of the previous
     # `grep -Ev '^[[:space:]]*#'` for a second reason (review round 2, Minor
@@ -90,40 +101,63 @@ require_match() {
     # `stripped=$(grep -Ev ...)` failing would abort the whole script with
     # no diagnostic. sed has no equivalent failure mode -- it always exits 0
     # regardless of how much of its input it blanked out -- so switching to
-    # it fixes Minor #2 and Minor #3 together.
+    # it fixes Minor #2 (and, together with require_match's own comment
+    # below, Minor #3).
+    local file="$1"
+    case "${file}" in
+        *.c|*.h|*.hpp) sed -E 's://.*$::' "${file}" ;;
+        *)             sed -E 's/(^|[[:space:]])#.*$//' "${file}" ;;
+    esac
+}
+
+require_match() {
+    # require_match <file> <description> <grep -E pattern>
     #
-    # The comment-stripping sed and the pattern-match grep are deliberately
-    # NOT chained in a live pipe (`sed ... | grep -Eq ...`): `grep -q` exits
-    # the instant it finds a match and closes its read end, which can send
-    # SIGPIPE to a still-writing upstream process on a larger file; under
-    # this script's `set -o pipefail` that races the pipeline's exit status
-    # to a spurious non-zero (i.e. a false FAIL on a constant that IS
-    # present) depending on kernel pipe-buffer/scheduling timing. Capturing
-    # the stripped text into a variable first, then matching against that
-    # static string, removes the second process entirely -- no concurrent
-    # readers/writers, no race. (Caught via repeated re-runs of this script
-    # during round-1 perturbation testing producing a different, incorrect
-    # extra failure each time.)
-    # Comment syntax is per-language, and getting this wrong is not a
-    # theoretical risk: the `#` rule below is correct for CMake/shell but
-    # catastrophic for C, where it strips every `#define` -- i.e. exactly the
-    # lines these checks exist to find. Not hypothetical either: it made all
-    # six C-side assertions unsatisfiable the first time they ran, reporting
-    # "not found" for constants that were present and correct.
+    # Strips comments via strip_comments -- both full-line ('#...') and
+    # trailing ('code  # comment') -- before matching, so a stale/commented-out
+    # reference to the right text -- e.g. `# add_compile_definitions(...)`
+    # or `-DCONFIG_DDS_PEER=172.16.52.9  # -DCONFIG_DDS_PEER=172.16.52.2` --
+    # cannot satisfy the check the way an active, uncommented line would.
+    # (Review round 2, Minor #3: the previous version only stripped
+    # full-line comments, so a trailing comment containing the right text
+    # could falsely satisfy a check on the *actual*, wrong, code before it
+    # on the same line.)
     #
-    # C sources therefore get `//` stripping instead. Block comments (/* */)
-    # are deliberately NOT handled -- doing that correctly needs multi-line
-    # state, and a `#define` of a wire constant sitting inside a block comment
-    # is a shape this codebase does not have. Said plainly so nobody reads
-    # this helper as more general than it is.
+    # The comment-stripping strip_comments call and the pattern-match grep
+    # are deliberately NOT chained in a live pipe (`strip_comments ... |
+    # grep -Eq ...`): `grep -q` exits the instant it finds a match and
+    # closes its read end, which can send SIGPIPE to a still-writing
+    # upstream process on a larger file; under this script's
+    # `set -o pipefail` that races the pipeline's exit status to a spurious
+    # non-zero (i.e. a false FAIL on a constant that IS present) depending
+    # on kernel pipe-buffer/scheduling timing. Capturing the stripped text
+    # into a variable first, then matching against that static string,
+    # removes the second process entirely -- no concurrent readers/writers,
+    # no race. (Caught via repeated re-runs of this script during round-1
+    # perturbation testing producing a different, incorrect extra failure
+    # each time.)
     local file="$1" desc="$2" pattern="$3"
     local stripped
-    case "${file}" in
-        *.c|*.h) stripped=$(sed -E 's://.*$::' "${file}") ;;
-        *)       stripped=$(sed -E 's/(^|[[:space:]])#.*$//' "${file}") ;;
-    esac
+    stripped=$(strip_comments "${file}")
     if ! grep -Eq -- "${pattern}" <<<"${stripped}"; then
         record_fail "${desc}: pattern not found in an active (non-comment) line of ${file#${REPO_ROOT}/} (looked for: ${pattern})"
+    fi
+}
+
+require_absent() {
+    # require_absent <file> <description> <grep -E pattern>: the inverse of
+    # require_match -- FAILs if the pattern matches an ACTIVE (non-comment)
+    # line, via the same strip_comments used above, so a commented-out
+    # leftover of a deleted constant cannot itself trigger a false FAIL (and,
+    # symmetrically with require_match, so it also cannot mask a real one --
+    # stripping runs the same way regardless of which direction the check
+    # goes). Used to positively assert that a deleted constant does not
+    # silently come back.
+    local file="$1" desc="$2" pattern="$3"
+    local stripped
+    stripped=$(strip_comments "${file}")
+    if grep -Eq -- "${pattern}" <<<"${stripped}"; then
+        record_fail "${desc} (${file#${REPO_ROOT}/} matches '${pattern}')"
     fi
 }
 
@@ -186,18 +220,14 @@ else
         'CONFIG_DDS_DOMAIN_ID 2 CACHE'
     require_match "${X5H_CMAKE}" "FreeRTOS side: multicast is not disabled" \
         'CONFIG_DDS_DISABLE_MULTICAST=1'
-    # Task 21 fix round 1 (Important #3): the three DDS wire-sizing literals
-    # derived in common/dds/config.hpp -- previously only cross-checked by a
-    # one-shot flags.make inspection at review time, which this plan has
-    # already been bitten by once (a peer built without its -D flags
-    # silently reverting to CycloneDDS's own defaults). Same mechanism this
-    # script already uses for the four constants above.
-    require_match "${X5H_CMAKE}" "FreeRTOS side: DDS max message size is not 434" \
-        'CONFIG_DDS_MAX_MSG_SIZE 434 CACHE'
-    require_match "${X5H_CMAKE}" "FreeRTOS side: DDS max rexmit message size is not 434" \
-        'CONFIG_DDS_MAX_REXMIT_MSG_SIZE 434 CACHE'
-    require_match "${X5H_CMAKE}" "FreeRTOS side: DDS fragment size is not 348" \
-        'CONFIG_DDS_FRAGMENT_SIZE 348 CACHE'
+    # The 434/348 DDS wire-sizing literals (Task 21, derived for a 462-byte
+    # RPMsg-netif MTU) are gone now that the MTU is 1500: the firmware runs
+    # on common/dds/config.hpp's own #ifndef CONFIG_DDS_MAX_MSG_SIZE default
+    # (1400) and CycloneDDS's own default fragment size (1344), matching the
+    # Linux peer's cyclonedds-x5h.xml. Assert the override does not come
+    # back, the same way the four constants above assert their presence.
+    require_absent "${X5H_CMAKE}" "FreeRTOS side: the 434/348 sizing was deleted (Linux runs 1400/1344); do not reintroduce it" \
+        'CONFIG_DDS_(MAX_MSG_SIZE|MAX_REXMIT_MSG_SIZE|FRAGMENT_SIZE)'
 fi
 
 # ---- 2b. Linux side: the arm64 build script's -D flags (Important #1) ----
@@ -214,16 +244,12 @@ else
         '\-DCONFIG_DDS_PEER=172\.16\.52\.2'
     require_match "${ARM64_BUILD_SCRIPT}" "Linux side: multicast is not disabled" \
         'CONFIG_DDS_DISABLE_MULTICAST=1'
-    # Task 21 fix round 1 (Important #3): same three DDS wire-sizing
-    # literals as the FreeRTOS-side check above, on this side's own -D
-    # mechanism (see this script's header comment for why the -D flags
-    # here, not cyclonedds-x5h.xml, are what actually reaches the binaries).
-    require_match "${ARM64_BUILD_SCRIPT}" "Linux side: DDS max message size is not 434" \
-        '\-DCONFIG_DDS_MAX_MSG_SIZE=434'
-    require_match "${ARM64_BUILD_SCRIPT}" "Linux side: DDS max rexmit message size is not 434" \
-        '\-DCONFIG_DDS_MAX_REXMIT_MSG_SIZE=434'
-    require_match "${ARM64_BUILD_SCRIPT}" "Linux side: DDS fragment size is not 348" \
-        '\-DCONFIG_DDS_FRAGMENT_SIZE=348'
+    # Same 434/348 deletion as the FreeRTOS-side check above, on this side's
+    # own -D mechanism (see this script's header comment for why the -D
+    # flags here, not cyclonedds-x5h.xml, are what actually reaches the
+    # binaries).
+    require_absent "${ARM64_BUILD_SCRIPT}" "Linux peer: the 434/348 sizing was deleted" \
+        'CONFIG_DDS_(MAX_MSG_SIZE|MAX_REXMIT_MSG_SIZE|FRAGMENT_SIZE)'
 fi
 
 # ---- 3. Linux side, secondary cross-check: cyclonedds-x5h.xml (Important #2) ----
@@ -247,8 +273,33 @@ for xml in "${xml_configs[@]}"; do
             'string(/CycloneDDS/Domain/Discovery/Peers/Peer/@Address)' '172.16.52.2'
         require_xpath "${xml}" "Linux side (XML doc): multicast is not disabled" \
             'string(/CycloneDDS/Domain/General/AllowMulticast/text())' 'false'
+        # count()=1 guards here too (same Important #7 finding as the <Peer>
+        # check above): string(...) alone would only ever read the FIRST
+        # <MaxMessageSize>/<FragmentSize>, so a second node added later
+        # would still pass the value check silently.
+        require_xpath "${xml}" "Linux side (XML doc): expected exactly one <MaxMessageSize> node" \
+            'string(count(/CycloneDDS/Domain/General/MaxMessageSize))' '1'
+        require_xpath "${xml}" "Linux side (XML doc): DDS max message size is not 1400B" \
+            'string(/CycloneDDS/Domain/General/MaxMessageSize/text())' '1400B'
+        require_xpath "${xml}" "Linux side (XML doc): expected exactly one <FragmentSize> node" \
+            'string(count(/CycloneDDS/Domain/General/FragmentSize))' '1'
+        require_xpath "${xml}" "Linux side (XML doc): DDS fragment size is not 1344B" \
+            'string(/CycloneDDS/Domain/General/FragmentSize/text())' '1344B'
     fi
 done
+
+# ---- 3b. config.hpp: the documented XML record is tied to the code ----
+# The two XML values above (1400B/1344B) are "the documented record" (see
+# cyclonedds-x5h.xml's own header note) of what the firmware compiles in by
+# default -- pin that default here too, so the record is checked against
+# the code that actually produces it, not merely against itself.
+CONFIG_HPP="${REPO_ROOT}/actuation_module/include/common/dds/config.hpp"
+if [ ! -f "${CONFIG_HPP}" ]; then
+    record_fail "missing common/dds/config.hpp: ${CONFIG_HPP#${REPO_ROOT}/}"
+else
+    require_match "${CONFIG_HPP}" "config.hpp: the surviving CONFIG_DDS_MAX_MSG_SIZE default is not 1400" \
+        '#define CONFIG_DDS_MAX_MSG_SIZE 1400'
+fi
 
 # ---- 4. CR52 side, lwIP static netif address (Important #7) ----
 # lwip_bringup.c's LWIP_STATIC_IP/LWIP_STATIC_NETMASK/LWIP_STATIC_GW are the
@@ -305,9 +356,10 @@ fi
 
 echo "PASS: check-dds-config.sh"
 echo "  XML validated: ${#xml_configs[@]} file(s)"
-echo "  FreeRTOS side (${X5H_CMAKE#${REPO_ROOT}/}): interface=172.16.52.2 peer=172.16.52.1 domain=2 multicast=disabled max_msg_size=434 max_rexmit_msg_size=434 fragment_size=348"
-echo "  Linux side    (${ARM64_BUILD_SCRIPT#${REPO_ROOT}/}): interface=tap0 peer=172.16.52.2 domain=2 multicast=disabled max_msg_size=434 max_rexmit_msg_size=434 fragment_size=348"
-echo "  Linux side    (edge_ecu_peer/cyclonedds-x5h.xml, doc cross-check): domain=2 peer=172.16.52.2 multicast=disabled (exactly one <Peer>)"
+echo "  FreeRTOS side (${X5H_CMAKE#${REPO_ROOT}/}): interface=172.16.52.2 peer=172.16.52.1 domain=2 multicast=disabled max_msg_size=1400(default) fragment_size=1344(default)"
+echo "  Linux side    (${ARM64_BUILD_SCRIPT#${REPO_ROOT}/}): interface=tap0 peer=172.16.52.2 domain=2 multicast=disabled max_msg_size=1400(default) fragment_size=1344(default)"
+echo "  Linux side    (edge_ecu_peer/cyclonedds-x5h.xml, doc cross-check): domain=2 peer=172.16.52.2 multicast=disabled (exactly one <Peer>) max_msg_size=1400B fragment_size=1344B (exactly one each)"
+echo "  FreeRTOS side (${CONFIG_HPP#${REPO_ROOT}/}): CONFIG_DDS_MAX_MSG_SIZE default is 1400"
 echo "  FreeRTOS side (${LWIP_BRINGUP#${REPO_ROOT}/}): ip=172.16.52.2 netmask=255.255.255.0 gw=172.16.52.1"
 echo "  RPMsg side    (${RPMSG_NETIF_CORE_H#${REPO_ROOT}/}): service=rpmsg-eth mtu=1500 max_frame=(mtu+14)"
 echo "  RPMsg side    (${RPMSG_NETIF_C#${REPO_ROOT}/}): CR52 mac=02:5c:52:00:00:02"

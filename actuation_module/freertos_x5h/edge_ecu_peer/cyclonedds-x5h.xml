@@ -11,6 +11,9 @@
       own comment on CONFIG_DDS_NETWORK_INTERFACE=tap0)
     - multicast disabled: the RPMsg link is point-to-point, so there is no
       multicast to fall back on in either direction.
+    - max message size 1400B, fragment size 1344B: CycloneDDS's own
+      defaults, unchanged since the RPMsg-netif MTU was raised to 1500B and
+      the earlier 434/348 sizing (Task 21, for a 462-byte MTU) was deleted.
 
   NOTE (Task 8 self-review): the actuation_module DDS wrapper
   (common/dds/dds.hpp / config.hpp) calls dds_create_domain_with_rawconfig()
@@ -24,13 +27,20 @@
   that does honor CYCLONEDDS_URI. The peer binaries get these same values
   baked in at build time via -DCONFIG_DDS_DOMAIN_ID / -DCONFIG_DDS_NETWORK_INTERFACE
   / -DCONFIG_DDS_PEER and a CONFIG_DDS_DISABLE_MULTICAST compile definition
-  (see scripts/build-edge-ecu-peer-arm64.sh).
+  (see scripts/build-edge-ecu-peer-arm64.sh). The MaxMessageSize/FragmentSize
+  values below are not baked into the peer binaries via a -D flag like the
+  other four; they are simply CycloneDDS's own defaults, which is also what
+  the CR52 firmware compiles in by default (common/dds/config.hpp's
+  #ifndef CONFIG_DDS_MAX_MSG_SIZE), so both ends already agree without
+  either side setting anything.
 -->
 <CycloneDDS>
   <Domain Id="2">
     <General>
       <Interfaces><NetworkInterface name="tap0"/></Interfaces>
       <AllowMulticast>false</AllowMulticast>
+      <MaxMessageSize>1400B</MaxMessageSize>
+      <FragmentSize>1344B</FragmentSize>
     </General>
     <Discovery>
       <Peers><Peer Address="172.16.52.2"/></Peers>
