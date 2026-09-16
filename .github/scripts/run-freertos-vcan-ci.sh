@@ -20,6 +20,10 @@ set +e
 vcan_rc=$?
 set -e
 if [ "${vcan_rc}" = "77" ]; then
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "vcan roundtrip skipped on CI (vcan is required)" >&2
+    exit 1
+  fi
   echo "vcan roundtrip skipped (no CAP_NET_ADMIN or vcan module)"
   exit 0
 fi

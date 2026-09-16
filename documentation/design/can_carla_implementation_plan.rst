@@ -62,8 +62,8 @@ that sketch cannot ship as written:
 - Autoware steering is CCW/left-positive. CARLA Ackermann steering is
   right-positive. Velocity and steering rate must not be discarded.
 - ``0x102`` is the only cycle marker. The decoder must require fresh
-  ``0x100`` and ``0x101``, contiguous modulo-65536 sequence, and a
-  receive-timeout safe stop.
+  ``0x100`` and ``0x101``, wrapping sequence (accept forward jumps,
+  reject replays and stale values), and a receive-timeout safe stop.
 
 Zephyr FVP still has no host-reachable CAN IP. The existing TAP Ethernet
 path (``192.168.10.2`` on FVP, ``192.168.10.1`` on the host) is the only
@@ -143,13 +143,13 @@ Assembly
   accepted commit. Duplicate IDs in the same cycle replace the pending
   frame; they do not count as a second cycle.
 - Sequence is the little-endian ``uint16`` at bytes 2-3 of ``0x102``.
-  Accept contiguous modulo-65536 values, including wrap from 65535 to 0.
+  Accept the next expected value and forward jumps, wrapping
+  modulo-65536 (including 65535 to 0). A forward jump resyncs the
+  expected sequence and the watchdog anchor. Reject replays and stale
+  sequences (wrapping signed delta ``< 0``).
 - On first command after start or after a watchdog safe-stop, accept the
   first valid complete cycle as the baseline. Do not require sequence 0.
-- After a rejected commit, drop pending ``0x100`` / ``0x101``. The next
-  complete cycle is accepted immediately if its sequence is the next
-  expected value. A further gap keeps rejecting until the watchdog
-  fires, then the first complete valid cycle re-baselines.
+- After a rejected commit, drop pending ``0x100`` / ``0x101``.
 - Unknown CAN IDs are ignored and do not affect the cycle.
 - IDs ``0x100`` / ``0x101`` / ``0x102`` with DLC other than 8, extended
   ID, or non-classic flags are discarded: that ID is not fresh. They do
@@ -398,7 +398,7 @@ PR 1 (#49) — ``freertos-posix`` + ``vcan``
    the Python bridge via a thin wrapper, or a Python port with golden
    vectors generated from the C++ encoder. Cover startup, duplicates,
    missing/reordered frames, bad DLC, wrap ``65535 -> 0``, ignored
-   unknown IDs, contiguous accept after a rejected cycle, timeout
+   unknown IDs, forward-jump accept, stale/replay reject, timeout
    safe-stop, and re-baseline after timeout.
 
 4. **FreeRTOS ``vcan`` integration**
@@ -443,17 +443,17 @@ Privilege-free (existing job, no extra capabilities)
 - Failed encode or mid-batch send does not advance ``sequence_``.
 - Zephyr FVP ``zephyr,can-loopback`` on ``--can-output-test``.
 - Decoder state-machine unit tests, including wrap, ignored unknown
-  IDs, contiguous accept after reject, and timeout.
+  IDs, forward-jump accept, stale/replay reject, and timeout.
 - Follow-on PR: UDP datagram pack/unpack and rejection of malformed
   lengths.
 
 Privileged integration (explicit capabilities)
 ==============================================
 
-Do not fold this into the current unprivileged container job. Either add
-``CAP_NET_ADMIN`` (and ``/dev/net/tun`` for FVP TAP) or run on a host
-runner that already has them. Document the skip path if the kernel has
-no ``vcan`` / ``tun``.
+Do not fold this into the unprivileged container job. On CI, load
+``vcan`` on the runner host and run the test with host networking;
+fail if ``vcan0`` cannot be created. Local runs may skip (exit 77)
+when the kernel has no ``vcan``.
 
 - PR 1: FreeRTOS POSIX ``ip link add vcan0 type vcan``,
   ``SAFETY_ISLAND_CAN_IFACE=vcan0``, encode → SocketCAN → decode.

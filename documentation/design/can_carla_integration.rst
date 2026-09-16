@@ -67,7 +67,8 @@ Components
    at runtime; missing or unopenable interface fails ``can_init()``. The
    in-memory mock is compiled only into ``--can-output-test``.
 2. **Decoder** next to the encoder. ``0x102`` is the commit marker: require
-   fresh ``0x100`` and ``0x101``, contiguous modulo-65536 sequence, and a
+   fresh ``0x100`` and ``0x101``, wrapping sequence (forward jumps
+   accepted, replays/stale rejected), and a
    0.5 s monotonic receive-timeout safe stop. Tests live in
    ``actuation_module/test/can_output_test.cpp`` plus a privileged ``vcan``
    integration phase.

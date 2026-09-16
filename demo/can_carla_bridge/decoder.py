@@ -44,6 +44,10 @@ def _u16_le(data: bytes, offset: int) -> int:
     return int.from_bytes(data[offset : offset + 2], "little", signed=False)
 
 
+def _seq_delta(sequence: int, expected: int) -> int:
+    return ((sequence - expected + 32768) & 0xFFFF) - 32768
+
+
 class ControlCommandDecoder:
     def __init__(self) -> None:
         self._has_lateral = False
@@ -79,7 +83,7 @@ class ControlCommandDecoder:
             self._clear_pending()
             return DecoderEvent.REJECTED
         sequence = _u16_le(payload, 2)
-        if self._has_expected and sequence != self._expected:
+        if self._has_expected and _seq_delta(sequence, self._expected) < 0:
             self._clear_pending()
             return DecoderEvent.REJECTED
         assert self._lateral is not None

@@ -34,12 +34,23 @@ def main() -> int:
 
     assert feed(decoder, 0x200, bytes(8), 0.1) == DecoderEvent.IGNORED
 
-    gap = pack_cycle(9)
-    assert feed(decoder, *gap[0], 0.2) == DecoderEvent.STORED
-    assert feed(decoder, *gap[1], 0.2) == DecoderEvent.STORED
-    assert feed(decoder, *gap[2], 0.2) == DecoderEvent.REJECTED
+    jumped = pack_cycle(9)
+    assert feed(decoder, *jumped[0], 0.2) == DecoderEvent.STORED
+    assert feed(decoder, *jumped[1], 0.2) == DecoderEvent.STORED
+    assert feed(decoder, *jumped[2], 0.2) == DecoderEvent.ACCEPTED
+    assert decoder.command.sequence == 9
 
-    nxt = pack_cycle(8)
+    stale = pack_cycle(8)
+    assert feed(decoder, *stale[0], 0.3) == DecoderEvent.STORED
+    assert feed(decoder, *stale[1], 0.3) == DecoderEvent.STORED
+    assert feed(decoder, *stale[2], 0.3) == DecoderEvent.REJECTED
+
+    replay = pack_cycle(9)
+    assert feed(decoder, *replay[0], 0.3) == DecoderEvent.STORED
+    assert feed(decoder, *replay[1], 0.3) == DecoderEvent.STORED
+    assert feed(decoder, *replay[2], 0.3) == DecoderEvent.REJECTED
+
+    nxt = pack_cycle(10)
     assert feed(decoder, *nxt[0], 0.3) == DecoderEvent.STORED
     assert feed(decoder, *nxt[1], 0.3) == DecoderEvent.STORED
     assert feed(decoder, *nxt[2], 0.3) == DecoderEvent.ACCEPTED
@@ -56,6 +67,20 @@ def main() -> int:
     assert feed(missing, *cyc[1], 0.0) == DecoderEvent.STORED
     assert feed(missing, *cyc[2], 0.0) == DecoderEvent.REJECTED
     assert feed(missing, *cyc[0], 0.0, dlc=7) == DecoderEvent.IGNORED
+
+    wrap = ControlCommandDecoder()
+    last = pack_cycle(65535)
+    assert feed(wrap, *last[0], 0.0) == DecoderEvent.STORED
+    assert feed(wrap, *last[1], 0.0) == DecoderEvent.STORED
+    assert feed(wrap, *last[2], 0.0) == DecoderEvent.ACCEPTED
+    zero = pack_cycle(0)
+    assert feed(wrap, *zero[0], 0.1) == DecoderEvent.STORED
+    assert feed(wrap, *zero[1], 0.1) == DecoderEvent.STORED
+    assert feed(wrap, *zero[2], 0.1) == DecoderEvent.ACCEPTED
+    wrap_replay = pack_cycle(65535)
+    assert feed(wrap, *wrap_replay[0], 0.2) == DecoderEvent.STORED
+    assert feed(wrap, *wrap_replay[1], 0.2) == DecoderEvent.STORED
+    assert feed(wrap, *wrap_replay[2], 0.2) == DecoderEvent.REJECTED
     print("decoder golden vectors passed")
     return 0
 

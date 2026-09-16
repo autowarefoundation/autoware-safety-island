@@ -63,7 +63,7 @@ public:
     }
 
     const uint16_t sequence = read_u16_le(frame, 2U);
-    if (has_expected_sequence_ && sequence != expected_sequence_) {
+    if (has_expected_sequence_ && sequence_is_behind(sequence, expected_sequence_)) {
       clear_pending();
       return DecoderEvent::Rejected;
     }
@@ -129,6 +129,11 @@ private:
     return static_cast<uint16_t>(
       static_cast<uint16_t>(frame.data[offset]) |
       (static_cast<uint16_t>(frame.data[offset + 1U]) << 8U));
+  }
+
+  static bool sequence_is_behind(const uint16_t sequence, const uint16_t expected)
+  {
+    return static_cast<int16_t>(static_cast<uint16_t>(sequence - expected)) < 0;
   }
 
   static DecodedControlCommand decode_cycle(

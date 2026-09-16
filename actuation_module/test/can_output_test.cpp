@@ -212,14 +212,27 @@ static void test_decoder_round_trip_and_watchdog()
   unknown.dlc = 8U;
   ASSERT_MSG(decoder.feed(unknown, 0.1) == DecoderEvent::Ignored, "unknown id ignored");
 
-  const auto next = common::can::encode_control_command(
+  const auto jumped = common::can::encode_control_command(
     make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 9U);
-  ASSERT_MSG(decoder.feed(next.frames[0], 0.2) == DecoderEvent::Stored, "gap lateral stored");
-  ASSERT_MSG(decoder.feed(next.frames[1], 0.2) == DecoderEvent::Stored, "gap longitudinal stored");
-  ASSERT_MSG(decoder.feed(next.frames[2], 0.2) == DecoderEvent::Rejected, "sequence gap rejected");
+  ASSERT_MSG(decoder.feed(jumped.frames[0], 0.2) == DecoderEvent::Stored, "jump lateral stored");
+  ASSERT_MSG(decoder.feed(jumped.frames[1], 0.2) == DecoderEvent::Stored, "jump longitudinal stored");
+  ASSERT_MSG(decoder.feed(jumped.frames[2], 0.2) == DecoderEvent::Accepted, "forward jump accepted");
+  ASSERT_MSG(decoder.command().sequence == 9U, "forward jump resyncs");
+
+  const auto stale = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 8U);
+  ASSERT_MSG(decoder.feed(stale.frames[0], 0.3) == DecoderEvent::Stored, "stale lateral stored");
+  ASSERT_MSG(decoder.feed(stale.frames[1], 0.3) == DecoderEvent::Stored, "stale longitudinal stored");
+  ASSERT_MSG(decoder.feed(stale.frames[2], 0.3) == DecoderEvent::Rejected, "stale sequence rejected");
+
+  const auto replay = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 9U);
+  ASSERT_MSG(decoder.feed(replay.frames[0], 0.3) == DecoderEvent::Stored, "replay lateral stored");
+  ASSERT_MSG(decoder.feed(replay.frames[1], 0.3) == DecoderEvent::Stored, "replay longitudinal stored");
+  ASSERT_MSG(decoder.feed(replay.frames[2], 0.3) == DecoderEvent::Rejected, "replay rejected");
 
   const auto contiguous = common::can::encode_control_command(
-    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 8U);
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 10U);
   ASSERT_MSG(decoder.feed(contiguous.frames[0], 0.3) == DecoderEvent::Stored, "contiguous lateral stored");
   ASSERT_MSG(decoder.feed(contiguous.frames[1], 0.3) == DecoderEvent::Stored, "contiguous longitudinal stored");
   ASSERT_MSG(decoder.feed(contiguous.frames[2], 0.3) == DecoderEvent::Accepted, "contiguous sequence accepted");
@@ -253,6 +266,12 @@ static void test_decoder_sequence_wrap()
   ASSERT_MSG(decoder.feed(wrapped.frames[0], 0.1) == DecoderEvent::Stored, "wrap lateral");
   ASSERT_MSG(decoder.feed(wrapped.frames[1], 0.1) == DecoderEvent::Stored, "wrap longitudinal");
   ASSERT_MSG(decoder.feed(wrapped.frames[2], 0.1) == DecoderEvent::Accepted, "65535 wraps to 0");
+
+  const auto wrap_replay = common::can::encode_control_command(
+    make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY, 65535U);
+  ASSERT_MSG(decoder.feed(wrap_replay.frames[0], 0.2) == DecoderEvent::Stored, "wrap replay lateral");
+  ASSERT_MSG(decoder.feed(wrap_replay.frames[1], 0.2) == DecoderEvent::Stored, "wrap replay longitudinal");
+  ASSERT_MSG(decoder.feed(wrap_replay.frames[2], 0.2) == DecoderEvent::Rejected, "wrap replay rejected");
 }
 
 static void test_decoder_frame_assembly()

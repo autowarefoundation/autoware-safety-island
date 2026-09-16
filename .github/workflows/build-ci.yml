@@ -116,19 +116,30 @@ jobs:
   build-freertos-vcan:
     name: FreeRTOS POSIX vcan
     runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
-      options: --cap-add=NET_ADMIN
 
     steps:
+      - name: Load vcan on the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+          sudo modprobe vcan
+          if ! ip link show vcan0 >/dev/null 2>&1; then
+            sudo ip link add vcan0 type vcan
+          fi
+          sudo ip link set up vcan0
+          ip link show vcan0
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: false
 
-      - name: Trust workspace (container runs as root)
+      - name: Resolve CycloneDDS pin
+        id: cdds
         shell: bash
-        run: git config --global --add safe.directory '*'
+        run: echo "sha=$(git rev-parse HEAD:cyclonedds)" >> "$GITHUB_OUTPUT"
 
       - name: Initialize build submodules (private s32ct_config excluded)
         shell: bash
@@ -140,8 +151,26 @@ jobs:
           path: |
             build/cyclonedds_host
             build/cyclonedds_target_out
-          key: cdds-${{ hashFiles('.gitmodules') }}
+          key: cdds-${{ steps.cdds.outputs.sha }}
 
       - name: Run SocketCAN vcan roundtrip
         shell: bash
-        run: .github/scripts/run-freertos-vcan-ci.sh
+        env:
+          DEVCONTAINER_IMAGE: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
+        run: |
+          set +e
+          docker run --rm \
+            --entrypoint bash \
+            --network=host \
+            --cap-add=NET_ADMIN \
+            -v "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
+            -w "${GITHUB_WORKSPACE}" \
+            -e GITHUB_WORKSPACE \
+            -e GITHUB_ACTIONS \
+            -e HOME=/tmp \
+            "${DEVCONTAINER_IMAGE}" \
+            -lc 'git config --global --add safe.directory "*" && .github/scripts/run-freertos-vcan-ci.sh'
+          rc=$?
+          set -e
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/build" 2>/dev/null || true
+          exit "${rc}"
