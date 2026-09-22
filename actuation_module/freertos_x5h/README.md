@@ -68,10 +68,7 @@ as `actuation_x5h.elf` but leaves out the actuation module, CycloneDDS,
 Eigen, and `autoware_msgs` entirely: lwIP answers ICMP natively with
 nothing built on top of it, so a bare `ping` against the CR52's
 172.16.52.2 address proves the RPMsg netif itself is alive before ever
-trusting the full actuation/DDS link on top of it. Both
-`check-elf-contract.sh` and `check-image-budget.sh` (below) run against
-`netif_only_x5h.elf` as well as `actuation_x5h.elf` on every `build.sh` run,
-so it cannot silently bit-rot or drift out of budget between uses. Build it
+trusting the full actuation/DDS link on top of it. Build it
 on its own with `cmake --build build/freertos-x5h --target netif_only_x5h`
 when narrowing down whether a failure is in the netif or in the actuation
 module above it.

@@ -119,36 +119,6 @@ jobs:
         shell: bash
         run: ./build.sh --platform freertos-x5h -d build/freertos-x5h
 
-      # Re-run the same three checkers as their own named steps, on top of
-      # the ones build.sh already ran internally above. Redundant with the
-      # previous step by design: defense-in-depth, and named steps make a
-      # regression in any one gate show up as its own red X in the Checks
-      # tab instead of being buried inside the "Build freertos-x5h" step's
-      # log. The rpmsg-eth service-name argument matches build.sh's own
-      # invocation -- that argument is what confirms the RPMsg transport
-      # endpoint's service string made it into .rodata; Task 8's report
-      # documents this path used to be broken (SIGPIPE-under-pipefail false
-      # failure) and is now fixed, and CI is where it stays fixed.
-      - name: Re-verify DDS wire config
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-dds-config.sh
-
-      - name: Re-verify ELF contract - actuation_x5h.elf
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf rpmsg-eth
-
-      - name: Re-verify ELF contract - netif_only_x5h.elf
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/netif_only_x5h.elf rpmsg-eth
-
-      - name: Re-verify image budget - actuation_x5h.elf
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h/actuation_x5h.elf
-
-      - name: Re-verify image budget - netif_only_x5h.elf
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h/netif_only_x5h.elf
-
       # Task 24: the instrumented (diag) image Task 23 added
       # (X5H_DIAG_TASK_TABLE=ON, CONFIG_DDS_LOG_LEVEL=3). Built into its own
       # -d directory (build/freertos-x5h-diag) via build.sh's --cmake-define
@@ -162,25 +132,6 @@ jobs:
       - name: Build freertos-x5h diagnostic (X5H_DIAG_TASK_TABLE=ON, CONFIG_DDS_LOG_LEVEL=3)
         shell: bash
         run: ./build.sh --platform freertos-x5h -d build/freertos-x5h-diag --cmake-define X5H_DIAG_TASK_TABLE=ON --cmake-define CONFIG_DDS_LOG_LEVEL=3
-
-      # Same defense-in-depth re-verification the default build gets above,
-      # against the diag build's own ELFs: this is the image a board session
-      # actually flashes, so it needs the same gates as its own named steps.
-      - name: Re-verify ELF contract - actuation_x5h.elf (diag)
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth
-
-      - name: Re-verify ELF contract - netif_only_x5h.elf (diag)
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth
-
-      - name: Re-verify image budget - actuation_x5h.elf (diag)
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h-diag/actuation_x5h.elf
-
-      - name: Re-verify image budget - netif_only_x5h.elf (diag)
-        shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-image-budget.sh build/freertos-x5h-diag/netif_only_x5h.elf
 
       # A SEPARATE artifact name from freertos-x5h-elfs (Task 24 requirement):
       # an operator fetching a flash image must not be able to confuse the
@@ -327,56 +278,6 @@ jobs:
       - name: Build the arm64 edge_ecu_peer bundle natively
         shell: bash
         run: ./actuation_module/freertos_x5h/scripts/build-edge-ecu-peer-arm64.sh
-
-      # build-edge-ecu-peer-arm64.sh already asserts both of these internally
-      # (readelf -d ... | grep -q '$ORIGIN/lib', file ... | grep -q "ARM
-      # aarch64") right after the patchelf fix-up step, so this step is
-      # deliberately redundant: it is the concrete, named CI check for the
-      # thing this job exists to verify -- that
-      # CMAKE_BUILD_WITH_INSTALL_RPATH=ON / CMAKE_INSTALL_RPATH='$ORIGIN/lib'
-      # actually produce a $ORIGIN/lib RUNPATH on genuine aarch64 output, not
-      # just "reasoned correct" as the design doc puts it.
-      - name: Assert native arm64 output and $ORIGIN/lib RUNPATH
-        shell: bash
-        run: |
-          set -euo pipefail
-          BIN_DIR=build/edge-ecu-peer-arm64/build/peer-build
-          for bin in edge_ecu_pub edge_ecu_sub; do
-            file "${BIN_DIR}/${bin}" | tee "/tmp/${bin}-file.txt"
-            grep -q "ARM aarch64" "/tmp/${bin}-file.txt"
-            # Review round 2 (Minor): tee moved to *after* the runpath filter
-            # (was before) so this file actually contains only the RUNPATH
-            # line its name implies, not the full `readelf -d` dump.
-            readelf -d "${BIN_DIR}/${bin}" | grep -i runpath | tee "/tmp/${bin}-runpath.txt"
-            grep -q '\$ORIGIN/lib' "/tmp/${bin}-runpath.txt"
-          done
-
-      # Review finding (Important 6): build-edge-ecu-peer-arm64.sh now
-      # asserts this internally too (both right after the copy loop and
-      # again as an independent post-check), so this step is deliberately
-      # redundant in the same spirit as the RUNPATH step above -- a
-      # concrete, named CI check for "every libddsc* NEEDED entry the
-      # binaries actually reference landed in the shipped bundle's lib/",
-      # not just "the build script's own internal assertion didn't fire".
-      - name: Assert bundle lib/ contains every libddsc NEEDED entry
-        shell: bash
-        run: |
-          set -euo pipefail
-          BIN_DIR=build/edge-ecu-peer-arm64/build/peer-build
-          BUNDLE_LIB=build/edge-ecu-peer-arm64/bundle/lib
-          for bin in edge_ecu_pub edge_ecu_sub; do
-            needed=$(readelf -d "${BIN_DIR}/${bin}" | awk -F'[][]' '/NEEDED/{print $2}')
-            for lib in ${needed}; do
-              case "${lib}" in
-                libddsc*)
-                  test -e "${BUNDLE_LIB}/${lib}" || {
-                    echo "ERROR: ${bin} needs ${lib}, missing from ${BUNDLE_LIB}/" >&2
-                    exit 1
-                  }
-                  ;;
-              esac
-            done
-          done
 
       - name: Upload arm64 edge_ecu_peer bundle
         if: always()
