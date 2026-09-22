@@ -2,7 +2,7 @@
 # Asserts the firmware fits the frozen Core1 boot-slot memory budget: every
 # LOAD segment's MemSiz must fall entirely inside either the 10 MiB Core1
 # slot window (0x11600000-0x12000000) or the firmware-loadable subregion of
-# the resource-table carveout (0x96650000-0x96651000 -- see
+# the resource-table carveout (0x5da00000-0x5da01000 -- see
 # check-elf-contract.sh's "Carveout" comment for why that subregion, not the
 # full carveout, is the firmware's to use). Reports the slot window's used
 # bytes and percentage on success.
@@ -58,8 +58,8 @@ SLOT_HI=$((SLOT_LO + SLOT_SIZE))
 # Resource-table carveout's firmware-loadable subregion (the rest of the
 # carveout is where Linux/remoteproc allocates the vrings after boot -- see
 # check-elf-contract.sh). Firmware LOAD content must stay out of that part.
-RSC_LO=$(hex_to_dec 96650000)
-RSC_HI=$(hex_to_dec 96651000)
+RSC_LO=$(hex_to_dec 5da00000)
+RSC_HI=$(hex_to_dec 5da01000)
 
 # readelf -lW program-header columns (same layout check-elf-contract.sh
 # already verified for this ELF): Type Offset VirtAddr PhysAddr FileSiz
@@ -81,7 +81,7 @@ while read -r addr_hex size_hex; do
   elif [ "$addr" -ge "$RSC_LO" ] && [ "$end" -le "$RSC_HI" ]; then
     continue
   else
-    fail "segment $addr_hex size $size_hex (end 0x$(printf '%x' "$end")) outside both the slot window (0x11600000-0x$(printf '%x' "$SLOT_HI")) and the resource-table subregion (0x96650000-0x96651000)"
+    fail "segment $addr_hex size $size_hex (end 0x$(printf '%x' "$end")) outside both the slot window (0x11600000-0x$(printf '%x' "$SLOT_HI")) and the resource-table subregion (0x5da00000-0x5da01000)"
   fi
 done < <(readelf -lW "$ELF" | awk '$1 == "LOAD" {print $3, $6}')
 

@@ -168,6 +168,17 @@ later tasks:
 
 ## 5. Which linker script places `.text` at `0x11600000` and `.resource_table` at `0x96650000`?
 
+> **Superseded by Task 2:** the actuation firmware's `.resource_table` now sits at `0x5da00000`
+> (the demo boot role's `cr52_ram1@5da00000` carveout), not `0x96650000`. Task 2 introduced
+> `vendor_patched/lscript_rsc_table_demo.ld`, which overlays the vendor's own `lscript_vram2.ld`
+> with an absolute `.resource_table 0x5da00000 :` section instead of the vendor's
+> `remote_proc_rsc_table_1` region, and `vendor_patched/system_rcar_gen5.c`, which adds one MPU
+> region for the new carveout. The vendor's own scripts and the `0x96650000` region they define
+> (quoted below) are unchanged and still exist in `rcar_bsp`; the actuation firmware just no
+> longer links against `lscript_rsc_table_vram2.ld`. The rest of this section documents the
+> vendor's original design, which is what the frozen contract's `0x100`-byte size derivation
+> (unaffected by the address move) still relies on.
+
 `common/linker/lscript_common.ld:5,11` defines the named memory regions:
 ```
 vram2_base_addr        : ORIGIN = 0x11600000, LENGTH = 0xA00000   (10 MiB)
@@ -201,7 +212,9 @@ These two scripts are the pair selected for `RAM_REGION=2`. In `sample_apps/rpms
 `RAM_REGION=2` corresponds to `CORE=1` (`CMakeLists.txt:85-86`: `if(RAM_REGION EQUAL 2) set(CORE 1)`),
 and the default (no `-DMFIS_CHAN` override) build loop pairs `CORE=1` with `MFIS_CHAN=1`
 (`CMakeLists.txt:52-54`). This produces the target `rpmsg_mfis1_cluster0_core1` — MFIS channel 1,
-`.text`@`0x11600000`, `.resource_table`@`0x96650000` — exactly the frozen contract's parameters.
+`.text`@`0x11600000`, `.resource_table`@`0x96650000` — exactly the *original* frozen contract's
+parameters (this vendor `rpmsg_sample` target is untouched; Task 2 relocated only the actuation
+firmware's `.resource_table`, to `0x5da00000` — see the note at the top of this section).
 
 **Resource table content** confirms the rest of the frozen contract, from
 `sample_apps/rpmsg_sample/rsc_table.c`:
@@ -274,8 +287,9 @@ make
 
 **Sample/target name that produces the RPMsg sample ELF**: when `MFIS_CHAN` is left undefined
 (the documented default path), `sample_apps/rpmsg_sample/CMakeLists.txt:46-76` builds both
-CPU-core pairings; the one matching the frozen contract (MFIS channel 1, `RAM_REGION=2`,
-`0x11600000`/`0x96650000`) is the target:
+CPU-core pairings; the one matching the *original* frozen contract (MFIS channel 1, `RAM_REGION=2`,
+`0x11600000`/`0x96650000`, since relocated for the actuation firmware to `0x5da00000` by Task 2 —
+see Section 5) is the target:
 ```
 rpmsg_mfis1_cluster0_core1
 ```
