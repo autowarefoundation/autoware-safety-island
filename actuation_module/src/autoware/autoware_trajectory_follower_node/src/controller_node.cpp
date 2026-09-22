@@ -182,7 +182,7 @@ void Controller::callbackHeartbeat(const Float64StampedMsg* msg, void* arg)
 {
   (void)msg;   // the payload (VisionPilot's own acceleration command) is informational
   Controller* controller = static_cast<Controller*>(arg);
-  controller->last_heartbeat_rx_ = Clock::now();
+  controller->last_heartbeat_rx_.store(Clock::now(), std::memory_order_relaxed);
   controller->has_heartbeat_ = true;
 }
 
@@ -318,15 +318,24 @@ void Controller::callbackTimerControl()
   // trajectory arrives at all.
   {
     const double now = Clock::now();
-    const double hb_age = has_heartbeat_ ? now - last_heartbeat_rx_ : 1e9;
+    const double hb_age = has_heartbeat_
+      ? now - last_heartbeat_rx_.load(std::memory_order_relaxed) : 1e9;
+    // has_odometry_ guards the first read of current_odometry_: main.cpp
+    // constructs the node with `new Controller()`, which leaves the struct
+    // uninitialized until the first /localization/kinematic_state sample.
+    // Every other reader in this file goes through processData(), which
+    // withholds until has_odometry_ is set; the override runs ahead of that
+    // gate on purpose (no trajectory needed), so it must gate itself.
+    const double ego_speed_mps = has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0;
     const bool fault = false;
     const bool was_armed = stop_profile_.armed();
-    const bool active = stop_profile_.update(now, has_heartbeat_, hb_age, fault,
-                                             current_odometry_.twist.twist.linear.x);
+    const bool active = stop_profile_.update(now, has_heartbeat_, hb_age, fault, ego_speed_mps);
     if (!was_armed && stop_profile_.armed()) log_info("SI_OVERRIDE state=armed");
     if (active && !override_was_active_) {
+      // stop_profile_.v0() -- the value the ramp actually uses -- not the raw
+      // reading above, which trip() may have clamped (e.g. a negative speed).
       log_warn("SI_OVERRIDE state=ramp reason=%s v0=%.2f", stop_profile_.reason(),
-               current_odometry_.twist.twist.linear.x);
+               stop_profile_.v0());
     } else if (!active && override_was_active_) {
       log_info("SI_OVERRIDE state=idle");
     }
@@ -458,25 +467,7 @@ void Controller::publishControlCommand(
   out.lateral.stamp = out.stamp;
   out.longitudinal = lon_out.control_cmd;
 
-  if (common::can::output_mode_uses_dds(output_mode_)) {
-    if (control_cmd_pub_ && control_cmd_pub_->publish(out)) {
-      log_debug("Control command published over DDS");
-    } else {
-      log_error("Control command not published over DDS");
-    }
-  }
-
-  if (common::can::output_mode_uses_can(output_mode_)) {
-    if (!can_output_ || !can_output_->send(out, output_mode_)) {
-      if (output_mode_ == common::can::ControlCommandOutputMode::CAN_ONLY) {
-        log_error("Control command not sent over CAN in CAN_ONLY mode");
-      } else {
-        log_warn_throttle("Control command not sent over CAN; DDS output remains active");
-      }
-    } else {
-      log_debug("Control command sent over CAN");
-    }
-  }
+  publishOutput(out, "Control command");
 }
 
 void Controller::publishStopCommand(double now)
@@ -484,16 +475,47 @@ void Controller::publishStopCommand(double now)
   ControlMsg out{};
   out.stamp = Clock::toRosTime(now);
   out.lateral.stamp = out.stamp;
-  out.lateral.steering_tire_angle = current_steering_.steering_tire_angle;
+  // has_steering_ guards this the same way has_odometry_ guards ego_speed_mps
+  // in callbackTimerControl: current_steering_ is otherwise-uninitialized
+  // until the first /vehicle/status/steering_status sample, and the override
+  // can trip before that (arming needs only a heartbeat).
+  out.lateral.steering_tire_angle = has_steering_ ? current_steering_.steering_tire_angle : 0.0;
   out.lateral.steering_tire_rotation_rate = 0.0;
   out.lateral.is_defined_steering_tire_rotation_rate = false;
   out.longitudinal.stamp = out.stamp;
   out.longitudinal.velocity = stop_profile_.targetVelocity(now);
-  out.longitudinal.acceleration = out.longitudinal.velocity > 0.0 ? -stop_profile_.decel() : 0.0;
+  // Command the deceleration for as long as the override is active, not only
+  // while the open-loop ramp's computed velocity is still above zero: the
+  // ramp can reach zero before the vehicle has physically stopped (brake
+  // lag, a grade, an actuator limit below kStopDecelMps2), and commanding
+  // 0.0 at that instant is a brake release, not a hold.
+  out.longitudinal.acceleration = -stop_profile_.decel();
   out.longitudinal.is_defined_acceleration = true;
   out.longitudinal.is_defined_jerk = false;
-  if (common::can::output_mode_uses_dds(output_mode_) && control_cmd_pub_) {
-    if (!control_cmd_pub_->publish(out)) log_error("Stop command not published over DDS");
+
+  publishOutput(out, "Stop command");
+}
+
+void Controller::publishOutput(const ControlMsg & out, const char * label)
+{
+  if (common::can::output_mode_uses_dds(output_mode_)) {
+    if (control_cmd_pub_ && control_cmd_pub_->publish(out)) {
+      log_debug("%s published over DDS", label);
+    } else {
+      log_error_throttle("%s not published over DDS", label);
+    }
+  }
+
+  if (common::can::output_mode_uses_can(output_mode_)) {
+    if (!can_output_ || !can_output_->send(out, output_mode_)) {
+      if (output_mode_ == common::can::ControlCommandOutputMode::CAN_ONLY) {
+        log_error("%s not sent over CAN in CAN_ONLY mode", label);
+      } else {
+        log_warn_throttle("%s not sent over CAN; DDS output remains active", label);
+      }
+    } else {
+      log_debug("%s sent over CAN", label);
+    }
   }
 }
 

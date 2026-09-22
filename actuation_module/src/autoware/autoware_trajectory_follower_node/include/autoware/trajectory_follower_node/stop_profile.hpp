@@ -44,6 +44,10 @@ public:
   bool armed() const { return armed_; }
   const char * reason() const { return reason_; }
   double decel() const { return decel_; }
+  // Ego speed actually used for the ramp -- the ego speed at the trip,
+  // clamped to 0 (see trip() below). May differ from the raw speed a caller
+  // observed if that raw reading was negative or NaN.
+  double v0() const { return v0_; }
 
 private:
   void trip(double now, double v0, const char * why)

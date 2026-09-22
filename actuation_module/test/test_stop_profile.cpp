@@ -40,8 +40,8 @@ int main()
   assert(near(p.targetVelocity(3.75), 0.0));
   assert(near(p.targetVelocity(9.0), 0.0));
 
-  // Latched: a fresh heartbeat alone does not clear while the trip reason holds? It does,
-  // once BOTH conditions are healthy: heartbeat fresh and no fault.
+  // Latched: a fresh heartbeat alone does not clear the trip. Clearing
+  // requires BOTH conditions healthy: heartbeat fresh and no fault.
   assert(p.update(2.0, true, 0.7, false, 3.0));      // still stale -> still active
   assert(!p.update(2.2, true, 0.05, false, 3.0));    // fresh again, no fault -> idle
   assert(!p.active());
@@ -57,6 +57,19 @@ int main()
   // A fault on an unarmed profile must not trip (VisionPilot never ran).
   StopProfile q(0.5, 3.0);
   assert(!q.update(0.0, false, 1e9, true, 6.0));
+
+  // Idle (never tripped): targetVelocity() reports 0 regardless of "now".
+  assert(near(q.targetVelocity(0.0), 0.0));
+  assert(near(q.targetVelocity(123.0), 0.0));
+
+  // A negative (or otherwise bogus) ego speed at the trip clamps v0 to 0:
+  // the ramp must never command a negative velocity.
+  StopProfile r(0.5, 3.0);
+  assert(!r.update(0.0, true, 0.05, false, -2.0));   // arms regardless of speed sign
+  assert(r.armed());
+  assert(r.update(1.0, true, 0.6, false, -2.0));     // trips on stale heartbeat
+  assert(near(r.targetVelocity(1.0), 0.0));
+  assert(near(r.targetVelocity(2.0), 0.0));
 
   std::puts("test_stop_profile: ok");
   return 0;
