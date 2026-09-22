@@ -99,7 +99,7 @@ module above it.
 ## Verify the ELF contract
 
 ```bash
-./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf [service-name] [param-profile]
+./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf rpmsg-eth after
 ```
 
 Expected: `CONTRACT_PASS build/freertos-x5h/actuation_x5h.elf`. This script
@@ -107,11 +107,14 @@ checks the ELF's LOAD segments, `.text` base address, and the
 `.resource_table` section's address, size, and byte-level vdev/vring
 contents — the facts a hardware flash decision depends on. It must not be
 modified; a failure here means the build produced a different memory layout,
-not that the script is wrong. The optional second argument asserts the
-RPMsg service-name string (`rpmsg-eth`) made it into `.rodata`; the optional
-third argument asserts the actuation parameter profile string (`before` or
-`after`, see above) did too. `build.sh` runs it with both arguments, against
-both `actuation_x5h.elf` and `netif_only_x5h.elf`, on every build.
+not that the script is wrong. The second and third arguments are optional.
+The second argument asserts that the RPMsg service-name string (`rpmsg-eth`)
+reached `.rodata`. The third argument asserts that the actuation parameter
+profile string (`before` or `after`, see above) reached `.rodata` too. The
+command above uses the values for the default build. For a `before` build,
+give the `before` directory and `before` as the third argument. `build.sh`
+runs the script with both arguments, against both `actuation_x5h.elf` and
+`netif_only_x5h.elf`, on every build.
 
 ## Check the image budget
 

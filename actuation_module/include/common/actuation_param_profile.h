@@ -1,4 +1,4 @@
-// Copyright (c) 2026, Arm Limited.
+// Copyright (c) 2026, Arm Limited and contributors.
 // SPDX-License-Identifier: Apache-2.0
 //
 // Before/after actuation parameter profile for the MRM demo.
