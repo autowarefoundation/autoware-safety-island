@@ -774,6 +774,27 @@ int rpmsg_transport_init(void) {
     }
 
     LPRINTF("rpmsg-eth endpoint created (addr=%u)\r\n", (unsigned)s_ept.addr);
+
+    // Review finding (Important): the _Static_assert above only proves
+    // RPMSG_ETH_MAX_FRAME fits the COMPILE-TIME RPMSG_BUFFER_SIZE this port
+    // was written against. What actually governs the wire is the buffer size
+    // NEGOTIATED with the vring Linux publishes, which on a kernel without
+    // the 2048-byte rpmsg buffer patch is 512 B. rpmsg_virtio_send_offchannel_raw()
+    // silently truncates an oversized send to that negotiated size and still
+    // returns success, so a stock kernel would drop this branch's 1514-byte
+    // frames into malformed, truncated Ethernet frames on the Linux side with
+    // nothing on this console to show it -- tx_ok would keep climbing. Check,
+    // don't abort: a truncating link is still worth bringing up for
+    // diagnosis. rpmsg_virtio_get_tx_buffer_size() (openamp/rpmsg_virtio.h,
+    // pulled in transitively via <openamp/open_amp.h> above) is public
+    // OpenAMP API, not an internal header.
+    const int tx_cap = rpmsg_virtio_get_tx_buffer_size(s_rpdev);
+    if (tx_cap < (int)RPMSG_ETH_MAX_FRAME) {
+        LPERROR("rpmsg tx buffer is %d B, need %d -- is the 2048 kernel patch"
+                " applied? frames WILL be truncated\r\n",
+                tx_cap, (int)RPMSG_ETH_MAX_FRAME);
+    }
+
     return 0;
 }
 
