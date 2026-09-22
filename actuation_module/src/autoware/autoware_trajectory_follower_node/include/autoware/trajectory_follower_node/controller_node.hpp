@@ -19,6 +19,7 @@
 #include "autoware/trajectory_follower_base/lateral_controller_base.hpp"
 #include "autoware/trajectory_follower_base/longitudinal_controller_base.hpp"
 #include "autoware/trajectory_follower_node/input_staleness_gate.hpp"
+#include "autoware/trajectory_follower_node/stop_profile.hpp"
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
 #include "autoware_vehicle_info_utils/vehicle_info_utils.hpp"
@@ -140,6 +141,16 @@ private:
   static void callbackOdometry(const OdometryMsg* msg, void* arg);
   static void callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg);
   static void callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg);
+  static void callbackHeartbeat(const Float64StampedMsg* msg, void* arg);
+
+  // Safety Island override (CES 2027): see stop_profile.hpp.
+  static constexpr double kHeartbeatStaleSec = 0.5;
+  static constexpr double kStopDecelMps2 = 3.0;
+  StopProfile stop_profile_{kHeartbeatStaleSec, kStopDecelMps2};
+  bool has_heartbeat_{false};
+  double last_heartbeat_rx_{0.0};   // Clock::now() at receipt, never the sample's own stamp
+  bool override_was_active_{false};
+  void publishStopCommand(double now);
 
   // Current Data
   TrajectoryMsg current_trajectory_;

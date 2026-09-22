@@ -94,7 +94,10 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
   auto subscriber_operation_mode_state = create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
                                                               &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
                                                               callbackOperationModeState, this);
-    
+  auto subscriber_heartbeat = create_subscription<Float64StampedMsg>("/safety_island/vp_heartbeat",
+                                                              &tier4_debug_msgs_msg_Float64Stamped_desc,
+                                                              callbackHeartbeat, this);
+
   output_mode_ = common::can::configured_control_command_output_mode();
   log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));
 
@@ -173,6 +176,14 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
   controller->input_staleness_gate_.noteInput(Clock::now());
+}
+
+void Controller::callbackHeartbeat(const Float64StampedMsg* msg, void* arg)
+{
+  (void)msg;   // the payload (VisionPilot's own acceleration command) is informational
+  Controller* controller = static_cast<Controller*>(arg);
+  controller->last_heartbeat_rx_ = Clock::now();
+  controller->has_heartbeat_ = true;
 }
 
 void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg) {
@@ -301,6 +312,30 @@ void Controller::callbackTimerControl()
   // where the control period actually goes on hardware. Debug-only and compiled
   // out at the default INFO level (see PROFILE_* in logger.hpp).
   PROFILE_POINT(cyc_t0);
+
+  // 0. Safety Island override. Runs before the follower so it does not
+  // depend on a trajectory or on the staleness gate: in the CES demo no
+  // trajectory arrives at all.
+  {
+    const double now = Clock::now();
+    const double hb_age = has_heartbeat_ ? now - last_heartbeat_rx_ : 1e9;
+    const bool fault = false;
+    const bool was_armed = stop_profile_.armed();
+    const bool active = stop_profile_.update(now, has_heartbeat_, hb_age, fault,
+                                             current_odometry_.twist.twist.linear.x);
+    if (!was_armed && stop_profile_.armed()) log_info("SI_OVERRIDE state=armed");
+    if (active && !override_was_active_) {
+      log_warn("SI_OVERRIDE state=ramp reason=%s v0=%.2f", stop_profile_.reason(),
+               current_odometry_.twist.twist.linear.x);
+    } else if (!active && override_was_active_) {
+      log_info("SI_OVERRIDE state=idle");
+    }
+    override_was_active_ = active;
+    if (active) {
+      publishStopCommand(now);
+      return;
+    }
+  }
 
   // 1. create input data
   const auto input_data = createInputData();
@@ -441,6 +476,24 @@ void Controller::publishControlCommand(
     } else {
       log_debug("Control command sent over CAN");
     }
+  }
+}
+
+void Controller::publishStopCommand(double now)
+{
+  ControlMsg out{};
+  out.stamp = Clock::toRosTime(now);
+  out.lateral.stamp = out.stamp;
+  out.lateral.steering_tire_angle = current_steering_.steering_tire_angle;
+  out.lateral.steering_tire_rotation_rate = 0.0;
+  out.lateral.is_defined_steering_tire_rotation_rate = false;
+  out.longitudinal.stamp = out.stamp;
+  out.longitudinal.velocity = stop_profile_.targetVelocity(now);
+  out.longitudinal.acceleration = out.longitudinal.velocity > 0.0 ? -stop_profile_.decel() : 0.0;
+  out.longitudinal.is_defined_acceleration = true;
+  out.longitudinal.is_defined_jerk = false;
+  if (common::can::output_mode_uses_dds(output_mode_) && control_cmd_pub_) {
+    if (!control_cmd_pub_->publish(out)) log_error("Stop command not published over DDS");
   }
 }
 

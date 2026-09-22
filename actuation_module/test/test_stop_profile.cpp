@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: Apache-2.0
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include "autoware/trajectory_follower_node/stop_profile.hpp"
+
+#ifdef NDEBUG
+#error "test_stop_profile.cpp relies on assert(); build it without NDEBUG"
+#endif
+
+static bool near(double a, double b) { return std::fabs(a - b) < 1e-9; }
+
+int main()
+{
+  StopProfile p(0.5, 3.0);
+
+  // Before any heartbeat nothing is armed: a stale age or a fault must not trip.
+  assert(!p.update(0.0, false, 1e9, false, 5.0));
+  assert(!p.update(0.1, false, 1e9, true, 5.0));
+  assert(!p.armed());
+
+  // First fresh heartbeat arms.
+  assert(!p.update(1.0, true, 0.05, false, 5.0));
+  assert(p.armed());
+  assert(!p.active());
+  assert(std::strcmp(p.reason(), "") == 0);
+
+  // Fresh stream keeps it idle.
+  assert(!p.update(1.15, true, 0.10, false, 5.0));
+
+  // Stale by exactly the threshold does not trip; beyond it does.
+  assert(!p.update(1.6, true, 0.5, false, 5.0));
+  assert(p.update(1.75, true, 0.6, false, 5.0));
+  assert(p.active());
+  assert(std::strcmp(p.reason(), "hb_stale") == 0);
+  // v0 is the ego speed at the trip; the ramp is v0 - 3 t.
+  assert(near(p.targetVelocity(1.75), 5.0));
+  assert(near(p.targetVelocity(2.75), 2.0));
+  assert(near(p.targetVelocity(3.75), 0.0));
+  assert(near(p.targetVelocity(9.0), 0.0));
+
+  // Latched: a fresh heartbeat alone does not clear while the trip reason holds? It does,
+  // once BOTH conditions are healthy: heartbeat fresh and no fault.
+  assert(p.update(2.0, true, 0.7, false, 3.0));      // still stale -> still active
+  assert(!p.update(2.2, true, 0.05, false, 3.0));    // fresh again, no fault -> idle
+  assert(!p.active());
+  assert(p.armed());
+
+  // Fault trips regardless of heartbeat freshness, and holds until cleared.
+  assert(p.update(3.0, true, 0.05, true, 4.0));
+  assert(std::strcmp(p.reason(), "fault") == 0);
+  assert(near(p.targetVelocity(3.5), 2.5));
+  assert(p.update(4.0, true, 0.05, true, 0.0));
+  assert(!p.update(4.2, true, 0.05, false, 0.0));
+
+  // A fault on an unarmed profile must not trip (VisionPilot never ran).
+  StopProfile q(0.5, 3.0);
+  assert(!q.update(0.0, false, 1e9, true, 6.0));
+
+  std::puts("test_stop_profile: ok");
+  return 0;
+}
