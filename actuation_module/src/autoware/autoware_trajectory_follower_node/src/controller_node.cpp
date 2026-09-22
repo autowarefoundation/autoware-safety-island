@@ -488,8 +488,9 @@ void Controller::publishStopCommand(double now)
   // while the open-loop ramp's computed velocity is still above zero: the
   // ramp can reach zero before the vehicle has physically stopped (brake
   // lag, a grade, an actuator limit below kStopDecelMps2), and commanding
-  // 0.0 at that instant is a brake release, not a hold.
-  out.longitudinal.acceleration = -stop_profile_.decel();
+  // 0.0 at that instant is a brake release, not a hold. This property is
+  // asserted by test_stop_profile.cpp; compute it there, not inline here.
+  out.longitudinal.acceleration = stop_profile_.commandedAcceleration();
   out.longitudinal.is_defined_acceleration = true;
   out.longitudinal.is_defined_jerk = false;
 
@@ -502,7 +503,19 @@ void Controller::publishOutput(const ControlMsg & out, const char * label)
     if (control_cmd_pub_ && control_cmd_pub_->publish(out)) {
       log_debug("%s published over DDS", label);
     } else {
-      log_error_throttle("%s not published over DDS", label);
+      // log_error_throttle() keys on (__FILE__, __LINE__); this call site is
+      // shared by both the driving and the stop-override output paths, so
+      // that key would put both under one throttle bucket and the first
+      // "Stop command not published" could be swallowed for up to
+      // CONFIG_LOG_THROTTLE_RATE seconds by an unrelated failure on the other
+      // path. Key on label instead: label is a distinct string literal per
+      // call site (see publishControlCommand()/publishStopCommand()), and
+      // logger.hpp's throttle map is keyed by std::pair<const char*, int>,
+      // compared with the pair's default operator<, i.e. by the literal's
+      // pointer value -- so "Control command" and "Stop command" land in
+      // separate buckets even though both throttle calls sit on this same
+      // line.
+      common::logger::log_error_throttle_(label, __LINE__, "%s not published over DDS", label);
     }
   }
 

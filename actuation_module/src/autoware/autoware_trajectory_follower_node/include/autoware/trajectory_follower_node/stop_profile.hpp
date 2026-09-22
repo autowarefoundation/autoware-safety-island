@@ -43,7 +43,13 @@ public:
   bool active() const { return active_; }
   bool armed() const { return armed_; }
   const char * reason() const { return reason_; }
-  double decel() const { return decel_; }
+  // The commanded acceleration for as long as the override is active: -decel_
+  // unconditionally, not gated on targetVelocity() -- the ramp can floor at 0
+  // before the vehicle has physically stopped (brake lag, a grade, an
+  // actuator limit below decel_), and commanding 0.0 at that instant would be
+  // a brake release, not a hold. This is the branch's core safety property;
+  // callers should use this accessor rather than recomputing it inline.
+  double commandedAcceleration() const { return active_ ? -decel_ : 0.0; }
   // Ego speed actually used for the ramp -- the ego speed at the trip,
   // clamped to 0 (see trip() below). May differ from the raw speed a caller
   // observed if that raw reading was negative or NaN.

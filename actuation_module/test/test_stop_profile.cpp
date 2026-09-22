@@ -39,6 +39,10 @@ int main()
   assert(near(p.targetVelocity(2.75), 2.0));
   assert(near(p.targetVelocity(3.75), 0.0));
   assert(near(p.targetVelocity(9.0), 0.0));
+  // Commanded acceleration is -decel for as long as the override is active,
+  // including after the ramp has floored at 0 -- releasing the brake there
+  // would be a brake release, not a hold.
+  assert(near(p.commandedAcceleration(), -3.0));
 
   // Latched: a fresh heartbeat alone does not clear the trip. Clearing
   // requires BOTH conditions healthy: heartbeat fresh and no fault.
@@ -61,6 +65,8 @@ int main()
   // Idle (never tripped): targetVelocity() reports 0 regardless of "now".
   assert(near(q.targetVelocity(0.0), 0.0));
   assert(near(q.targetVelocity(123.0), 0.0));
+  // Idle: commanded acceleration is 0.0, not a deceleration.
+  assert(near(q.commandedAcceleration(), 0.0));
 
   // A negative (or otherwise bogus) ego speed at the trip clamps v0 to 0:
   // the ramp must never command a negative velocity.

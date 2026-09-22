@@ -16,7 +16,6 @@
 
 #define log_info_throttle(msg, ...) common::logger::log_info_throttle_(__FILE__, __LINE__, msg, ##__VA_ARGS__)
 #define log_warn_throttle(msg, ...) common::logger::log_warn_throttle_(__FILE__, __LINE__, msg, ##__VA_ARGS__)
-#define log_error_throttle(msg, ...) common::logger::log_error_throttle_(__FILE__, __LINE__, msg, ##__VA_ARGS__)
 
 namespace common::logger {
 
