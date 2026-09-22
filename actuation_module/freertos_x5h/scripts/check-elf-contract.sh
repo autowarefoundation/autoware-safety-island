@@ -7,8 +7,8 @@
 #   - the executable LOAD segment (.text) starts at exactly 0x11600000, inside
 #     the Core1 boot-slot window 0x11600000 .. 0x12000000 (10 MiB)
 #   - every LOAD segment starts inside either the slot window or the
-#     resource-table region 0x96650000 .. 0x96651000 (see "Carveout" below)
-#   - the .resource_table section sits at exactly 0x96650000 and is exactly
+#     resource-table region 0x5da00000 .. 0x5da01000 (see "Carveout" below)
+#   - the .resource_table section sits at exactly 0x5da00000 and is exactly
 #     0x100 bytes (the struct's `packed, aligned(0x100)` forces this size;
 #     see actuation_module/freertos_x5h/AUDIT.md Section 5)
 #   - the resource table's vdev entry is RSC_VDEV(type=3)/VIRTIO_ID_RPMSG(id=7)
@@ -20,17 +20,10 @@
 # the static ELF/resource-table content. It is NOT checked by this script and
 # must be verified by construction (which target was built) or on the board.
 #
-# Carveout: the frozen contract's Linux-side reserved region "cr52_ram1" spans
-# 0x96650000-0x9669FFFF. Firmware may legitimately place LOAD content in only
-# the first 0x1000 bytes of that region -- the .resource_table itself, per the
-# BSP's own linker region `remote_proc_rsc_table_1` (see AUDIT.md Section 5).
-# The remainder of cr52_ram1 (0x96651000-0x9669FFFF) is where Linux/remoteproc
-# dynamically allocates the two vrings after boot (each vring's resource-table
-# entry has da=0xFFFFFFFF, i.e. "address chosen by Linux, not the firmware" --
-# see the vdev/vring checks below); firmware must not place LOAD content
-# there, since that would collide with Linux's allocation. Hence RSC_HI below
-# is 0x96651000 (the firmware-loadable subregion), not the full carveout end
-# 0x966A0000.
+# Carveout: the demo boot role reserves cr52_ram1@5da00000 (2 MiB, no-map).
+# The firmware places only the 0x100-byte resource table there, at its base.
+# Linux allocates both vrings inside the same carveout at start time, so the
+# firmware-loadable subregion is the first 4 KiB only: 0x5da00000-0x5da01000.
 #
 # Pipe-and-early-exit hazard: every readelf invocation below is captured into
 # a shell variable via plain command substitution BEFORE any pattern matching
@@ -99,8 +92,8 @@ hdr_dump="$(readelf -h "$ELF" 2>/dev/null || true)"
 
 SLOT_LO=$(hex_to_dec 11600000)
 SLOT_HI=$(hex_to_dec 12000000)
-RSC_LO=$(hex_to_dec 96650000)
-RSC_HI=$(hex_to_dec 96651000) # firmware-loadable subregion only -- see "Carveout" above
+RSC_LO=$(hex_to_dec 5da00000)
+RSC_HI=$(hex_to_dec 5da01000) # firmware-loadable subregion only -- see "Carveout" above
 
 in_range() { # addr lo hi
   [ "$1" -ge "$2" ] && [ "$1" -lt "$3" ]
@@ -126,7 +119,7 @@ while read -r addr_hex flags_field; do
       exec_load_addr="$addr"
     fi
   elif ! in_range "$addr" "$RSC_LO" "$RSC_HI"; then
-    fail "LOAD segment at $addr_hex is outside both the slot window (0x11600000-0x12000000) and the resource-table region (0x96650000-0x96651000)"
+    fail "LOAD segment at $addr_hex is outside both the slot window (0x11600000-0x12000000) and the resource-table region (0x5da00000-0x5da01000)"
   fi
 done < <(readelf -lW "$ELF" | awk '$1 == "LOAD" {print $3, $7}')
 
@@ -166,7 +159,7 @@ is_hex "$rsc_size_hex" || fail "readelf -SW produced a non-hex .resource_table s
 rsc_addr=$((16#$rsc_addr_hex))
 rsc_size=$((16#$rsc_size_hex))
 
-[ "$rsc_addr" -eq "$RSC_LO" ] || fail ".resource_table is at 0x$(printf '%x' "$rsc_addr"), expected 0x96650000"
+[ "$rsc_addr" -eq "$RSC_LO" ] || fail ".resource_table is at 0x$(printf '%x' "$rsc_addr"), expected 0x5da00000"
 [ "$rsc_size" -eq $((16#100)) ] || fail ".resource_table size is 0x$(printf '%x' "$rsc_size"), expected 0x100"
 
 # Decode the vdev entry (struct fw_rsc_vdev) and both vring descriptors
