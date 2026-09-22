@@ -581,6 +581,12 @@ function build_freertos_x5h() {
   "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf" rpmsg-eth
   "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/netif_only_x5h.elf" rpmsg-eth
 
+  # Task 6: the checker's optional service-name argument takes exactly one
+  # name, so the second endpoint's string ("rpmsg-si") needs its own
+  # invocation rather than a second argument to the calls above.
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf" rpmsg-si
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/netif_only_x5h.elf" rpmsg-si
+
   # Task 4's memory-risk gate: the full lwIP + CycloneDDS + actuation module
   # link must fit the frozen 10 MiB Core1 boot-slot window. Checked on both
   # ELFs for the same reason as above: netif_only_x5h must not silently grow

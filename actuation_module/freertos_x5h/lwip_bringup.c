@@ -90,6 +90,14 @@ int lwip_bring_up_blocking(void) {
         return -5;
     }
 
+    // rpmsg-si (heartbeat + fault latch) is a second, independent endpoint
+    // on the same vdev -- it must not share fate with the network path. A
+    // failure here is logged and bring-up continues: the network link is
+    // worth more than the heartbeat.
+    if (rpmsg_transport_si_init() != 0) {
+        printf("lwip: rpmsg_transport_si_init failed\n");
+    }
+
     ip4_addr_t ipaddr, netmask, gw;
     // ip4addr_aton returns 0 on a malformed string; without the check an
     // invalid LWIP_STATIC_* build override would silently configure 0.0.0.0.
