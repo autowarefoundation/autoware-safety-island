@@ -2,28 +2,11 @@ name: FreeRTOS X5H CI
 
 # Task 8b: the design's completion criterion 1 requires "a freertos-x5h
 # build target produces a Core1-slot-compatible ELF from public sources
-# (public BSP + pinned public toolchain) in CI", but build-ci.yml never
-# builds this target and only triggers on `pull_request: branches: [main]`.
-# The freertos-x5h netif work lives on feat/freertos-x5h-target and
-# feat/freertos-x5h-netif, which have no PR against main yet, so a
-# PR-only trigger would leave this workflow never having run. `push:` on
-# those two branches plus `workflow_dispatch:` make it fire now;
-# `pull_request:` (no branch filter) covers PRs against main and stacked
-# feature-branch bases; do not add head/base branch names here.
-#
-# Review round 2 (Minor): once a PR against main exists from one of these
-# branches, both `push` and `pull_request` fire on every push to it --
-# `github.ref` differs between the two events (branch ref vs. `refs/pull/
-# N/merge`), so the `concurrency:` group below does not dedupe them and this
-# doubles CI cost for the lifetime of the PR. Accepted as a known,
-# self-resolving tradeoff: it only applies while a PR is open against main,
-# and dropping `push:` once that PR exists (rather than leaving both) would
-# be the cleanup, not a change made preemptively here.
+# (public BSP + pinned public toolchain) in CI". build-ci.yml never
+# builds this target, so this workflow does. `pull_request:` is unfiltered
+# so stacked PRs against feature-branch bases run too; `workflow_dispatch:`
+# covers a manual run with no open PR.
 on:
-  push:
-    branches:
-      - feat/freertos-x5h-target
-      - feat/freertos-x5h-netif
   pull_request:
   workflow_dispatch:
     inputs:
