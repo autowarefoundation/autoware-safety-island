@@ -1,5 +1,4 @@
 #include <cassert>
-#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
@@ -142,7 +141,7 @@ static void assert_frame_equals(
   }
 }
 
-#if defined(PLATFORM_FREERTOS)
+#if defined(PLATFORM_FREERTOS_CAN_MOCK)
 static void test_freertos_can_output_records_frames()
 {
   using common::can::ControlCommandCanOutput;
@@ -161,6 +160,29 @@ static void test_freertos_can_output_records_frames()
   ASSERT_MSG(common::can::platform::recorded_can_frame_at(2).id == 0x102U, "third recorded frame id");
   ASSERT_MSG(read_u16_le(common::can::platform::recorded_can_frame_at(2), 2) == 0U, "first send sequence");
   ASSERT_MSG(read_u16_le(common::can::platform::recorded_can_frame_at(5), 2) == 1U, "second send sequence");
+}
+
+static void test_failed_batch_does_not_advance_sequence()
+{
+  using common::can::ControlCommandCanOutput;
+  using common::can::ControlCommandOutputMode;
+
+  common::can::platform::reset_recorded_can_frames();
+  ControlCommandCanOutput output;
+  ASSERT_MSG(output.init(), "mock initializes");
+
+  auto nan_msg = make_sample_control_msg();
+  nan_msg.longitudinal.velocity = std::numeric_limits<float>::quiet_NaN();
+  ASSERT_MSG(!output.send(nan_msg, ControlCommandOutputMode::CAN_ONLY), "encode failure is reported");
+
+  common::can::platform::mock_send_fail_from = 1U;
+  ASSERT_MSG(!output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY), "mid-batch failure is reported");
+  ASSERT_MSG(common::can::platform::recorded_can_frame_count() == 1U, "failed batch recorded the first frame only");
+
+  common::can::platform::mock_send_fail_from = std::numeric_limits<std::size_t>::max();
+  ASSERT_MSG(output.send(make_sample_control_msg(), ControlCommandOutputMode::CAN_ONLY), "retry after failure succeeds");
+  ASSERT_MSG(common::can::platform::recorded_can_frame_count() == 4U, "retry records three more frames");
+  ASSERT_MSG(read_u16_le(common::can::platform::recorded_can_frame_at(3), 2) == 0U, "sequence is unchanged after failed batch");
 }
 #endif
 
@@ -236,8 +258,9 @@ int main()
   test_encoder_payloads();
   test_dds_only_encoding_has_no_frames();
   test_non_finite_values_are_rejected();
-#if defined(PLATFORM_FREERTOS)
+#if defined(PLATFORM_FREERTOS_CAN_MOCK)
   test_freertos_can_output_records_frames();
+  test_failed_batch_does_not_advance_sequence();
 #elif defined(PLATFORM_ZEPHYR)
   #if defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && CONFIG_CONTROL_CMD_CAN_OUTPUT
   test_zephyr_can_output_loopback();

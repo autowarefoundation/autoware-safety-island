@@ -79,4 +79,9 @@ run_with_timeout "${BUILD_ROOT}-can/actuation_freertos" \
 require_marker "${BUILD_ROOT}-can/can.log" "CAN output tests passed"
 echo "CAN test OK"
 
+echo "Phase 5 - Python CAN decoder golden vectors"
+python3 "${ROOT_DIR}/demo/can_carla_bridge/test_decoder.py"
+python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
+echo "CAN bridge checks OK"
+
 echo "FreeRTOS POSIX runtime validation OK"

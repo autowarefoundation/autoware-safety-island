@@ -24,10 +24,14 @@ Output modes
 
 Current defaults:
 
-- ``zephyr-fvp``: ``DDS_ONLY``.
+- ``zephyr-fvp``: ``DDS_ONLY``. TAP plus the UDP tunnel selects
+  ``CAN_ONLY`` or ``DDS_AND_CAN`` explicitly.
 - ``zephyr-s32z``: ``DDS_AND_CAN``.
-- ``freertos-posix``: ``DDS_AND_CAN`` so CI exercises the mock CAN path.
-- ``freertos-s32z2``: ``DDS_ONLY``; CAN is not validated on that hardware path.
+- ``freertos-posix``: ``DDS_ONLY``. SocketCAN is selected with
+  ``--control-output CAN_ONLY`` or ``DDS_AND_CAN`` and
+  ``SAFETY_ISLAND_CAN_IFACE``. The in-memory mock is test-only.
+- ``freertos-s32z2`` / ``freertos-x5h``: ``DDS_ONLY``; CAN is not part of
+  this stack on those targets.
 
 **********************
 Frame format
@@ -64,7 +68,13 @@ this to ``&can0`` in ``actuation_module/boards/s32z270dc2_rtu0_r52@D.overlay``.
 Real bus validation requires the board CAN pins to be connected to an external
 CAN transceiver and bus.
 
-``freertos-posix`` uses an in-memory mock backend. The test program
-``actuation_module/test/can_output_test.cpp`` validates the encoder, output
-modes, and recorded mock frames. CI builds and runs this as the FreeRTOS CAN
-output test phase.
+``freertos-posix`` uses Linux SocketCAN when CAN output is enabled and
+``SAFETY_ISLAND_CAN_IFACE`` is set. The in-memory mock is compiled only
+into ``--can-output-test``. That test program
+(``actuation_module/test/can_output_test.cpp``) validates the encoder,
+output modes, and recorded mock frames.
+
+Host SocketCAN (``vcan`` or a real adapter), the Zephyr FVP UDP tunnel, and
+the CARLA ego bridge are specified in :doc:`can_carla_integration` and
+:doc:`can_carla_implementation_plan`. Those paths sit on top of this
+placeholder contract; they do not change the frame layout.
