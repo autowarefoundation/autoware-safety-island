@@ -12,6 +12,34 @@
 #include "common/logger/logger.hpp"
 using namespace common::logger;
 
+// Diagnostic bracket around dds_create_domain_with_rawconfig() below.
+//
+// This is a weak DECLARATION with no definition of its own anywhere in the
+// shared tree, which is what keeps it free for every platform that does not
+// want it: an unresolved weak symbol links as address 0, so the guarded
+// call below compiles to a null test that is never taken, and nothing but
+// that test is added to any build that does not define it. The
+// freertos_x5h target defines it strongly
+// (actuation_module/freertos_x5h/x5h_diag.c), so in that one image the mark
+// always prints -- it is not behind a build flag that could default off.
+//
+// Why here specifically: on the X5H safety island the CR52 prints the
+// log_info() line below and then goes permanently silent, with the
+// "DDS domain created" line never appearing on any boot. The mark records
+// a resource snapshot at the last instant before the call that never
+// returns, so that reading can be compared against the liveness beacon's
+// last line.
+//
+// What exactly it reports is the implementer's business, not this header's
+// -- this is a shared header, also compiled for Zephyr, POSIX and S32Z2,
+// and a description written against one platform's implementation is a
+// claim the other three cannot keep true. On freertos_x5h it reports the
+// registered LAUNCHER task's stack high-water mark (which happens to be
+// the calling task on that image, but the hook does not require it) plus
+// heap headroom; see actuation_module/freertos_x5h/x5h_diag.h for the
+// definitive description.
+extern "C" void actuation_diag_mark(const char * tag) __attribute__((weak));
+
 /**
  * @brief Main DDS communication class
  */
@@ -28,6 +56,9 @@ public:
         log_info("%s -> Creating DDS domain with raw config\n", node_name_.c_str());
 
         // Create a DDS domain with raw config
+        if (actuation_diag_mark != nullptr) {
+            actuation_diag_mark("pre-dds_create_domain_with_rawconfig");
+        }
         dds_entity_t domain = dds_create_domain_with_rawconfig(CONFIG_DDS_DOMAIN_ID, &dds_cfg);
         if (domain < 0 && domain != DDS_RETCODE_PRECONDITION_NOT_MET) {
             log_error("%s -> dds_create_domain_with_rawconfig: %s\n", 

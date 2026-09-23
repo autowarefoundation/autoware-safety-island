@@ -22,6 +22,7 @@
 #include <cmath>
 
 #include "autoware/mpc_lateral_controller/mpc_lateral_controller.hpp"
+#include "autoware/mpc_lateral_controller/trajectory_buffer_policy.hpp"
 #include "autoware/motion_utils/trajectory/trajectory.hpp"
 #include "autoware/mpc_lateral_controller/qp_solver/qp_solver_unconstraint_fast.hpp"
 #include "autoware/mpc_lateral_controller/vehicle_model/vehicle_model_bicycle_dynamics.hpp"
@@ -383,19 +384,56 @@ void MpcLateralController::setTrajectory(
   m_mpc->setReferenceTrajectory(msg, m_trajectory_filtering_param, current_kinematics);
 
   // update trajectory buffer to check the trajectory shape change.
-  m_trajectory_buffer.push_back(m_current_trajectory);
-  while (1) { //TODO: a good replacement for rclcpp::ok() ?
-    const auto time_diff = Clock::toDouble(m_trajectory_buffer.back().header.stamp) -
-                           Clock::toDouble(m_trajectory_buffer.front().header.stamp);
+  //
+  // Push only samples the buffer has not seen yet (task-36 heap-leak fix).
+  // This function runs every control cycle — twice, from isReady() and
+  // run() — with whatever trajectory the controller currently holds, which
+  // on this port is the sticky last-received sample: between arrivals, and
+  // forever after arrivals stop, the SAME sample (same header stamp) comes
+  // back here again and again. Those re-pushes were never popped (back -
+  // front stays 0 between identical stamps) and the deque grew by one deep
+  // copy of the whole points vector per call, unbounded: measured as the
+  // ~12 KB/s post-peer-loss heap leak that exhausted the X5H board's heap
+  // (vApplicationMallocFailedHook ~270 s after the DDS peer vanished), and
+  // reproduced + attributed to these push_back copies on the
+  // freertos-posix host build. A sample whose stamp equals the newest
+  // buffered one adds no shape-change history — the buffer exists solely
+  // for isTrajectoryShapeChanged()'s receipt-history window — so skipping
+  // it changes no consumer's behavior; with advancing stamps (live peer)
+  // the push/trim behavior is exactly as before.
+  //
+  // Both the duplicate-stamp skip and the trim decision — including the
+  // negative-difference guard against non-monotonic peer stamps, the same
+  // unbounded-growth signature through the other exit of this loop — live
+  // in trajectory_buffer_policy.hpp, where they are host-tested
+  // (test/test_trajectory_buffer_policy.cpp); see that header for the full
+  // rationale of each.
+  namespace policy = trajectory_buffer_policy;
+  const bool already_buffered = !m_trajectory_buffer.empty() &&
+    policy::isDuplicateStamp(
+      m_trajectory_buffer.back().header.stamp.sec,
+      m_trajectory_buffer.back().header.stamp.nanosec,
+      m_current_trajectory.header.stamp.sec,
+      m_current_trajectory.header.stamp.nanosec);
+  if (!already_buffered) {
+    m_trajectory_buffer.push_back(m_current_trajectory);
+    // Bounded: every unsuccessful decision pops one sample, and
+    // shouldPopFront() always accepts the single-sample buffer
+    // (back - front == 0), so this terminates no later than the deque
+    // reaching the sample pushed above.
+    while (1) {
+      const auto time_diff = Clock::toDouble(m_trajectory_buffer.back().header.stamp) -
+                             Clock::toDouble(m_trajectory_buffer.front().header.stamp);
 
-    const double first_trajectory_duration_time = 5.0;
-    const double duration_time =
-      m_has_received_first_trajectory ? m_new_traj_duration_time : first_trajectory_duration_time;
-    if (time_diff < duration_time) {
-      m_has_received_first_trajectory = true;
-      break;
+      const double first_trajectory_duration_time = 5.0;
+      const double duration_time =
+        m_has_received_first_trajectory ? m_new_traj_duration_time : first_trajectory_duration_time;
+      if (!policy::shouldPopFront(time_diff, duration_time)) {
+        m_has_received_first_trajectory = true;
+        break;
+      }
+      m_trajectory_buffer.pop_front();
     }
-    m_trajectory_buffer.pop_front();
   }
 }
 

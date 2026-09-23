@@ -10,7 +10,7 @@ User Guide
 Build, deploy, and operate the safety island. Start with the
 :doc:`quickstart` for the runtime target matrix, then pick the target you
 actually care about: local validation, cloud simulation on AVH, or real
-hardware on S32Z.
+hardware on S32Z and R-Car X5H.
 
 .. toctree::
    :titlesonly:
