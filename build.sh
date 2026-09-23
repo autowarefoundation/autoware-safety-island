@@ -31,6 +31,7 @@ BUILD_DIR_SET=0
 BUILD_PLATFORM="zephyr-fvp"
 BUILD_PLATFORM_SET=0
 NETWORK_PROFILE="default"
+PARAM_PROFILE="after"
 DDS_NETWORK_INTERFACE=""
 CONTROL_CMD_OUTPUT_MODE=""
 # Repeatable pass-through for ad hoc CMake cache entries (e.g. instrumented
@@ -55,6 +56,8 @@ function usage() {
   echo -e "${GREEN}    --control-output   ${NC}FreeRTOS control output: DDS_ONLY, CAN_ONLY, DDS_AND_CAN."
   echo -e "${GREEN}    --cmake-define     ${NC}Extra CMake cache entry KEY=VALUE, forwarded as -DKEY=VALUE."
   echo -e "${GREEN}                         Repeatable. freertos-x5h only."
+  echo -e "${GREEN}    --param-profile    ${NC}Actuation parameter profile: after (default), before."
+  echo -e "${GREEN}                         freertos-x5h only (MRM before/after demo).${NC}"
   echo -e "${GREEN}    -t                 ${NC}Zephyr target board: ${ZEPHYR_TARGET_LIST[*]}"
   echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]}.${NC}"
   echo -e "${GREEN}    -d                 ${NC}Build directory. Default: ${BUILD_DIR}."
@@ -136,6 +139,19 @@ function parse_args() {
       --cmake-define)
         require_arg "$1" "${2:-}"
         EXTRA_CMAKE_ARGS+=("-D$2")
+        shift 2
+        ;;
+      --param-profile)
+        require_arg "$1" "${2:-}"
+        case "$2" in
+          before|after)
+            PARAM_PROFILE="$2"
+            ;;
+          *)
+            echo -e "${RED}--param-profile must be 'before' or 'after', got '$2'${NC}" 1>&2
+            exit 1
+            ;;
+        esac
         shift 2
         ;;
       --unit-test)
@@ -541,6 +557,7 @@ function build_freertos_x5h() {
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
     x5h_args+=(-DCONFIG_CONTROL_CMD_OUTPUT_MODE="${CONTROL_CMD_OUTPUT_MODE}")
   fi
+  x5h_args+=(-DACTUATION_PARAM_PROFILE="${PARAM_PROFILE}")
   # e.g. --cmake-define X5H_DIAG_TASK_TABLE=ON --cmake-define
   # CONFIG_DDS_LOG_LEVEL=3 for an instrumented build into its own -d
   # directory; empty by default, so the default configuration's argv (and
@@ -578,8 +595,8 @@ function build_freertos_x5h() {
   # rely on now that check-elf-contract.sh's SVC check no longer has the
   # SIGPIPE-under-pipefail false-failure bug (see that script's own
   # top-of-file comment).
-  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf" rpmsg-eth
-  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/netif_only_x5h.elf" rpmsg-eth
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf" rpmsg-eth "${PARAM_PROFILE}"
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/netif_only_x5h.elf" rpmsg-eth "${PARAM_PROFILE}"
 
   # Task 4's memory-risk gate: the full lwIP + CycloneDDS + actuation module
   # link must fit the frozen 10 MiB Core1 boot-slot window. Checked on both
@@ -596,6 +613,11 @@ normalize_platform
 # Create build directory
 cd "${ROOT_DIR}"
 mkdir -p build
+
+if [ "${PARAM_PROFILE}" != "after" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
+  echo -e "${RED}--param-profile is only supported for --platform freertos-x5h${NC}" 1>&2
+  exit 1
+fi
 
 case "${BUILD_PLATFORM}" in
   zephyr-fvp|zephyr-s32z)

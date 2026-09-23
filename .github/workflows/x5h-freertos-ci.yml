@@ -2,29 +2,12 @@ name: FreeRTOS X5H CI
 
 # Task 8b: the design's completion criterion 1 requires "a freertos-x5h
 # build target produces a Core1-slot-compatible ELF from public sources
-# (public BSP + pinned public toolchain) in CI", but build-ci.yml never
-# builds this target and only triggers on `pull_request: branches: [main]`.
-# The freertos-x5h netif work lives on feat/freertos-x5h-target and
-# feat/freertos-x5h-netif, which have no PR against main yet, so a
-# PR-only trigger would leave this workflow never having run. `push:` on
-# those two branches plus `workflow_dispatch:` make it fire now;
-# `pull_request:` keeps it working once a PR against main exists.
-#
-# Review round 2 (Minor): once a PR against main exists from one of these
-# branches, both `push` and `pull_request` fire on every push to it --
-# `github.ref` differs between the two events (branch ref vs. `refs/pull/
-# N/merge`), so the `concurrency:` group below does not dedupe them and this
-# doubles CI cost for the lifetime of the PR. Accepted as a known,
-# self-resolving tradeoff: it only applies while a PR is open against main,
-# and dropping `push:` once that PR exists (rather than leaving both) would
-# be the cleanup, not a change made preemptively here.
+# (public BSP + pinned public toolchain) in CI". build-ci.yml never
+# builds this target, so this workflow does. `pull_request:` is unfiltered
+# so stacked PRs against feature-branch bases run too; `workflow_dispatch:`
+# covers a manual run with no open PR.
 on:
-  push:
-    branches:
-      - feat/freertos-x5h-target
-      - feat/freertos-x5h-netif
   pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       devcontainer_image:
@@ -42,7 +25,7 @@ jobs:
     name: freertos-x5h firmware + checkers
     # ubuntu-latest, not a ubicloud-standard-* label (review finding,
     # Important): this workflow's own `on:` trigger includes
-    # `pull_request: branches: [main]`, so it runs against the upstream repo
+    # `pull_request:`, so it runs against the upstream repo
     # once a PR from this branch targets main there -- and ubicloud runner
     # groups are a fork-only add-on (this repo's youtalk fork routes heavy
     # jobs to them; see the CI-routing commit history), not something
@@ -135,11 +118,11 @@ jobs:
 
       - name: Re-verify ELF contract - actuation_x5h.elf
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/actuation_x5h.elf rpmsg-eth after
 
       - name: Re-verify ELF contract - netif_only_x5h.elf
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/netif_only_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h/netif_only_x5h.elf rpmsg-eth after
 
       - name: Re-verify image budget - actuation_x5h.elf
         shell: bash
@@ -168,11 +151,11 @@ jobs:
       # actually flashes, so it needs the same gates as its own named steps.
       - name: Re-verify ELF contract - actuation_x5h.elf (diag)
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/actuation_x5h.elf rpmsg-eth after
 
       - name: Re-verify ELF contract - netif_only_x5h.elf (diag)
         shell: bash
-        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth
+        run: ./actuation_module/freertos_x5h/scripts/check-elf-contract.sh build/freertos-x5h-diag/netif_only_x5h.elf rpmsg-eth after
 
       - name: Re-verify image budget - actuation_x5h.elf (diag)
         shell: bash
@@ -193,6 +176,27 @@ jobs:
           path: |
             build/freertos-x5h-diag/actuation_x5h.elf
             build/freertos-x5h-diag/netif_only_x5h.elf
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # MRM before/after demo: the untuned "before" parameter profile, built
+      # into its own -d directory so the default build above is untouched. A
+      # board session is only ever authorised to flash a CI-built image, and
+      # the demo needs both profiles -- the default build IS the "after"
+      # image (verified above), this one is the "before".
+      - name: Build freertos-x5h before-profile (untuned actuation params)
+        shell: bash
+        run: ./build.sh --platform freertos-x5h -d build/freertos-x5h-before --param-profile before
+
+      # A SEPARATE artifact name (same rule as freertos-x5h-diag-elfs): an
+      # operator fetching a flash image must not be able to confuse the
+      # untuned demo baseline with the tuned image that ships.
+      - name: Upload freertos-x5h before-profile ELF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-x5h-before-elfs
+          path: build/freertos-x5h-before/actuation_x5h.elf
           if-no-files-found: ignore
           retention-days: 7
 
