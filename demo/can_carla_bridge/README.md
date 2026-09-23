@@ -33,4 +33,4 @@ use `--ego-role NAME` for another role or `--ego-id ID` to select a specific
 vehicle. It fails rather than driving an arbitrary vehicle if selection is
 missing or ambiguous.
 For Open AD Kit, pass `--ego-role ego_vehicle` (see
-`demo/carla-closed-loop/README.md`). Watchdog timeout defaults to 0.5 s.
+`documentation/user_guide/can_carla_closed_loop.rst`). Watchdog timeout defaults to 0.5 s.

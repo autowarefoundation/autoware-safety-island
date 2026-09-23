@@ -420,19 +420,20 @@ PR 2 (#50) — Open AD Kit closed-loop
 Autoware planning against CARLA, Safety Island as the controller, actuation
 still over classic CAN into the same ``vcan0`` bridge as PR 1. Autoware plus
 CARLA compose lives in Open AD Kit
-(``deployments/safety-island-carla-simulation/``). This repository keeps the
-SI binary, domain-bridge, ``vcan0``, and ``demo/can_carla_bridge``.
+(``deployments/safety-island-carla-simulation/``, PR #146), including the
+domain-bridge. This repository keeps the SI binary, ``vcan0``, and
+``demo/can_carla_bridge``.
 
 7. **Sensors-only CARLA interface**
    ``autoware_carla_interface`` has no upstream sensor-only flag.
    ``SensorLoop`` calls ``ego_actor.apply_control()`` every tick. Overlay
-   ``demo/carla-closed-loop/overlay/patch_sensors_only.py`` skips that call
+   Open AD Kit's ``overlay/patch_sensors_only.py`` skips that call
    so the CAN bridge is the sole CARLA driver. Remap
    ``input_control_cmd`` / ``output_actuation_cmd`` off the live topics.
 
 8. **Stub Autoware follower**
-   Mount existing ``demo/launch/control.launch.xml`` into the Open AD Kit
-   ``control`` service, same pattern as the planning-simulator demo.
+   Open AD Kit mounts its stub ``control.launch.xml`` into the ``control``
+   service, same pattern as the planning-simulator demo.
 
 9. **SI ``CAN_ONLY`` and domain-bridge**
    Build ``freertos-posix --control-output CAN_ONLY``. Bridge the five
@@ -444,10 +445,11 @@ SI binary, domain-bridge, ``vcan0``, and ``demo/can_carla_bridge``.
     matches Open AD Kit. ``VehicleAckermannControl`` mapping unchanged.
 
 11. **Pins and topic contract**
-    First bring-up uses current Open AD Kit tags (CARLA is already
-    digest-pinned). After a working host run, record the Open AD Kit git
-    SHA and image digests in ``demo/carla-closed-loop/pins.env``. Privilege-free
-    tests check the five-input topic matrix against ``bridge-config.yaml``.
+    Open AD Kit's deployment ``config.env`` pins CARLA and component images
+    by digest. Check out PR #146 at commit
+    ``540fd13792c6e47546974ab7f9c9df5f575405e2`` for reproducibility.
+    Its privilege-free tests check the five-input topic matrix against
+    ``bridge-config.yaml``.
 
 12. **Docs**
     Closed-loop launch is two-repo. CI never starts CARLA or Open AD Kit.
@@ -501,8 +503,8 @@ when the kernel has no ``vcan``.
   timeout.
 
 Never launch CARLA, a GPU job, or an Open AD Kit compose in GitHub
-Actions. PR 2 adds privilege-free contract tests for the sensors-only
-overlay, ego ``role_name``, and the five-input topic matrix.
+Actions. The Open AD Kit companion PR tests the sensors-only overlay and
+five-input topic matrix; this repository tests ego ``role_name`` in the bridge.
 
 **********************
 Known limits

@@ -69,22 +69,21 @@ docker compose -f docker-compose.yaml -f docker-compose.posix.yaml exec safety-i
 
 ## Open AD Kit closed-loop CAN to CARLA
 
-Autoware plus CARLA runs from Open AD Kit
-`deployments/safety-island-carla-simulation/`. This repository starts the
-domain-bridge, Safety Island `CAN_ONLY`, and the CAN-CARLA bridge. Details:
-`carla-closed-loop/README.md`.
+Autoware plus CARLA and the domain-bridge run from Open AD Kit PR
+[#146](https://github.com/autowarefoundation/openadkit/pull/146)
+(`deployments/safety-island-carla-simulation/`). This repository supplies
+Safety Island `CAN_ONLY` and the CAN-CARLA bridge. Details:
+`documentation/user_guide/can_carla_closed_loop.rst`.
 
 From the repository root:
 
 ```bash
-export SAFETY_ISLAND_REPO=$PWD
 # in the Open AD Kit checkout:
+#   git fetch origin pull/146/head && git switch --detach 540fd13792c6e47546974ab7f9c9df5f575405e2
 #   ./openadkit run safety-island-carla-simulation --gpu
 
 sudo ip link add vcan0 type vcan
 sudo ip link set up vcan0
-
-docker compose -f demo/carla-closed-loop/docker-compose.yaml up -d
 
 ./build.sh --platform freertos-posix -d build/freertos-posix \
   --control-output CAN_ONLY --dds-interface lo

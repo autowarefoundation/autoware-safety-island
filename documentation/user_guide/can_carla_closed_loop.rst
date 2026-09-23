@@ -16,15 +16,15 @@ This is a **host demo**. GitHub Actions never starts CARLA or Open AD Kit.
 Two repositories
 **********************
 
-- **Open AD Kit** ``deployments/safety-island-carla-simulation/``: CARLA,
-  sensors-only ``autoware_carla_interface``. Autoware's trajectory follower
-  stays running so Auto/Engage works; it must not actuate CARLA.
-- **This repository**: domain-bridge, ``freertos-posix`` ``CAN_ONLY``,
-  ``vcan0``, and ``demo/can_carla_bridge``.
+- **Open AD Kit PR #146** ``deployments/safety-island-carla-simulation/``:
+  CARLA, domain-bridge, sensors-only ``autoware_carla_interface`` and its
+  deployment configuration. Autoware's follower stays running for Auto/Engage
+  but does not actuate CARLA.
+- **This repository**: ``freertos-posix`` ``CAN_ONLY``, ``vcan0``, and
+  ``demo/can_carla_bridge``.
 
-Do not vendor Open AD Kit sources here. Set ``SAFETY_ISLAND_REPO`` to this
-checkout when starting the Open AD Kit deployment so it can bind-mount
-the sensors-only overlay.
+Open AD Kit's deployment and sensors-only overlay are maintained in
+`PR #146 <https://github.com/autowarefoundation/openadkit/pull/146>`_.
 
 **********************
 Host loop
@@ -37,8 +37,9 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
 
    .. code-block:: console
 
-     $ export SAFETY_ISLAND_REPO=/path/to/autoware-safety-island
      $ cd /path/to/openadkit
+     $ git fetch origin pull/146/head
+     $ git switch --detach 540fd13792c6e47546974ab7f9c9df5f575405e2
      $ ./openadkit run safety-island-carla-simulation --gpu
 
    Do not start ``carla-simulation`` first and recreate
@@ -50,7 +51,6 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
 
      $ sudo ip link add vcan0 type vcan
      $ sudo ip link set up vcan0
-     $ docker compose -f demo/carla-closed-loop/docker-compose.yaml up -d
      $ ./build.sh --platform freertos-posix -d build/freertos-posix \
          --control-output CAN_ONLY --dds-interface lo
      $ SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
@@ -68,8 +68,8 @@ skips ``apply_control()``; the CAN bridge applies
 DDS
 **********************
 
-Open AD Kit pins domain 1 to loopback. Closed-loop CycloneDDS in
-``demo/carla-closed-loop/cyclonedds.xml`` pins domains 1 and 2 to ``lo``.
+Open AD Kit pins domain 1 to loopback. Its closed-loop deployment's
+``cyclonedds.xml`` pins domains 1 and 2 to ``lo``.
 Build the Safety Island with ``--dds-interface lo``. The domain-bridge
 forwards the five controller inputs 1 → 2 and does not forward
 ``control_cmd`` (``CAN_ONLY``). Open AD Kit publishes
@@ -83,9 +83,10 @@ subscriber. ``/system/operation_mode/state`` is bridged with
 Pins
 **********************
 
-``demo/carla-closed-loop/pins.env`` records the Open AD Kit git SHA and
-image refs after the first working host run. CARLA 0.9.16 is already
-digest-pinned. Component tags stay floating until that run.
+The commands above check out Open AD Kit PR #146 at commit
+``540fd13792c6e47546974ab7f9c9df5f575405e2`` for repeatable runs.
+Its ``deployments/safety-island-carla-simulation/config.env`` pins CARLA
+and component images by digest.
 
 **********************
 Tests
@@ -97,4 +98,9 @@ Privilege-free (no CARLA):
 
   $ python3 demo/can_carla_bridge/test_decoder.py
   $ python3 demo/can_carla_bridge/test_bridge.py
-  $ python3 demo/carla-closed-loop/test_contract.py
+
+The deployment contract test lives in Open AD Kit:
+
+.. code-block:: console
+
+  $ python3 deployments/safety-island-carla-simulation/test_contract.py

@@ -158,20 +158,20 @@ Rules
 - ``autoware_carla_interface`` keeps sensor and localization publication and
   the CARLA world tick. It has no upstream sensor-only flag:
   ``SensorLoop`` calls ``ego.apply_control()`` every tick. The overlay
-  ``demo/carla-closed-loop/overlay/patch_sensors_only.py`` skips that call.
+  Open AD Kit's ``overlay/patch_sensors_only.py`` skips that call.
   Remap the raw-vehicle converter off the live command topics. Do not fork
   Open AD Kit or Autoware Universe.
 - Same placeholder frames, same mapping, same ``vcan0`` iface.
 - Autoware plus CARLA compose lives in Open AD Kit
-  ``deployments/safety-island-carla-simulation/``. This repository starts
-  the domain-bridge, SI POSIX ``CAN_ONLY``, ``vcan0``, and the CAN-CARLA
-  bridge beside that deployment. Do not vendor Open AD Kit sources here.
+  ``deployments/safety-island-carla-simulation/`` (PR #146). That deployment
+  also starts the domain-bridge. This repository runs SI POSIX ``CAN_ONLY``,
+  ``vcan0``, and the CAN-CARLA bridge. Do not vendor Open AD Kit sources here.
 
 Validation
 ==========
 
 - Manual: start Open AD Kit ``safety-island-carla-simulation`` (no
-  ``--drive``), then this repo's domain-bridge, SI ``CAN_ONLY``, and
+  ``--drive``), then this repo's SI ``CAN_ONLY`` and
   CAN-CARLA bridge. Town01, set a goal, engage, confirm the ego moves
   under SI CAN commands and that ``candump vcan0`` shows ``0x100`` /
   ``0x101`` / ``0x102``.
