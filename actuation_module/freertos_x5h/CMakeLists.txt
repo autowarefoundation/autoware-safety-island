@@ -561,17 +561,21 @@ target_sources(actuation_x5h PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
     ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
+    # Task 6: second RPMsg channel "rpmsg-si" (heartbeat + fault latch).
+    ${CMAKE_CURRENT_LIST_DIR}/si_channel.c
 )
 
 # actuation_x5h's own target_compile_options() blocks (below, in this same
-# file) do not enable -Wall/-Wextra, and rpmsg_netif_core_test (the host
-# test target in freertos/CMakeLists.txt) does -- these four files get the
-# same treatment here so this new code is held to that bar in-target too.
+# file) do not enable -Wall/-Wextra, and rpmsg_netif_core_test /
+# si_channel_test (the host test targets in freertos/CMakeLists.txt) do --
+# these five files get the same treatment here so this new code is held to
+# that bar in-target too.
 set_source_files_properties(
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif_core.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
     ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
+    ${CMAKE_CURRENT_LIST_DIR}/si_channel.c
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra"
 )
 
@@ -608,6 +612,8 @@ add_executable(netif_only_x5h
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_netif.c
     ${CMAKE_CURRENT_LIST_DIR}/lwip_bringup.c
     ${CMAKE_CURRENT_LIST_DIR}/rpmsg_transport.c
+    # Task 6: second RPMsg channel "rpmsg-si" (heartbeat + fault latch).
+    ${CMAKE_CURRENT_LIST_DIR}/si_channel.c
     ${lwipcore_SRCS}
     ${lwipcore4_SRCS}
     ${lwipapi_SRCS}
@@ -658,18 +664,31 @@ option(X5H_DIAG_TASK_TABLE "Emit a periodic FreeRTOS task table on the console (
 if(X5H_DIAG_TASK_TABLE)
     target_compile_definitions(actuation_x5h PRIVATE X5H_DIAG_TASK_TABLE=1)
     target_compile_definitions(netif_only_x5h PRIVATE X5H_DIAG_TASK_TABLE=1)
-    # Task 26's controller-liveness probe needs common/node/node.hpp (a
-    # shared header, well outside this directory) to reach x5h_diag.h so it
-    # can call x5h_diag_set_controller_task(). x5h_diag.c and
-    # freertos_main.cpp already resolve that #include "x5h_diag.h" for free
-    # -- they live in this same directory, so the quote-form include finds it
-    # before ever consulting the search path below. node.hpp has no such
-    # neighbour, so it needs this directory on actuation_x5h's include path.
-    # Added only inside this branch: when the option is OFF (the default),
-    # node.hpp's matching #if never fires, so nothing here is even searched,
-    # let alone found.
-    target_include_directories(actuation_x5h PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 endif()
+
+# This directory on actuation_x5h's include path -- unconditional, for two
+# independent reasons, so it is kept outside the X5H_DIAG_TASK_TABLE branch
+# above even though only one of the two reasons is diagnostic-only:
+#
+# 1. (Task 7, always applies) controller_node.cpp's Safety Island stop
+#    override calls si_channel_fault(), guarded only by
+#    #if defined(PLATFORM_FREERTOS_X5H) -- not by X5H_DIAG_TASK_TABLE -- so
+#    it #includes "si_channel.h" on every actuation_x5h build. That file
+#    lives in this directory. controller_node.cpp itself lives under
+#    src/autoware/autoware_trajectory_follower_node/src/, nowhere near this
+#    directory, so the quote-form include cannot resolve against its own
+#    directory the way x5h_diag.c's and freertos_main.cpp's #include
+#    "x5h_diag.h" do (reason 2 below) -- it needs this directory on the
+#    search path.
+# 2. (Task 26, diagnostic-only) the controller-liveness probe needs
+#    common/node/node.hpp (a shared header, well outside this directory) to
+#    reach x5h_diag.h so it can call x5h_diag_set_controller_task().
+#    node.hpp's matching #if only fires when X5H_DIAG_TASK_TABLE is ON, so
+#    on its own this reason would want the include path added only inside
+#    the branch above -- but reason 1 already requires it unconditionally,
+#    so there is nothing left for a second, guarded target_include_directories()
+#    call to do.
+target_include_directories(actuation_x5h PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
 target_link_libraries(netif_only_x5h PRIVATE
     freertos_bsp

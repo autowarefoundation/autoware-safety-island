@@ -24,6 +24,10 @@ using namespace common::logger;
 
 #include "platform/platform_threading.h"
 
+#if defined(PLATFORM_FREERTOS_X5H)
+#include "si_channel.h"
+#endif
+
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -327,7 +331,11 @@ void Controller::callbackTimerControl()
     // withholds until has_odometry_ is set; the override runs ahead of that
     // gate on purpose (no trajectory needed), so it must gate itself.
     const double ego_speed_mps = has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0;
+#if defined(PLATFORM_FREERTOS_X5H)
+    const bool fault = si_channel_fault() != 0;
+#else
     const bool fault = false;
+#endif
     const bool was_armed = stop_profile_.armed();
     const bool active = stop_profile_.update(now, has_heartbeat_, hb_age, fault, ego_speed_mps);
     if (!was_armed && stop_profile_.armed()) log_info("SI_OVERRIDE state=armed");

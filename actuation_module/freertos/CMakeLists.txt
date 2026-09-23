@@ -318,6 +318,21 @@ if(BUILD_TEST STREQUAL "1")
         VERBATIM
     )
 
+    # ---- Host-compiled si_channel unit test (Task 6) ----
+    # si_channel.h/.c is deliberately pure C (no FreeRTOS, no OpenAMP) so the
+    # rpmsg-si message parsing/formatting/fault-latch logic can be exercised
+    # directly on the build host, same pattern and BUILD_TEST=1 selector as
+    # the tests above.
+    set(SI_CHANNEL_TEST_MAIN ${ACTUATION_DIR}/test/test_si_channel.c)
+    add_executable(si_channel_test
+        ${ACTUATION_DIR}/freertos_x5h/si_channel.c
+        ${SI_CHANNEL_TEST_MAIN}
+    )
+    set_source_files_properties(${SI_CHANNEL_TEST_MAIN} PROPERTIES COMPILE_DEFINITIONS "main=main")
+    target_include_directories(si_channel_test PRIVATE ${ACTUATION_DIR}/freertos_x5h)
+    target_compile_options(si_channel_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET si_channel_test POST_BUILD COMMAND si_channel_test)
+
     # ---- Host-compiled stop-profile unit test (Task 7) ----
     # stop_profile.hpp is header-only pure logic (no DDS, no RTOS, no clock
     # reads) deciding the Safety Island's own stop override, so it is
