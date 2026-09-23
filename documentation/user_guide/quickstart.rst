@@ -85,6 +85,8 @@ The resulting binary is written to:
      - FreeRTOS POSIX runtime for local validation.
    * - ``freertos-s32z2``
      - FreeRTOS on S32Z2 hardware, requiring NXP SDK inputs.
+   * - ``freertos-x5h``
+     - FreeRTOS on R-Car X5H hardware. See ``actuation_module/freertos_x5h/README.md``.
 
 Other ``build.sh`` flags are documented in :doc:`testing`, :doc:`freertos_posix`,
 and :doc:`s32z_board`.
@@ -98,5 +100,6 @@ What to do next
   *Running the Demo*).
 - Validate the FreeRTOS local runtime: :doc:`freertos_posix`.
 - Flash a physical S32Z board: :doc:`s32z_board`.
+- Build FreeRTOS for R-Car X5H: ``actuation_module/freertos_x5h/README.md``.
 - Understand the runtime: :doc:`/design/architecture` and
   :doc:`/design/topics`.

@@ -42,8 +42,8 @@ Fixed
 -----
 
 - Wait for ``/system/operation_mode/state`` before the first control tick.
-- Bound the MPC trajectory-shape buffer and ingest the trajectory once per
-  tick.
+- Ingest the MPC trajectory once per control tick instead of also in
+  ``isReady()``.
 - Drop per-tick PID INFO logs that blocked the S32Z2 UART on the control
   thread.
 - Align AVH and user-guide ELF paths with ``build.sh`` platform defaults

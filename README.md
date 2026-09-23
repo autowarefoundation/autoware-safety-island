@@ -11,21 +11,23 @@
 A standalone application that runs Autoware's trajectory follower (MPC
 lateral, PID longitudinal) on an Arm safety-class processor and exchanges
 control commands with Autoware over DDS. The application supports Zephyr and
-FreeRTOS runtime targets for local validation and S32Z hardware development.
-No changes to the Autoware codebase are required.
+FreeRTOS runtime targets for local validation and for S32Z and R-Car X5H
+hardware. No changes to the Autoware codebase are required.
 
 ## Runtime Targets
 
-| Runtime | Local validation | S32Z hardware |
+| Runtime | Local validation | Hardware |
 |---|---|---|
-| Zephyr | `zephyr-fvp` | `zephyr-s32z` |
-| FreeRTOS | `freertos-posix` | `freertos-s32z2` |
+| Zephyr | `zephyr-fvp` | `zephyr-s32z` (S32Z) |
+| FreeRTOS | `freertos-posix` | `freertos-s32z2` (S32Z2), `freertos-x5h` (R-Car X5H) |
 
 `zephyr-fvp` and `freertos-posix` are the local development and validation
 targets. `zephyr-fvp` also covers AVH workflows. `zephyr-s32z` is the existing
 S32Z Zephyr hardware target.
 `freertos-s32z2` is the hardware-specific FreeRTOS S32Z2 target and requires
 NXP-licensed SDK inputs.
+`freertos-x5h` is the FreeRTOS target for the R-Car X5H CR52 (Core1); see
+[`actuation_module/freertos_x5h/README.md`](actuation_module/freertos_x5h/README.md).
 
 ### Workflow
 
