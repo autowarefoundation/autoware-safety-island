@@ -41,10 +41,11 @@
 # transport endpoint (freertos_x5h/rpmsg_transport.{h,c}); freertos_main.cpp
 # calls into all of it via actuation_task(). The ELF's memory layout is
 # frozen and verified by
-# scripts/check-elf-contract.sh: .text at 0x11600000 (the Core1 vram2 slot)
-# and .resource_table at 0x96650000 (the fixed remoteproc resource-table
-# carveout), both produced by the BSP's own unmodified linker scripts
-# referenced below (see AUDIT.md Section 5). Total slot usage is verified
+# scripts/check-elf-contract.sh: .text at 0x11600000 (the Core1 vram2 slot,
+# from the BSP's own unmodified linker script) and .resource_table at
+# 0x5da00000 (the demo boot role's CR52 carveout, from
+# vendor_patched/lscript_rsc_table_demo.ld -- see AUDIT.md Section 5). Total
+# slot usage is verified
 # against the 10 MiB budget by scripts/check-image-budget.sh.
 
 set(CMAKE_CXX_STANDARD 17)
@@ -145,8 +146,13 @@ set(X5H_BSP_RPMSG_SOURCES
 # here rather than an edit in place because rcar_bsp is a pristine vendor
 # submodule pinned to the upstream rcar-v2.5.0 tag -- a commit inside it
 # could not be pushed anywhere this branch's checkouts could fetch it from.
+#
+# Task 2 adds a second entry the same way: vendor_patched/system_rcar_gen5.c
+# shadows common/system_rcar_gen5.c to add one MPU region for the demo
+# boot role's cr52_ram1@5da00000 carveout (see that file's header comment).
 set(X5H_BSP_PATCHED_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/vendor_patched/interrupts.c
+    ${CMAKE_CURRENT_LIST_DIR}/vendor_patched/system_rcar_gen5.c
 )
 
 # -O0, matching the freertos_bsp archive the shadow displaces (that target
@@ -269,10 +275,19 @@ target_compile_definitions(actuation_x5h PRIVATE
 # PRIVATE include dirs replicated from sample_apps/rpmsg_sample/CMakeLists.txt's
 # add_rpmsg_app() macro. These three are PRIVATE to freertos_bsp itself in the
 # vendor tree, so they do not propagate to us via target_link_libraries.
+#
+# Task 2 adds .../common: the vendor's own common/*.c files (e.g.
+# system_rcar_gen5.c) quote-#include headers like "memory_map/memory_map.h"
+# that live only under common/ (common/memory_map/memory_map.h), which the
+# compiler resolves via the quote form's own-directory rule -- it never
+# needed common/ on the include path because the vendor file's own directory
+# IS common/. vendor_patched/system_rcar_gen5.c lives elsewhere, so that
+# rule no longer applies; common/ has to be added explicitly for its sake.
 target_include_directories(actuation_x5h PRIVATE
     ${X5H_ACTUATION_DIR}/include
     ${X5H_ACTUATION_DIR}/include/platform/freertos/x5h
     ${X5H_RCAR_BSP_DEMO_DIR}
+    ${X5H_RCAR_BSP_DEMO_DIR}/common
     ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5
     ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5/CMSIS/Core_R/Include
 )
@@ -372,11 +387,12 @@ target_link_libraries(actuation_x5h PRIVATE
     m
 )
 
-# The resource-table linker script (places .resource_table into the fixed
-# remote_proc_rsc_table_1 region at 0x96650000) and the Map file: the only
+# The resource-table linker script (places .resource_table at 0x5da00000,
+# the base of the demo boot role's CR52 carveout) and the Map file: the only
 # two link inputs NOT already provided by the inherited directory-scoped
-# add_link_options() above. Reused byte-for-byte, unmodified, from the BSP
-# -- see AUDIT.md Section 5.
+# add_link_options() above. The resource-table script is
+# vendor_patched/lscript_rsc_table_demo.ld, not the BSP's own
+# lscript_rsc_table_vram2.ld -- see AUDIT.md Section 5.
 #
 # main.cpp is C++, so -Dmain=actuation_main (below, on src/main.cpp) produces
 # the mangled symbol _Z14actuation_mainv (Itanium ABI: "actuation_main" is 14
@@ -388,7 +404,7 @@ target_link_libraries(actuation_x5h PRIVATE
 # guesswork, just the same fix ported to the platform that had never actually
 # linked a call to actuation_main() until this task wired one in.
 target_link_options(actuation_x5h PRIVATE
-    -T${X5H_RCAR_BSP_DEMO_DIR}/common/linker/lscript_rsc_table_vram2.ld
+    -T${CMAKE_CURRENT_LIST_DIR}/vendor_patched/lscript_rsc_table_demo.ld
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/actuation_x5h.map
     "-Wl,--defsym=actuation_main=_Z14actuation_mainv"
 )
@@ -639,6 +655,7 @@ target_include_directories(netif_only_x5h PRIVATE
     ${X5H_ACTUATION_DIR}/include
     ${X5H_ACTUATION_DIR}/include/platform/freertos/x5h
     ${X5H_RCAR_BSP_DEMO_DIR}
+    ${X5H_RCAR_BSP_DEMO_DIR}/common
     ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5
     ${X5H_RCAR_BSP_DEMO_DIR}/CMSIS_5/CMSIS/Core_R/Include
     ${CMAKE_CURRENT_BINARY_DIR}/generated
@@ -698,7 +715,7 @@ target_link_libraries(netif_only_x5h PRIVATE
 )
 
 target_link_options(netif_only_x5h PRIVATE
-    -T${X5H_RCAR_BSP_DEMO_DIR}/common/linker/lscript_rsc_table_vram2.ld
+    -T${CMAKE_CURRENT_LIST_DIR}/vendor_patched/lscript_rsc_table_demo.ld
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/netif_only_x5h.map
 )
 

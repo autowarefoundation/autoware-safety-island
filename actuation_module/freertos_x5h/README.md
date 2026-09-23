@@ -16,9 +16,10 @@ channel.
 
 The ELF's memory layout is already frozen and verified by
 `scripts/check-elf-contract.sh`: `.text` at `0x11600000` (the Core1 `vram2`
-slot window) and `.resource_table` at `0x96650000` (the fixed remoteproc
-resource-table carveout Linux's remoteproc driver reads), both produced by
-the BSP's own unmodified linker scripts. This is deliberate: later tasks
+slot window, from the BSP's own unmodified linker script) and
+`.resource_table` at `0x5da00000` (the demo boot role's `cr52_ram1`
+carveout Linux's remoteproc driver reads, placed there by
+`vendor_patched/lscript_rsc_table_demo.ld`). This is deliberate: later tasks
 extend the same target rather than re-deriving the layout.
 
 ## Prerequisites
@@ -67,10 +68,7 @@ as `actuation_x5h.elf` but leaves out the actuation module, CycloneDDS,
 Eigen, and `autoware_msgs` entirely: lwIP answers ICMP natively with
 nothing built on top of it, so a bare `ping` against the CR52's
 172.16.52.2 address proves the RPMsg netif itself is alive before ever
-trusting the full actuation/DDS link on top of it. Both
-`check-elf-contract.sh` and `check-image-budget.sh` (below) run against
-`netif_only_x5h.elf` as well as `actuation_x5h.elf` on every `build.sh` run,
-so it cannot silently bit-rot or drift out of budget between uses. Build it
+trusting the full actuation/DDS link on top of it. Build it
 on its own with `cmake --build build/freertos-x5h --target netif_only_x5h`
 when narrowing down whether a failure is in the netif or in the actuation
 module above it.
@@ -85,9 +83,10 @@ Expected: `CONTRACT_PASS build/freertos-x5h/actuation_x5h.elf`. This script
 checks the ELF's LOAD segments, `.text` base address, and the
 `.resource_table` section's address, size, and byte-level vdev/vring
 contents — the facts a hardware flash decision depends on. It must not be
-modified; a failure here means the build produced a different memory layout,
-not that the script is wrong. `build.sh` runs it against both
-`actuation_x5h.elf` and `netif_only_x5h.elf` on every build.
+modified to make a failing build pass; it changes only when the contract
+itself moves (as in Task 2). A failure here usually means the build produced
+a different memory layout, not that the script is wrong. `build.sh` runs it
+against both `actuation_x5h.elf` and `netif_only_x5h.elf` on every build.
 
 ## Check the image budget
 
