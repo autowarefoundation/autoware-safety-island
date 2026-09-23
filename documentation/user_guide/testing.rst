@@ -65,8 +65,8 @@ CAN output
   $ ./build.sh --can-output-test
 
 Builds ``actuation_module/test/can_output_test.cpp``. The test validates the
-control-command encoder, decoder/watchdog, and on ``freertos-posix`` the
-in-memory mock backend (``PLATFORM_FREERTOS_CAN_MOCK``). Runtime SocketCAN is
+control-command encoder and on ``freertos-posix`` the in-memory mock backend
+(``PLATFORM_FREERTOS_CAN_MOCK``). Runtime SocketCAN is
 not used in this test; set ``SAFETY_ISLAND_CAN_IFACE`` on the main binary
 instead. See ``demo/can_carla_bridge/README.md``.
 
@@ -77,9 +77,10 @@ SocketCAN ``vcan`` roundtrip (needs ``CAP_NET_ADMIN``):
   $ ./build.sh --platform freertos-posix --can-output-test --control-output DDS_AND_CAN
   $ ./actuation_module/test/run-vcan-roundtrip.sh
 
-Exits 77 if ``vcan0`` cannot be created. GitHub Actions runs this in a
-separate ``FreeRTOS POSIX vcan`` job with ``--cap-add=NET_ADMIN`` and skips
-rather than failing when the module is absent.
+The C++ sender emits real CAN frames; the Python decoder receives and checks
+them. The script exits 77 locally if ``vcan0`` cannot be created. GitHub
+Actions runs this in a separate ``FreeRTOS POSIX vcan`` job with
+``--cap-add=NET_ADMIN`` and fails if the module is absent.
 
 Python decoder golden vectors (no ``vcan``, no ``python-can``):
 

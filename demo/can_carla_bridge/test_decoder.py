@@ -56,6 +56,11 @@ def main() -> int:
     assert feed(decoder, *nxt[2], 0.3) == DecoderEvent.ACCEPTED
     assert decoder.poll_watchdog(0.81, 0.5) == DecoderEvent.SAFE_STOP
     assert decoder.in_safe_stop
+    for frame, event in zip(
+        pack_cycle(40), (DecoderEvent.STORED, DecoderEvent.STORED, DecoderEvent.ACCEPTED)
+    ):
+        assert feed(decoder, *frame, 1.0) == event
+    assert not decoder.in_safe_stop
 
     reorder = ControlCommandDecoder()
     cyc = pack_cycle(0)
@@ -67,6 +72,24 @@ def main() -> int:
     assert feed(missing, *cyc[1], 0.0) == DecoderEvent.STORED
     assert feed(missing, *cyc[2], 0.0) == DecoderEvent.REJECTED
     assert feed(missing, *cyc[0], 0.0, dlc=7) == DecoderEvent.IGNORED
+
+    duplicate = ControlCommandDecoder()
+    assert feed(duplicate, *cyc[0], 0.0) == DecoderEvent.STORED
+    changed_lateral = bytes([cyc[0][1][0] + 1]) + cyc[0][1][1:]
+    assert feed(duplicate, 0x100, changed_lateral, 0.0) == DecoderEvent.STORED
+    assert feed(duplicate, *cyc[1], 0.0) == DecoderEvent.STORED
+    assert feed(duplicate, *cyc[2], 0.0) == DecoderEvent.ACCEPTED
+    assert abs(duplicate.command.steering_tire_angle - 0.125001) < 1e-9
+
+    bad_dlc = ControlCommandDecoder()
+    assert feed(bad_dlc, *cyc[0], 0.0, dlc=7) == DecoderEvent.IGNORED
+    assert feed(bad_dlc, *cyc[1], 0.0) == DecoderEvent.STORED
+    assert feed(bad_dlc, *cyc[2], 0.0) == DecoderEvent.REJECTED
+
+    extended = ControlCommandDecoder()
+    assert extended.feed(*cyc[0], 8, True, 0.0) == DecoderEvent.IGNORED
+    assert feed(extended, *cyc[1], 0.0) == DecoderEvent.STORED
+    assert feed(extended, *cyc[2], 0.0) == DecoderEvent.REJECTED
 
     wrap = ControlCommandDecoder()
     last = pack_cycle(65535)

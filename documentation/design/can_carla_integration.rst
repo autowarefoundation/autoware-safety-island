@@ -66,12 +66,11 @@ Components
    builds. ``SAFETY_ISLAND_CAN_IFACE`` (for example ``vcan0``) is required
    at runtime; missing or unopenable interface fails ``can_init()``. The
    in-memory mock is compiled only into ``--can-output-test``.
-2. **Decoder** next to the encoder. ``0x102`` is the commit marker: require
-   fresh ``0x100`` and ``0x101``, wrapping sequence (forward jumps
-   accepted, replays/stale rejected), and a
-   0.5 s monotonic receive-timeout safe stop. Tests live in
-   ``actuation_module/test/can_output_test.cpp`` plus a privileged ``vcan``
-   integration phase.
+2. **Python host decoder** in ``demo/can_carla_bridge/``. ``0x102`` is the
+   commit marker: require fresh ``0x100`` and ``0x101``, wrapping sequence
+   (forward jumps accepted, replays/stale rejected), and a 0.5 s monotonic
+   receive-timeout safe stop. Python state-machine tests and a privileged
+   ``vcan`` integration phase validate the decoder against the C++ sender.
 3. **Host bridge** (``demo/can_carla_bridge/``): ``python-can`` on ``vcan0``,
    assemble a command from the three frames, map to
    ``VehicleAckermannControl``, apply via the CARLA 0.9.16 client. Same

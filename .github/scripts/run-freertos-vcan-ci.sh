@@ -16,7 +16,7 @@ echo "FreeRTOS POSIX SocketCAN vcan roundtrip"
 
 set +e
 "${ROOT_DIR}/actuation_module/test/run-vcan-roundtrip.sh" \
-  "${BUILD_ROOT}/can_vcan_roundtrip"
+  "${BUILD_ROOT}/can_vcan_sender"
 vcan_rc=$?
 set -e
 if [ "${vcan_rc}" = "77" ]; then

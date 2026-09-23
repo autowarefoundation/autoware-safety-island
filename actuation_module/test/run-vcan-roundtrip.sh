@@ -8,8 +8,8 @@ BIN="${1:-}"
 
 if [ -z "${BIN}" ]; then
   for candidate in \
-    "${ROOT_DIR}/build/freertos-posix-can/can_vcan_roundtrip" \
-    "${ROOT_DIR}/build/freertos-posix/can_vcan_roundtrip"
+    "${ROOT_DIR}/build/freertos-posix-can/can_vcan_sender" \
+    "${ROOT_DIR}/build/freertos-posix/can_vcan_sender"
   do
     if [ -x "${candidate}" ]; then
       BIN="${candidate}"
@@ -19,7 +19,7 @@ if [ -z "${BIN}" ]; then
 fi
 
 if [ -z "${BIN}" ] || [ ! -x "${BIN}" ]; then
-  echo "can_vcan_roundtrip not found. Build first:" >&2
+  echo "can_vcan_sender not found. Build first:" >&2
   echo "  ./build.sh --platform freertos-posix --can-output-test --control-output DDS_AND_CAN" >&2
   exit 1
 fi
@@ -37,4 +37,4 @@ setup_vcan() {
 }
 
 setup_vcan
-exec "${BIN}"
+exec python3 "${ROOT_DIR}/demo/can_carla_bridge/test_vcan_roundtrip.py" "${BIN}"

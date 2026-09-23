@@ -61,6 +61,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=0.5)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2000)
+    ego = parser.add_mutually_exclusive_group()
+    ego.add_argument("--ego-role", default="hero", help="exact CARLA vehicle role_name (default: hero)")
+    ego.add_argument("--ego-id", type=int, help="select a CARLA vehicle by actor ID")
     parser.add_argument("--slew", type=float, default=0.3)
     parser.add_argument("--default-accel", type=float, default=1.0)
     parser.add_argument("--brake-accel", type=float, default=3.0)
@@ -68,16 +71,24 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def find_ego(world):
-    for actor in world.get_actors():
-        if "vehicle" not in actor.type_id:
-            continue
-        if actor.attributes.get("role_name") == "hero":
-            return actor
-    vehicles = world.get_actors().filter("vehicle.*")
-    if not vehicles:
-        raise RuntimeError("no CARLA vehicle found")
-    return vehicles[0]
+def find_ego(world, role_name="hero", actor_id=None):
+    if actor_id is not None:
+        actor = world.get_actor(actor_id)
+        if actor is None or not actor.type_id.startswith("vehicle."):
+            raise RuntimeError(f"CARLA actor {actor_id} is not a vehicle or does not exist")
+        return actor
+
+    matches = [
+        actor for actor in world.get_actors()
+        if actor.type_id.startswith("vehicle.")
+        and actor.attributes.get("role_name") == role_name
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected exactly one CARLA vehicle with role_name={role_name!r}, "
+            f"found {len(matches)}; use --ego-id to select a specific vehicle"
+        )
+    return matches[0]
 
 
 def main() -> int:
@@ -106,7 +117,7 @@ def main() -> int:
         carla = carla_mod
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
-        vehicle = find_ego(client.get_world())
+        vehicle = find_ego(client.get_world(), args.ego_role, args.ego_id)
 
     decoder = ControlCommandDecoder()
     last_steer = 0.0

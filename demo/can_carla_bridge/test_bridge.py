@@ -31,6 +31,7 @@ class BridgeTest(unittest.TestCase):
         args = argparse.Namespace(
             slew=0.3, default_accel=1.0, brake_accel=3.0, timeout=0.5,
             host="127.0.0.1", port=2000, interface="vcan0", dry_run=False,
+            ego_role="hero", ego_id=None,
         )
         with patch.dict(sys.modules, {"can": can_module, "carla": carla_module}), \
                 patch.object(bridge, "parse_args", return_value=args), \
@@ -59,6 +60,31 @@ class BridgeTest(unittest.TestCase):
                 ])
                 self.assertEqual(len(controls), 1)
                 self.assertEqual(controls[0]["speed"], 0.0)
+
+    def test_ego_selection_requires_one_exact_role(self):
+        hero = SimpleNamespace(id=10, type_id="vehicle.tesla.model3", attributes={"role_name": "hero"})
+        other = SimpleNamespace(id=11, type_id="vehicle.audi.a2", attributes={"role_name": "npc"})
+        world = Mock()
+        world.get_actors.return_value = [other, hero]
+        self.assertIs(bridge.find_ego(world), hero)
+        self.assertIs(bridge.find_ego(world, "npc"), other)
+        with self.assertRaisesRegex(RuntimeError, "found 0"):
+            bridge.find_ego(world, "missing")
+        world.get_actors.return_value = [hero, hero]
+        with self.assertRaisesRegex(RuntimeError, "found 2"):
+            bridge.find_ego(world)
+
+    def test_ego_id_requires_an_existing_vehicle(self):
+        vehicle = SimpleNamespace(id=42, type_id="vehicle.audi.a2")
+        world = Mock()
+        world.get_actor.return_value = vehicle
+        self.assertIs(bridge.find_ego(world, actor_id=42), vehicle)
+        world.get_actor.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "does not exist"):
+            bridge.find_ego(world, actor_id=42)
+        world.get_actor.return_value = SimpleNamespace(type_id="walker.pedestrian.0001")
+        with self.assertRaisesRegex(RuntimeError, "not a vehicle"):
+            bridge.find_ego(world, actor_id=42)
 
 
 if __name__ == "__main__":
