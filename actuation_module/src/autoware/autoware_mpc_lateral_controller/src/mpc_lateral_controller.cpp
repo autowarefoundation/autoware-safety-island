@@ -346,10 +346,6 @@ bool MpcLateralController::isSteerConverged(const LateralMsg & cmd) const
 
 bool MpcLateralController::isReady(const trajectory_follower::InputData & input_data)
 {
-  setTrajectory(input_data.current_trajectory, input_data.current_odometry);
-  m_current_kinematic_state = input_data.current_odometry;
-  m_current_steering = input_data.current_steering;
-
   if (!m_mpc->hasVehicleModel()) {
     log_info_throttle("MPC does not have a vehicle model");
     return false;
@@ -358,8 +354,12 @@ bool MpcLateralController::isReady(const trajectory_follower::InputData & input_
     log_info_throttle("MPC does not have a QP solver");
     return false;
   }
-  if (m_mpc->m_reference_trajectory.empty()) {
+  if (input_data.current_trajectory.points.size() < 3) {
     log_info_throttle("trajectory size is zero.");
+    return false;
+  }
+  if (!isValidTrajectory(input_data.current_trajectory)) {
+    log_info_throttle("trajectory is invalid.");
     return false;
   }
 
@@ -386,9 +386,9 @@ void MpcLateralController::setTrajectory(
   // update trajectory buffer to check the trajectory shape change.
   //
   // Push only samples the buffer has not seen yet (task-36 heap-leak fix).
-  // This function runs every control cycle — twice, from isReady() and
-  // run() — with whatever trajectory the controller currently holds, which
-  // on this port is the sticky last-received sample: between arrivals, and
+  // This function runs every control cycle with whatever trajectory the
+  // controller currently holds, which on this port is the sticky
+  // last-received sample: between arrivals, and
   // forever after arrivals stop, the SAME sample (same header stamp) comes
   // back here again and again. Those re-pushes were never popped (back -
   // front stays 0 between identical stamps) and the deque grew by one deep

@@ -53,6 +53,11 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
+      - name: Resolve CycloneDDS pin
+        id: cdds
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD:cyclonedds)" >> "$GITHUB_OUTPUT"
+
       # Initialise only the public submodules. s32ct_config is a PRIVATE
       # submodule (NXP Confidential generated configs) that the repo-scoped CI
       # token cannot clone, and the Zephyr/FreeRTOS-POSIX builds do not need it.
@@ -75,7 +80,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/cyclonedds_host
-          key: zephyr-cdds-host-${{ hashFiles('.gitmodules') }}
+          key: zephyr-cdds-host-${{ steps.cdds.outputs.sha }}
 
       - name: Initialize Zephyr workspace
         shell: bash
@@ -121,6 +126,11 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
+      - name: Resolve CycloneDDS pin
+        id: cdds
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD:cyclonedds)" >> "$GITHUB_OUTPUT"
+
       # Initialise only the public submodules. s32ct_config is a PRIVATE
       # submodule (NXP Confidential generated configs) that the repo-scoped CI
       # token cannot clone, and the Zephyr/FreeRTOS-POSIX builds do not need it.
@@ -134,7 +144,7 @@ jobs:
           path: |
             build/cyclonedds_host
             build/cyclonedds_target_out
-          key: cdds-${{ hashFiles('.gitmodules') }}
+          key: cdds-${{ steps.cdds.outputs.sha }}
 
       - name: Run FreeRTOS POSIX validation
         shell: bash

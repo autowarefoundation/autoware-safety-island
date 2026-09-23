@@ -63,6 +63,7 @@ private:
     has_steering_ = false;
     has_odometry_ = false;
     has_trajectory_ = false;
+    has_operation_mode_ = false;
   }
 
   double timeout_thr_sec_;
@@ -161,7 +162,7 @@ private:
   bool has_odometry_ = false;
   bool has_steering_ = false;
   bool has_accel_ = false;
-  bool has_operation_mode_ = true;
+  bool has_operation_mode_ = false;
 
   // Publishers
   std::shared_ptr<Publisher<ControlMsg>> control_cmd_pub_;

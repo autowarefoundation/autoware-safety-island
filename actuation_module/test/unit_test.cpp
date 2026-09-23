@@ -1,6 +1,7 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <pthread.h>
 #include <time.h>
@@ -14,7 +15,9 @@ using namespace common::logger;
 
 // Msgs
 #include "PoseStamped.h"
+#include "OperationModeState.h"
 using PoseStampedMsg = geometry_msgs_msg_PoseStamped;
+using OperationModeStateMsg = autoware_adapi_v1_msgs_msg_OperationModeState;
 
 // Test state with thread-safe access
 struct TestState {
@@ -27,11 +30,16 @@ struct TestState {
         bool triggered{false};
         int count{0};
     } timer;
+    struct {
+        bool received{false};
+        uint8_t mode{0};
+    } operation_mode;
     
     void reset() {
         pthread_mutex_lock(&mutex);
         pose = {false, 0, 0, 0};
         timer = {false, 0};
+        operation_mode = {false, 0};
         pthread_mutex_unlock(&mutex);
     }
 };
@@ -64,6 +72,12 @@ static void handle_pose(const PoseStampedMsg* msg, void* node) {
     pthread_mutex_lock(&g_state.mutex);
     g_state.pose = {true, msg->pose.position.x, msg->pose.position.y, msg->pose.position.z};
     log_info("Received pose: (%.1f, %.1f, %.1f)\n", msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
+    pthread_mutex_unlock(&g_state.mutex);
+}
+
+static void handle_operation_mode(const OperationModeStateMsg* msg, void* node) {
+    pthread_mutex_lock(&g_state.mutex);
+    g_state.operation_mode = {true, msg->mode};
     pthread_mutex_unlock(&g_state.mutex);
 }
 
@@ -178,6 +192,50 @@ void test_dds_communication(Node& node) {
     TEST_END(DDS Communication)
 }
 
+void test_late_join_operation_mode(Node& node) {
+    TEST_START(Late-join Operation Mode)
+
+    // Model an on-change bridge publisher: write once before the reader exists,
+    // then keep the writer alive without publishing again. A volatile reader
+    // cannot receive this sample, even if the writer is transient-local.
+    const auto participant = dds_create_participant(CONFIG_DDS_DOMAIN_ID, nullptr, nullptr);
+    ASSERT_MSG(participant > 0, "Operation-mode participant creation failed");
+    auto descriptor = transformTopicDescriptor(&autoware_adapi_v1_msgs_msg_OperationModeState_desc);
+    const auto topic_name = transformTopicName("/system/operation_mode/state");
+    const auto topic = dds_create_topic(participant, &descriptor, topic_name.c_str(), nullptr, nullptr);
+    ASSERT_MSG(topic > 0, "Operation-mode topic creation failed");
+
+    auto * qos = dds_create_qos();
+    ASSERT_MSG(qos != nullptr, "Operation-mode publisher QoS creation failed");
+    dds_qset_reliability(qos, DDS_RELIABILITY_RELIABLE, DDS_MSECS(30));
+    dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, 1);
+    dds_qset_durability(qos, DDS_DURABILITY_TRANSIENT_LOCAL);
+    const auto writer = dds_create_writer(participant, topic, qos, nullptr);
+    dds_delete_qos(qos);
+    ASSERT_MSG(writer > 0, "Operation-mode writer creation failed");
+
+    OperationModeStateMsg state{};
+    state.mode = 1;
+    state.is_autoware_control_enabled = true;
+    ASSERT_MSG(dds_write(writer, &state) == DDS_RETCODE_OK, "Operation-mode publication failed");
+
+    ASSERT_MSG(node.create_subscription<OperationModeStateMsg>(
+        "/system/operation_mode/state", &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
+        handle_operation_mode, &node, DDS_DURABILITY_TRANSIENT_LOCAL),
+        "Late-join operation-mode subscription failed");
+    ASSERT_MSG(node.spin() == 0, "Late-join reader could not start");
+    ASSERT_MSG(wait_for_event([] {
+        pthread_mutex_lock(&g_state.mutex);
+        const bool received = g_state.operation_mode.received && g_state.operation_mode.mode == 1;
+        pthread_mutex_unlock(&g_state.mutex);
+        return received;
+    }, 5000), "Late-joining reader did not receive the retained operation mode");
+
+    node.stop();
+    dds_delete(participant);
+    TEST_END(Late-join Operation Mode)
+}
+
 void test_clock_utils() {
     TEST_START(Clock Utilities)
     
@@ -242,6 +300,7 @@ int main() {
     test_timer_operations(node);
     test_thread_safety(node);
     test_dds_communication(node);
+    test_late_join_operation_mode(node);
     test_clock_utils();
 
     log_info("\n=== All Tests Passed ===\n");

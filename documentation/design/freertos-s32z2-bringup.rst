@@ -38,17 +38,13 @@ Build tree layout
 
 The Phase 5 build is an additional CMake entry point under
 ``actuation_module/freertos_s32z2/`` that does not modify the existing
-``actuation_module/freertos/`` POSIX-simulator build, the Zephyr boards under
-``actuation_module/boards/``, or the PAL backend headers under
-``actuation_module/include/platform/freertos/*.h``. The intended hardware path
-may add S32Z2-specific variant headers under
-``actuation_module/include/platform/freertos/s32z2/`` when carrying the lwIP
-bring-up forward.
+``actuation_module/freertos/`` POSIX-simulator build or the Zephyr boards under
+``actuation_module/boards/``. S32Z2-specific PAL headers live under
+``actuation_module/include/platform/freertos/s32z2/``.
 
-The intended hardware networking path uses an S32Z2-specific FreeRTOS network
-backend. In the public tree, ``platform_network.h`` still dispatches FreeRTOS
-targets through ``platform/freertos/freertos_network.h``; update this dispatcher
-and the matching backend when carrying the S32Z2 lwIP bring-up path forward.
+``platform_network.h`` dispatches ``PLATFORM_FREERTOS_S32Z2`` to
+``platform/freertos/s32z2/freertos_network.h``, which calls the blocking lwIP
+bring-up. POSIX FreeRTOS still uses ``platform/freertos/freertos_network.h``.
 
 Boot bring-up (B-1)
 -------------------
@@ -60,9 +56,10 @@ tick source. ``configCPU_CLOCK_HZ`` matches the clock programmed by
 the FT232RQ serial port exposed as ``/dev/ttyUSB0`` on the carrier's J11 USB-C
 console (the OpenSDA debug probe exposes ``/dev/ttyACM0`` separately).
 
-A heartbeat task prints ``actuation alive ticks=N`` every 150 ms. The B-1
-acceptance gate is the appearance of at least five such lines within ten
-seconds of reset.
+There is no separate heartbeat task. The B-1 acceptance gate is the UART
+startup banner ``FreeRTOS S32Z2 actuation starting...`` followed by
+``Actuation Safety Island is Live`` (see
+``actuation_module/freertos_s32z2/scripts/verify-b1.sh``).
 
 PB configuration prerequisite
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -96,12 +93,12 @@ Workflow:
 Networking and DDS (B-2)
 ------------------------
 
-The intended S32Z2 ``configure_network()`` path dispatches to an lwIP bring-up
-function that calls ``tcpip_init()``, registers the NETC driver via
+S32Z2 ``configure_network()`` dispatches to ``lwip_bring_up_blocking()``, which
+calls ``tcpip_init()``, registers the NETC driver via
 ``ethif_ethernetif_init`` (from the NXP ``eth_port.c`` glue, not the generic
-upstream ``ethernetif_init``) / ``netif_add``, requests DHCP, and blocks on a
-semaphore until a lease arrives. Keep the dispatcher and backend implementation
-in sync before treating this as current behavior.
+upstream ``ethernetif_init``) / ``netif_add``, and assigns a static IPv4
+address (default ``192.168.0.105/24``, gateway ``192.168.0.101``). DHCP is
+disabled on this path.
 
 CycloneDDS is cross-compiled as a static library for Cortex-R52 with the
 upstream ``WITH_FREERTOS=ON`` and ``WITH_LWIP=ON`` options enabled (CycloneDDS
@@ -158,7 +155,7 @@ board config does):
     source ~/zephyr-env/bin/activate
     west debug \\
         --s32ds-path=/usr/local/NXP/S32DS.3.6.2 \\
-        -d build/actuation_module \\
+        -d build/freertos-s32z2 \\
         --tool-opt='--batch'
 
 The ``--tool-opt='--batch'`` flag makes the GDB session non-interactive so

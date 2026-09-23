@@ -31,7 +31,11 @@ Clone the repository
 
   $ git clone https://github.com/autowarefoundation/autoware-safety-island.git
   $ cd autoware-safety-island
-  $ git submodule update --init --recursive
+  $ git submodule update --init cyclonedds zephyr freertos-kernel
+
+Do not pass ``--recursive``. The ``s32ct_config`` submodule is private NXP
+generated output and is only required for ``freertos-s32z2``; see
+:doc:`freertos_s32z2`.
 
 ***********************************
 Enter the development container
@@ -63,7 +67,7 @@ The resulting binary is written to:
 
 .. code-block:: text
 
-  build/actuation_module/zephyr/zephyr.elf
+  build/zephyr-fvp/zephyr/zephyr.elf
 
 ``build.sh --platform`` selects a runtime target:
 

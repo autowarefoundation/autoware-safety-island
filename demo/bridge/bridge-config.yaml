@@ -18,6 +18,13 @@ topics:
     type: autoware_adapi_v1_msgs/msg/OperationModeState
     from_domain: 1
     to_domain: 2
+    # The state is published only when it changes. Retain the last value on
+    # both sides of the bridge for late-joining safety-island subscribers.
+    qos:
+      reliability: reliable
+      durability: transient_local
+      history: keep_last
+      depth: 1
   localization/kinematic_state:
     type: nav_msgs/msg/Odometry
     from_domain: 1
