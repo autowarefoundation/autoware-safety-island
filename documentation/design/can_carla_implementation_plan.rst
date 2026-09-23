@@ -131,8 +131,9 @@ and FVP UDP backends implement the batch entry point directly.
 Decoder and CARLA mapping
 **********************
 
-The decoder lives next to the encoder and is the only assembler. Both
-runtimes inject classic frames onto ``vcan0``; the bridge never sees UDP.
+The host's Python decoder in ``demo/can_carla_bridge/decoder.py`` is the only
+assembler. The Safety Island encoder remains C++; both runtimes inject classic
+frames onto ``vcan0`` and the bridge never sees UDP.
 
 Assembly
 ========
@@ -393,10 +394,9 @@ PR 1 (#49) — ``freertos-posix`` + ``vcan``
    cannot compile into S32Z2/X5H, ``DDS_ONLY`` default, CMake
    ``FATAL_ERROR`` on embedded CAN modes.
 
-3. **Shared decoder**
-   C++ (preferred, next to the encoder) used by tests and optionally by
-   the Python bridge via a thin wrapper, or a Python port with golden
-   vectors generated from the C++ encoder. Cover startup, duplicates,
+3. **Host decoder**
+   Use the Python decoder directly in the bridge and in the SocketCAN
+   roundtrip test against the C++ sender. Cover startup, duplicates,
    missing/reordered frames, bad DLC, wrap ``65535 -> 0``, ignored
    unknown IDs, forward-jump accept, stale/replay reject, timeout
    safe-stop, and re-baseline after timeout.
@@ -440,7 +440,7 @@ SI binary, domain-bridge, ``vcan0``, and ``demo/can_carla_bridge``.
    Closed-loop CycloneDDS pins both domains to ``lo`` (Open AD Kit default).
 
 10. **Host CAN-CARLA bridge**
-    Same ``demo/can_carla_bridge/`` as PR 1. Default ``--role ego_vehicle``
+    Same ``demo/can_carla_bridge/`` as PR 1. Pass ``--ego-role ego_vehicle``
     matches Open AD Kit. ``VehicleAckermannControl`` mapping unchanged.
 
 11. **Pins and topic contract**
@@ -480,7 +480,7 @@ Privilege-free (existing job, no extra capabilities)
 - Mock recorder on ``freertos-posix --can-output-test``.
 - Failed encode or mid-batch send does not advance ``sequence_``.
 - Zephyr FVP ``zephyr,can-loopback`` on ``--can-output-test``.
-- Decoder state-machine unit tests, including wrap, ignored unknown
+- Python decoder state-machine unit tests, including wrap, ignored unknown
   IDs, forward-jump accept, stale/replay reject, and timeout.
 - Follow-on PR: UDP datagram pack/unpack and rejection of malformed
   lengths.

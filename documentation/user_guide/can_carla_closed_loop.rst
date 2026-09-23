@@ -54,7 +54,7 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
      $ ./build.sh --platform freertos-posix -d build/freertos-posix \
          --control-output CAN_ONLY --dds-interface lo
      $ SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
-     $ python3 demo/can_carla_bridge/bridge.py --interface vcan0 --role ego_vehicle
+     $ python3 demo/can_carla_bridge/bridge.py --interface vcan0 --ego-role ego_vehicle
 
 3. In RViz: set a goal, engage. ``candump vcan0`` should show ``0x100`` /
    ``0x101`` / ``0x102``.

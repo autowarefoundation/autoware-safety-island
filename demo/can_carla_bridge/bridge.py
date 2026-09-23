@@ -61,31 +61,45 @@ def map_ackermann(
     }
 
 
+def apply_ackermann(vehicle, carla, control):
+    ack = carla.VehicleAckermannControl(**control)
+    vehicle.apply_ackermann_control(ack)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interface", default="vcan0")
     parser.add_argument("--timeout", type=float, default=0.5)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2000)
+    ego = parser.add_mutually_exclusive_group()
+    ego.add_argument("--ego-role", default="hero", help="exact CARLA vehicle role_name (default: hero)")
+    ego.add_argument("--ego-id", type=int, help="select a CARLA vehicle by actor ID")
     parser.add_argument("--slew", type=float, default=0.3)
     parser.add_argument("--default-accel", type=float, default=1.0)
     parser.add_argument("--brake-accel", type=float, default=3.0)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--role", default="ego_vehicle")
     return parser.parse_args()
 
 
-def find_ego(world, role: str = "ego_vehicle"):
-    vehicles = [
-        actor for actor in world.get_actors() if "vehicle" in getattr(actor, "type_id", "")
+def find_ego(world, role_name="hero", actor_id=None):
+    if actor_id is not None:
+        actor = world.get_actor(actor_id)
+        if actor is None or not actor.type_id.startswith("vehicle."):
+            raise RuntimeError(f"CARLA actor {actor_id} is not a vehicle or does not exist")
+        return actor
+
+    matches = [
+        actor for actor in world.get_actors()
+        if actor.type_id.startswith("vehicle.")
+        and actor.attributes.get("role_name") == role_name
     ]
-    for wanted in (role, "ego_vehicle", "hero"):
-        for actor in vehicles:
-            if actor.attributes.get("role_name") == wanted:
-                return actor
-    if not vehicles:
-        raise RuntimeError("no CARLA vehicle found")
-    return vehicles[0]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected exactly one CARLA vehicle with role_name={role_name!r}, "
+            f"found {len(matches)}; use --ego-id to select a specific vehicle"
+        )
+    return matches[0]
 
 
 def main() -> int:
@@ -116,7 +130,7 @@ def main() -> int:
         client.set_timeout(10.0)
         world = client.get_world()
         world.wait_for_tick(seconds=10.0)
-        vehicle = find_ego(world, args.role)
+        vehicle = find_ego(world, args.ego_role, args.ego_id)
 
     decoder = ControlCommandDecoder()
     last_steer = 0.0
@@ -127,7 +141,7 @@ def main() -> int:
             decoder.poll_watchdog(now, cfg.timeout_sec)
             msg = bus.recv(timeout=0.05)
             event = DecoderEvent.IGNORED
-            if msg is not None:
+            if msg is not None and not (msg.is_fd or msg.is_error_frame or msg.is_remote_frame):
                 event = decoder.feed(
                     msg.arbitration_id,
                     bytes(msg.data),
@@ -146,18 +160,15 @@ def main() -> int:
             if args.dry_run:
                 print(event.name, control)
                 continue
-            ack = carla.VehicleAckermannControl(
-                steer=control["steer"],
-                steer_speed=control["steer_speed"],
-                speed=control["speed"],
-                acceleration=control["acceleration"],
-                jerk=control["jerk"],
-            )
-            vehicle.apply_ackermann_control(ack)
+            apply_ackermann(vehicle, carla, control)
     except KeyboardInterrupt:
         return 0
     finally:
-        bus.shutdown()
+        try:
+            if vehicle is not None:
+                apply_ackermann(vehicle, carla, map_ackermann(decoder.command, last_steer, cfg, True))
+        finally:
+            bus.shutdown()
 
 
 if __name__ == "__main__":

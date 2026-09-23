@@ -220,17 +220,17 @@ if(BUILD_TEST STREQUAL "4")
     target_compile_definitions(actuation_freertos PRIVATE PLATFORM_FREERTOS_CAN_MOCK=1)
 endif()
 
-add_executable(can_vcan_roundtrip ${ACTUATION_DIR}/test/can_vcan_roundtrip.cpp)
-set_source_files_properties(${ACTUATION_DIR}/test/can_vcan_roundtrip.cpp PROPERTIES
+add_executable(can_vcan_sender ${ACTUATION_DIR}/test/can_vcan_sender.cpp)
+set_source_files_properties(${ACTUATION_DIR}/test/can_vcan_sender.cpp PROPERTIES
     COMPILE_DEFINITIONS "main=main"
 )
-target_include_directories(can_vcan_roundtrip PRIVATE
+target_include_directories(can_vcan_sender PRIVATE
     ${ACTUATION_DIR}/include
     ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${CYCLONEDDS_INCLUDE_DIR}
 )
-target_link_libraries(can_vcan_roundtrip PRIVATE autoware_msgs pthread)
-target_compile_options(can_vcan_roundtrip PRIVATE -Wall -Wextra -Wno-unused-parameter -fexceptions)
+target_link_libraries(can_vcan_sender PRIVATE autoware_msgs pthread)
+target_compile_options(can_vcan_sender PRIVATE -Wall -Wextra -Wno-unused-parameter -fexceptions)
 
 # ---- Host-compiled rpmsg_netif_core unit test (Task 5) ----
 # rpmsg_netif_core.{c,h} is deliberately OS-free, lwIP-free C so its framing

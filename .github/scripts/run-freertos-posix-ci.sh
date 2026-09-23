@@ -81,10 +81,10 @@ echo "CAN test OK"
 
 echo "Phase 5 - Python CAN decoder golden vectors"
 python3 "${ROOT_DIR}/demo/can_carla_bridge/test_decoder.py"
-echo "decoder golden vectors OK"
+python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
+echo "CAN bridge checks OK"
 
 echo "Phase 6 - Closed-loop contract tests"
-python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
 python3 "${ROOT_DIR}/demo/carla-closed-loop/test_contract.py"
 echo "closed-loop contract OK"
 

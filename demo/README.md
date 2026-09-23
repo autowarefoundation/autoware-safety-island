@@ -89,7 +89,7 @@ docker compose -f demo/carla-closed-loop/docker-compose.yaml up -d
 ./build.sh --platform freertos-posix -d build/freertos-posix \
   --control-output CAN_ONLY --dds-interface lo
 SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
-python3 demo/can_carla_bridge/bridge.py --interface vcan0 --role ego_vehicle
+python3 demo/can_carla_bridge/bridge.py --interface vcan0 --ego-role ego_vehicle
 ```
 
 ## Zephyr FVP Safety Island
