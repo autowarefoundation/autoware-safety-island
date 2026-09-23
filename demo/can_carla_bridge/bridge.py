@@ -50,6 +50,11 @@ def map_ackermann(
     }
 
 
+def apply_ackermann(vehicle, carla, control):
+    ack = carla.VehicleAckermannControl(**control)
+    vehicle.apply_ackermann_control(ack)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interface", default="vcan0")
@@ -112,7 +117,7 @@ def main() -> int:
             decoder.poll_watchdog(now, cfg.timeout_sec)
             msg = bus.recv(timeout=0.05)
             event = DecoderEvent.IGNORED
-            if msg is not None:
+            if msg is not None and not (msg.is_fd or msg.is_error_frame or msg.is_remote_frame):
                 event = decoder.feed(
                     msg.arbitration_id,
                     bytes(msg.data),
@@ -131,18 +136,15 @@ def main() -> int:
             if args.dry_run:
                 print(event.name, control)
                 continue
-            ack = carla.VehicleAckermannControl(
-                steer=control["steer"],
-                steer_speed=control["steer_speed"],
-                speed=control["speed"],
-                acceleration=control["acceleration"],
-                jerk=control["jerk"],
-            )
-            vehicle.apply_ackermann_control(ack)
+            apply_ackermann(vehicle, carla, control)
     except KeyboardInterrupt:
         return 0
     finally:
-        bus.shutdown()
+        try:
+            if vehicle is not None:
+                apply_ackermann(vehicle, carla, map_ackermann(decoder.command, last_steer, cfg, True))
+        finally:
+            bus.shutdown()
 
 
 if __name__ == "__main__":

@@ -81,6 +81,7 @@ echo "CAN test OK"
 
 echo "Phase 5 - Python CAN decoder golden vectors"
 python3 "${ROOT_DIR}/demo/can_carla_bridge/test_decoder.py"
-echo "decoder golden vectors OK"
+python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
+echo "CAN bridge checks OK"
 
 echo "FreeRTOS POSIX runtime validation OK"
