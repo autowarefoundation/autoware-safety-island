@@ -8,7 +8,8 @@ name: FreeRTOS X5H CI
 # feat/freertos-x5h-netif, which have no PR against main yet, so a
 # PR-only trigger would leave this workflow never having run. `push:` on
 # those two branches plus `workflow_dispatch:` make it fire now;
-# `pull_request:` keeps it working once a PR against main exists.
+# `pull_request:` (no branch filter) covers PRs against main and stacked
+# feature-branch bases; do not add head/base branch names here.
 #
 # Review round 2 (Minor): once a PR against main exists from one of these
 # branches, both `push` and `pull_request` fire on every push to it --
@@ -23,14 +24,7 @@ on:
     branches:
       - feat/freertos-x5h-target
       - feat/freertos-x5h-netif
-      - feat/x5h-actuation-param-profiles
   pull_request:
-    branches:
-      - main
-      # Stacked PRs against the netif branch (this PR's base) do not match
-      # `main`. `push:` on the head branch also does not create upstream
-      # checks for a cross-repo PR, so the before-profile job never ran.
-      - feat/freertos-x5h-netif
   workflow_dispatch:
     inputs:
       devcontainer_image:
@@ -48,7 +42,7 @@ jobs:
     name: freertos-x5h firmware + checkers
     # ubuntu-latest, not a ubicloud-standard-* label (review finding,
     # Important): this workflow's own `on:` trigger includes
-    # `pull_request: branches: [main]`, so it runs against the upstream repo
+    # `pull_request:`, so it runs against the upstream repo
     # once a PR from this branch targets main there -- and ubicloud runner
     # groups are a fork-only add-on (this repo's youtalk fork routes heavy
     # jobs to them; see the CI-routing commit history), not something
