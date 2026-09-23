@@ -172,9 +172,10 @@ rsc_size=$((16#$rsc_size_hex))
 # Decode the vdev entry (struct fw_rsc_vdev) and both vring descriptors
 # (struct fw_rsc_vdev_vring) against the frozen contract's fixed values.
 # These are the public, widely-published remoteproc resource-table structs
-# (Linux kernel / OpenAMP upstream headers, not vendor/NDA content) -- see
-# the Task 2 report for the full byte-level derivation. The vdev entry sits
-# at a fixed byte offset (0x30) from the table base: struct
+# (Linux kernel / OpenAMP upstream headers, not vendor/NDA content). The
+# byte-level derivation is spelled out here rather than deferred elsewhere,
+# because this script is the only place the frozen contract is enforced.
+# The vdev entry sits at a fixed byte offset (0x30) from the table base: struct
 # remote_resource_table's header is version(4)+num(4)+reserved[2](8)+
 # offset[8](32) = 0x30 bytes, always, before its one resource entry (see
 # AUDIT.md Section 5 / rsc_table.h); the two vring descriptors immediately

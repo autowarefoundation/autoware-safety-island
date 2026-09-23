@@ -255,4 +255,66 @@ if(BUILD_TEST STREQUAL "1")
         COMMENT "Running rpmsg_netif_core host unit test"
         VERBATIM
     )
+
+    # ---- Host-compiled input-staleness-gate unit test (Task 36) ----
+    # input_staleness_gate.hpp is deliberately pure logic (no clock, no DDS,
+    # no FreeRTOS): the controller's control_cmd publication gate can be
+    # exercised directly on the build host, same pattern as
+    # rpmsg_netif_core_test above, under the same BUILD_TEST=1 selector CI
+    # already invokes.
+    set(INPUT_STALENESS_GATE_TEST_MAIN ${ACTUATION_DIR}/test/test_input_staleness_gate.cpp)
+
+    add_executable(input_staleness_gate_test
+        ${INPUT_STALENESS_GATE_TEST_MAIN}
+    )
+
+    # Undo this directory's main -> actuation_main rename for this
+    # standalone host executable (see rpmsg_netif_core_test above).
+    set_source_files_properties(${INPUT_STALENESS_GATE_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+
+    target_include_directories(input_staleness_gate_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+
+    target_compile_options(input_staleness_gate_test PRIVATE -Wall -Wextra)
+
+    add_custom_command(TARGET input_staleness_gate_test POST_BUILD
+        COMMAND input_staleness_gate_test
+        COMMENT "Running input_staleness_gate host unit test"
+        VERBATIM
+    )
+
+    # ---- Host-compiled trajectory-buffer-policy unit test (Task 37) ----
+    # trajectory_buffer_policy.hpp holds the decisions that bound MPC's
+    # m_trajectory_buffer growth (duplicate-stamp skip, trim-window exit
+    # with the negative-difference guard) — both of that buffer's historic
+    # growth defects were decision bugs in exactly this logic, so it is
+    # split out pure and regression-tested on the host, same pattern and
+    # BUILD_TEST=1 selector as the two tests above.
+    set(TRAJECTORY_BUFFER_POLICY_TEST_MAIN
+        ${ACTUATION_DIR}/test/test_trajectory_buffer_policy.cpp)
+
+    add_executable(trajectory_buffer_policy_test
+        ${TRAJECTORY_BUFFER_POLICY_TEST_MAIN}
+    )
+
+    # Undo this directory's main -> actuation_main rename for this
+    # standalone host executable (see rpmsg_netif_core_test above).
+    set_source_files_properties(${TRAJECTORY_BUFFER_POLICY_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+
+    target_include_directories(trajectory_buffer_policy_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_mpc_lateral_controller/include
+    )
+
+    target_compile_options(trajectory_buffer_policy_test PRIVATE -Wall -Wextra)
+
+    add_custom_command(TARGET trajectory_buffer_policy_test POST_BUILD
+        COMMAND trajectory_buffer_policy_test
+        COMMENT "Running trajectory_buffer_policy host unit test"
+        VERBATIM
+    )
 endif()

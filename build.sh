@@ -33,6 +33,13 @@ BUILD_PLATFORM_SET=0
 NETWORK_PROFILE="default"
 DDS_NETWORK_INTERFACE=""
 CONTROL_CMD_OUTPUT_MODE=""
+# Repeatable pass-through for ad hoc CMake cache entries (e.g. instrumented
+# CI builds), forwarded verbatim as -D<value> to the freertos-x5h cmake
+# configure call in build_freertos_x5h(). Empty by default and only ever
+# appended to by --cmake-define, so leaving it unused (as every platform
+# other than freertos-x5h does today) is behaviourally identical to it not
+# existing.
+EXTRA_CMAKE_ARGS=()
 RUNTIME_TARGET_LIST=("zephyr-fvp" "zephyr-s32z" "freertos-posix" "freertos-s32z2" "freertos-x5h")
 ZEPHYR_TARGET_LIST=("fvp_baser_aemv8r_smp" "s32z270dc2_rtu0_r52@D")
 ZEPHYR_TARGET=${ZEPHYR_TARGET_LIST[0]} # Default target is fvp_baser_aemv8r_smp
@@ -46,6 +53,8 @@ function usage() {
   echo -e "${GREEN}    --network          ${NC}Network profile: default, tap. tap is valid for zephyr-fvp."
   echo -e "${GREEN}    --dds-interface    ${NC}DDS interface/IP selector for FreeRTOS targets."
   echo -e "${GREEN}    --control-output   ${NC}FreeRTOS control output: DDS_ONLY, CAN_ONLY, DDS_AND_CAN."
+  echo -e "${GREEN}    --cmake-define     ${NC}Extra CMake cache entry KEY=VALUE, forwarded as -DKEY=VALUE."
+  echo -e "${GREEN}                         Repeatable. freertos-x5h only."
   echo -e "${GREEN}    -t                 ${NC}Zephyr target board: ${ZEPHYR_TARGET_LIST[*]}"
   echo -e "${GREEN}                         default: ${ZEPHYR_TARGET_LIST[0]}.${NC}"
   echo -e "${GREEN}    -d                 ${NC}Build directory. Default: ${BUILD_DIR}."
@@ -64,13 +73,14 @@ function usage() {
   echo -e "    zephyr-s32z      Zephyr on S32Z hardware."
   echo -e "    freertos-posix   FreeRTOS POSIX runtime for local validation."
   echo -e "    freertos-s32z2   FreeRTOS on S32Z2 hardware."
-  echo -e "    freertos-x5h     FreeRTOS on R-Car X5H hardware (scaffold: boots and prints only)."
+  echo -e "    freertos-x5h     FreeRTOS on R-Car X5H hardware (full actuation module + CycloneDDS + lwIP-over-RPMsg)."
   echo ""
   echo -e "${GREEN}    Examples:${NC}"
   echo -e "    $0 --platform zephyr-fvp --network tap -d build/zephyr-fvp-tap"
   echo -e "    $0 --platform freertos-posix -d build/freertos-posix --dds-interface wlp2s0 --control-output DDS_ONLY"
   echo -e "    $0 --platform freertos-s32z2 -d build/freertos-s32z2 --dds-interface 192.168.0.105"
   echo -e "    $0 --platform freertos-x5h -d build/freertos-x5h"
+  echo -e "    $0 --platform freertos-x5h -d build/freertos-x5h-diag --cmake-define X5H_DIAG_TASK_TABLE=ON --cmake-define CONFIG_DDS_LOG_LEVEL=3"
 }
 
 function require_arg() {
@@ -121,6 +131,11 @@ function parse_args() {
       --control-output)
         require_arg "$1" "${2:-}"
         CONTROL_CMD_OUTPUT_MODE="$2"
+        shift 2
+        ;;
+      --cmake-define)
+        require_arg "$1" "${2:-}"
+        EXTRA_CMAKE_ARGS+=("-D$2")
         shift 2
         ;;
       --unit-test)
@@ -251,6 +266,11 @@ function normalize_platform() {
 
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ] && [ "${BUILD_PLATFORM}" != "freertos-s32z2" ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
     echo -e "${RED}--control-output is only valid for --platform freertos-posix, freertos-s32z2, or freertos-x5h${NC}" 1>&2
+    exit 1
+  fi
+
+  if [ "${#EXTRA_CMAKE_ARGS[@]}" -gt 0 ] && [ "${BUILD_PLATFORM}" != "freertos-x5h" ]; then
+    echo -e "${RED}--cmake-define is only valid for --platform freertos-x5h${NC}" 1>&2
     exit 1
   fi
 
@@ -437,7 +457,18 @@ function build_freertos_s32z2() {
 
 function build_freertos_x5h() {
   echo -e "${GREEN}Building FreeRTOS X5H target...${NC}"
-  echo -e "${YELLOW}Task 4: full-linked actuation module + CycloneDDS + lwIP. Network bring-up (RPMsg netif) stays stubbed until Task 6.${NC}"
+  echo -e "${YELLOW}Full-linked actuation module + CycloneDDS + lwIP-over-RPMsg. Network bring-up (RPMsg netif) is live, not stubbed.${NC}"
+
+  # Task 8's frozen wire constants (CR52 172.16.52.2, Linux 172.16.52.1, DDS
+  # domain 2, multicast disabled both sides) are asserted here, before any
+  # compiling starts, precisely because this checker needs no build
+  # artifacts at all -- it only greps/xpaths source files
+  # (CMakeLists.txt, scripts/build-edge-ecu-peer-arm64.sh,
+  # edge_ecu_peer/cyclonedds-x5h.xml). Run unconditionally rather than
+  # gating it on the ELF the way check-elf-contract.sh/check-image-budget.sh
+  # are gated below: a wire-constant regression is worth catching before
+  # spending build time, not after.
+  "${ROOT_DIR}/actuation_module/freertos_x5h/scripts/check-dds-config.sh"
 
   local app_build_dir
   app_build_dir=$(realpath -m "${BUILD_DIR}")
@@ -510,6 +541,13 @@ function build_freertos_x5h() {
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
     x5h_args+=(-DCONFIG_CONTROL_CMD_OUTPUT_MODE="${CONTROL_CMD_OUTPUT_MODE}")
   fi
+  # e.g. --cmake-define X5H_DIAG_TASK_TABLE=ON --cmake-define
+  # CONFIG_DDS_LOG_LEVEL=3 for an instrumented build into its own -d
+  # directory; empty by default, so the default configuration's argv (and
+  # therefore its byte-identical output) is unchanged when this is absent.
+  if [ "${#EXTRA_CMAKE_ARGS[@]}" -gt 0 ]; then
+    x5h_args+=("${EXTRA_CMAKE_ARGS[@]}")
+  fi
 
   cmake "${x5h_args[@]}"
   # --target actuation_x5h, not a bare `cmake --build`: the vendor -S
@@ -517,18 +555,38 @@ function build_freertos_x5h() {
   # and a bare build would compile all of them too.
   cmake --build "${app_build_dir}" --target actuation_x5h -j"$(nproc)"
 
+  # Review finding (Minor #1): netif_only_x5h is EXCLUDE_FROM_ALL (see its
+  # CMakeLists.txt block) precisely so a bare `cmake --build` of this same
+  # configure does not compile it as a side effect of building
+  # actuation_x5h -- but that also meant nothing ever built or contract/
+  # budget-checked it automatically; it silently bit-rotted between manual
+  # `--target netif_only_x5h` invocations. Build it explicitly here, in the
+  # same configure (per the controller's ruling that this must be a second
+  # target, not a second configure), so every build.sh run proves both
+  # artifacts still build and pass both gates.
+  cmake --build "${app_build_dir}" --target netif_only_x5h -j"$(nproc)"
+
   # A future rcar_bsp submodule bump is loud in most ways a layout change
   # could break this target (renamed sources fail to configure, a second
   # -T fails to link, a new vendor project() call duplicates a target) --
   # but a bump that silently shifts .text or .resource_table to a different
   # address is not loud at all unless something checks for it. Run the
   # frozen-layout contract here so that check happens on every build, not
-  # only when someone remembers to run it by hand.
-  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf"
+  # only when someone remembers to run it by hand. Pass RPMSG_ETH_SERVICE's
+  # literal ("rpmsg-eth", rpmsg_netif_core.h) so the contract also confirms
+  # the service-name string made it into .rodata on both ELFs -- safe to
+  # rely on now that check-elf-contract.sh's SVC check no longer has the
+  # SIGPIPE-under-pipefail false-failure bug (see that script's own
+  # top-of-file comment).
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/actuation_x5h.elf" rpmsg-eth
+  "${x5h_dir}/scripts/check-elf-contract.sh" "${app_build_dir}/netif_only_x5h.elf" rpmsg-eth
 
   # Task 4's memory-risk gate: the full lwIP + CycloneDDS + actuation module
-  # link must fit the frozen 10 MiB Core1 boot-slot window.
+  # link must fit the frozen 10 MiB Core1 boot-slot window. Checked on both
+  # ELFs for the same reason as above: netif_only_x5h must not silently grow
+  # past budget just because nothing was watching it.
   "${x5h_dir}/scripts/check-image-budget.sh" "${app_build_dir}/actuation_x5h.elf"
+  "${x5h_dir}/scripts/check-image-budget.sh" "${app_build_dir}/netif_only_x5h.elf"
 }
 
 ## MAIN ##

@@ -17,22 +17,23 @@
 //     (enabled via SYS_LIGHTWEIGHT_PROT=1 in lwipopts.h; see arch/cc.h for
 //     the sys_prot_t typedef this pairs with)
 //
-// Network bring-up itself (netif_add, dhcp, etc.) is out of scope here --
-// that is Task 6's job (see include/platform/freertos/x5h/lwip_init.h). This
-// file only has to satisfy sys.h's link-time contract so the full
-// actuation_x5h image links.
+// Network bring-up itself (netif_add, dhcp, etc.) is out of scope in this
+// file -- that lives in freertos_x5h/lwip_bringup.c, against the RPMsg netif
+// glue in freertos_x5h/rpmsg_netif.{h,c} (see
+// include/platform/freertos/x5h/lwip_init.h). This file only has to satisfy
+// sys.h's link-time contract so the full actuation_x5h image links.
 //
-// ISR-safety note (review round 1, for Task 6): sys_arch_protect()/
-// sys_arch_unprotect() below use taskENTER_CRITICAL()/taskEXIT_CRITICAL(),
-// which common/ARM_CR52/port.c's own vPortEnterCritical() (around line 547)
+// ISR-safety note (review round 1): sys_arch_protect()/sys_arch_unprotect()
+// below use taskENTER_CRITICAL()/taskEXIT_CRITICAL(), which
+// common/ARM_CR52/port.c's own vPortEnterCritical() (around line 547)
 // explicitly documents and asserts is never called from an ISR context --
 // "Only API functions that end in FromISR can be used in an interrupt."
-// SYS_ARCH_PROTECT/SYS_ARCH_UNPROTECT
-// are therefore task-context-only on this port. Task 6's netif driver must
+// SYS_ARCH_PROTECT/SYS_ARCH_UNPROTECT are therefore task-context-only on
+// this port. rpmsg_netif.c's RPMsg receive ISR path honours this: it does
 // not free pbufs (or touch any lwIP state guarded by
-// SYS_ARCH_PROTECT/UNPROTECT) directly from the RPMsg receive ISR -- hand
-// received buffers off to task context (e.g. via sys_mbox_trypost_fromisr(),
-// already implemented below) instead.
+// SYS_ARCH_PROTECT/UNPROTECT) directly from the ISR -- received buffers are
+// handed off to task context via sys_mbox_trypost_fromisr(), already
+// implemented below.
 
 #include "lwip/sys.h"
 #include "lwip/opt.h"
@@ -118,6 +119,20 @@ void sys_mutex_set_invalid(sys_mutex_t *mutex) {
 // ---- Mailboxes (queues of void*) ----
 
 err_t sys_mbox_new(sys_mbox_t *mbox, int size) {
+    // Review finding (Minor): xQueueCreate()'s own contract asserts
+    // uxQueueLength > 0 (configASSERT -> __BKPT on this port, an immediate
+    // hard fault, not a graceful error return). A caller that asks for
+    // size <= 0 -- e.g. a lwipopts.h mailbox-size macro left at its
+    // lwip/opt.h default of 0 -- would previously crash inside
+    // xQueueCreate() instead of getting this function's own documented
+    // ERR_MEM failure path. lwipopts.h now sets every mailbox-size macro
+    // this port's sys_mbox_new() callers use to a positive value, so this
+    // guard is defence-in-depth against a future lwipopts.h regression, not
+    // a path exercised today.
+    if (size <= 0) {
+        *mbox = NULL;
+        return ERR_MEM;
+    }
     *mbox = xQueueCreate((UBaseType_t)size, sizeof(void *));
     return (*mbox != NULL) ? ERR_OK : ERR_MEM;
 }

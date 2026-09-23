@@ -98,5 +98,5 @@ pct_int=$((pct_x10 / 10))
 pct_frac=$((pct_x10 % 10))
 printf 'BUDGET_PASS: slot window used 0x%x of 0x%x (%d.%d%%)\n' "$slot_used" "$SLOT_SIZE" "$pct_int" "$pct_frac"
 if [ "$pct_x10" -ge 900 ]; then
-  echo "BUDGET_WARN: slot window is above 90% full (${pct_int}.${pct_frac}%); headroom for Task 6's netif bring-up is getting tight." >&2
+  echo "BUDGET_WARN: slot window is above 90% full (${pct_int}.${pct_frac}%); headroom for future growth of the actuation module + CycloneDDS + lwIP + RPMsg netif image is getting tight." >&2
 fi

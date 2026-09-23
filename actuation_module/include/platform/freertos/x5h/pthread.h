@@ -68,6 +68,15 @@ extern "C" {
 #undef PTHREAD_MUTEX_INITIALIZER
 #define PTHREAD_MUTEX_INITIALIZER ((pthread_mutex_t)0)
 
+// Defined in freertos_x5h/x5h_emutls.c; canonical declaration in
+// freertos_x5h/x5h_emutls.h, which the common code including this header
+// cannot reach on its include path -- hence this duplicate (keep in sync).
+// Frees the per-task emulated-TLS storage that runtime hangs off a TCB
+// thread-local-storage slot. Called below before every vTaskDelete() on
+// another task: the slot lives inside the TCB, which for dynamic-stack
+// tasks the idle task frees after the delete.
+void x5h_emutls_task_cleanup(TaskHandle_t task);
+
 typedef struct pthread_internal_s {
     void *(*entry)(void *);
     void *arg;
@@ -215,11 +224,45 @@ static inline int pthread_join(pthread_t thread, void **retval)
     if (info == NULL) {
         return -1;
     }
-    xSemaphoreTake(info->done, portMAX_DELAY);
+    /* POSIX pthread_join() has no spurious-wakeup allowance: it must not
+     * proceed to tear the thread down until the thread has actually run to
+     * completion and given info->done.
+     *
+     * On this port/config, xSemaphoreTake(..., portMAX_DELAY) is believed to
+     * block unconditionally: INCLUDE_vTaskSuspend == 1 in this BSP's
+     * FreeRTOSConfig.h, so prvAddCurrentTaskToDelayedList() parks a
+     * portMAX_DELAY waiter on the suspended-task list rather than a
+     * tick-timed delayed list -- a plain tick-based timeout can therefore
+     * never fire for this wait. But INCLUDE_xTaskAbortDelay == 1 too, and
+     * xTaskCheckForTimeOut() tests pxCurrentTCB->ucDelayAborted *before* its
+     * portMAX_DELAY special case, so a call to xTaskAbortDelay() against the
+     * joining task -- from anywhere, including code added later -- would
+     * still make this take return pdFALSE with the semaphore ungiven.
+     * (vTaskResume()/xTaskResumeFromISR() cannot do the same: FreeRTOS's own
+     * prvTaskIsTaskSuspended() checks whether the task's event-list item is
+     * linked into any list -- true here, since the take leaves it on the
+     * semaphore's wait list -- and refuses to resume it.) Grepping this
+     * repo's application code (i.e. everything outside vendor/kernel
+     * sources) turns up no call to xTaskAbortDelay() anywhere, so this take
+     * cannot return early in practice today. Retry anyway rather than
+     * trusting a single take: it costs nothing on the real, single-iteration
+     * path, and it is the only response consistent with pthread_join()'s
+     * no-spurious-wakeup contract -- an early, non-completion return here
+     * must never be treated as "the thread finished," since that leads
+     * straight to vTaskDelete()-ing (and freeing the bookkeeping for) a
+     * still-running task. */
+    while (xSemaphoreTake(info->done, portMAX_DELAY) != pdPASS) {
+        /* Not a real completion signal (see above); go back to waiting. */
+    }
     if (retval != NULL) {
         *retval = NULL;
     }
     if (info->task != NULL) {
+        /* Safe without suspending the thread first: it has already given
+         * info->done and it touches no __thread variable between that give
+         * and its permanent vTaskSuspend (pthread_x5h_entry_), so its TLS
+         * storage is quiescent here. */
+        x5h_emutls_task_cleanup(info->task);
         vTaskDelete(info->task);
     }
     /* Release the application-owned static TCB the kernel does not free.
@@ -242,6 +285,14 @@ static inline int pthread_cancel(pthread_t thread)
     TaskHandle_t t = info->task;
     info->task = NULL;
     xSemaphoreGive(info->done);
+    /* Unlike pthread_join's target, a cancelled thread may be running
+     * anywhere -- including inside __emutls_get_address() replacing the
+     * very array the cleanup below frees -- so park it first. It cannot be
+     * holding newlib's __malloc_lock at this point (that lock is
+     * vTaskSuspendAll(), under which this code could not be running), so
+     * freeing its TLS storage afterwards is safe. */
+    vTaskSuspend(t);
+    x5h_emutls_task_cleanup(t);
     vTaskDelete(t);
     return 0;
 }

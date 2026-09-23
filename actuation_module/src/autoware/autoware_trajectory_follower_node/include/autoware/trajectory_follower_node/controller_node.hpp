@@ -18,6 +18,7 @@
 #include "autoware/trajectory_follower_base/control_horizon.hpp"
 #include "autoware/trajectory_follower_base/lateral_controller_base.hpp"
 #include "autoware/trajectory_follower_base/longitudinal_controller_base.hpp"
+#include "autoware/trajectory_follower_node/input_staleness_gate.hpp"
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
 #include "autoware_vehicle_info_utils/vehicle_info_utils.hpp"
@@ -65,6 +66,69 @@ private:
   }
 
   double timeout_thr_sec_;
+
+  // Input-staleness threshold for the control_cmd publication gate.
+  //
+  // Derivation (do not retune without re-deriving): the slowest required
+  // input is the trajectory at 10 Hz — expected period 0.1 s. That cadence
+  // is this repo's own ground truth, not an assumption: the edge-ECU peer
+  // publishes every input at PUBLISH_PERIOD_MS = 100 ("10 Hz — realistic
+  // input cadence for the controller", test/dds_pub.cpp), the reader-history
+  // sizing comment in common/dds/dds.hpp names the trajectory's "10 Hz
+  // producer", and every other required input (odometry, acceleration,
+  // steering, operation mode) arrives at the same 10 Hz or faster from the
+  // Autoware side, so 0.1 s bounds all expected periods.
+  //
+  // Multiplier: 5x the slowest expected period. Rationale:
+  //  - five consecutive missing samples of the slowest input is unambiguous
+  //    input loss, not jitter — the transport's reliability window
+  //    (max_blocking_time 30 ms, common/dds/dds.hpp) and observed link
+  //    jitter sit far below one 0.1 s period;
+  //  - 0.5 s spans at least three 0.15 s control cycles, so the gate's
+  //    decision is stable against control-cycle phasing instead of flapping
+  //    on a single borderline cycle;
+  //  - it equals the existing timeout_thr_sec_ default (0.5 s), this
+  //    codebase's only prior definition of "too old to act on" for control
+  //    data, keeping one staleness convention rather than introducing a
+  //    second number with a subtly different meaning.
+  static constexpr double kInputStalenessThresholdSec = 0.5;
+
+  // Hysteresis partner to the threshold above: once stale, the gate
+  // returns fresh only when the freshest input is younger than this.
+  //
+  // Derivation, from the same 10 Hz slowest-input cadence as above (do not
+  // retune one threshold without the other):
+  //  - lower bound: it must exceed the worst age a healthy, resumed 10 Hz
+  //    stream can show the gate — one 0.1 s input period plus up to one
+  //    0.15 s control cycle of sampling delay = 0.25 s — or the gate could
+  //    refuse to re-declare fresh on a link that has genuinely recovered;
+  //  - upper bound: the band up to the 0.5 s stale threshold must stay
+  //    wider than one slowest-input period (0.1 s), so an age cannot drift
+  //    across both thresholds within a single expected arrival — the
+  //    boundary flap observed on the board (stale then fresh within 0.6 s)
+  //    is exactly what the band absorbs.
+  //  0.35 s = 3.5x the slowest expected period sits between those bounds
+  //  with margin on each side.
+  static constexpr double kInputFreshThresholdSec = 0.35;
+
+  // Rate limit on REPORTED gate edges (the state itself is never rate
+  // limited — see input_staleness_gate.hpp). Each edge is one log line
+  // through the busy-polled 115200 UART, ~10 ms of console time; a link
+  // degraded to just-above-threshold inter-arrival can produce ~2 edges/s
+  // (~2 % console duty) that hysteresis cannot remove, because every
+  // arrival legitimately resets the age. One line per 10 s bounds the
+  // edge-log duty at ~0.1 % — under half the ~0.21 % the 5 s liveness
+  // beacon both x5h builds already pay — on an image whose known defect
+  // class is timing-sensitive.
+  static constexpr double kStalenessEdgeLogMinIntervalSec = 10.0;
+
+  // Gate deciding WHETHER control_cmd may be published (never WHAT is
+  // computed); fed with Clock::now() readings — see input_staleness_gate.hpp
+  // for the clock-discipline note.
+  InputStalenessGate input_staleness_gate_{
+    kInputStalenessThresholdSec, kInputFreshThresholdSec,
+    kStalenessEdgeLogMinIntervalSec};
+
   std::optional<LongitudinalOutput> longitudinal_output_{std::nullopt};
 
   std::shared_ptr<trajectory_follower::LongitudinalControllerBase> longitudinal_controller_;
