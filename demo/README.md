@@ -4,13 +4,25 @@ The demo runs Autoware, the DDS domain bridge, and the visualizer using host net
 
 Run compose commands from this `demo/` directory.
 
-## AVH / Hardware Safety Island
+## AVH Safety Island
 
-The default compose file uses `cyclonedds.xml`, where DDS Domain 2 is pinned to `tap0` for the AVH VPN or hardware tunnel path.
+The default compose file uses `cyclonedds.xml`, where DDS Domain 2 is pinned to `tap0` for the AVH VPN path.
 
 ```bash
 docker compose up -d
 ```
+
+## S32Z Hardware Safety Island
+
+Do not use the default compose file for S32Z hardware (Zephyr `zephyr-s32z` or FreeRTOS `freertos-s32z2`): `cyclonedds.xml` pins Domain 2 to `tap0`, not the board LAN. Copy the LAN template over the bind-mounted path before starting the stack:
+
+```bash
+cp cyclonedds-s32z2.xml cyclonedds.xml
+# edit Domain 2 NetworkInterface to the host NIC or IP on the board LAN
+docker compose up -d
+```
+
+See `documentation/user_guide/s32z_board.rst` and `documentation/user_guide/freertos_s32z2.rst` for the board-side network setup.
 
 ## FreeRTOS POSIX Safety Island
 

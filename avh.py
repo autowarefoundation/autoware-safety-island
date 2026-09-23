@@ -274,6 +274,10 @@ async def connect_to_console(api_instance, instance_id):
 
 def parse_arguments():
     """Parse and validate command line arguments"""
+    # Load .env before resolving environment-backed defaults so an
+    # AVH_FIRMWARE_PATH set in .env is honored by --firmware.
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         description='AVH Firmware Management Script',
         formatter_class=argparse.RawDescriptionHelpFormatter
