@@ -94,7 +94,10 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
   auto subscriber_operation_mode_state = create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
                                                               &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
                                                               callbackOperationModeState, this);
-    
+  auto subscriber_heartbeat = create_subscription<Float64StampedMsg>("/safety_island/vp_heartbeat",
+                                                              &tier4_debug_msgs_msg_Float64Stamped_desc,
+                                                              callbackHeartbeat, this);
+
   output_mode_ = common::can::configured_control_command_output_mode();
   log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));
 
@@ -173,6 +176,14 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
   controller->input_staleness_gate_.noteInput(Clock::now());
+}
+
+void Controller::callbackHeartbeat(const Float64StampedMsg* msg, void* arg)
+{
+  (void)msg;   // the payload (VisionPilot's own acceleration command) is informational
+  Controller* controller = static_cast<Controller*>(arg);
+  controller->last_heartbeat_rx_.store(Clock::now(), std::memory_order_relaxed);
+  controller->has_heartbeat_ = true;
 }
 
 void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg) {
@@ -302,6 +313,39 @@ void Controller::callbackTimerControl()
   // out at the default INFO level (see PROFILE_* in logger.hpp).
   PROFILE_POINT(cyc_t0);
 
+  // 0. Safety Island override. Runs before the follower so it does not
+  // depend on a trajectory or on the staleness gate: in the CES demo no
+  // trajectory arrives at all.
+  {
+    const double now = Clock::now();
+    const double hb_age = has_heartbeat_
+      ? now - last_heartbeat_rx_.load(std::memory_order_relaxed) : 1e9;
+    // has_odometry_ guards the first read of current_odometry_: main.cpp
+    // constructs the node with `new Controller()`, which leaves the struct
+    // uninitialized until the first /localization/kinematic_state sample.
+    // Every other reader in this file goes through processData(), which
+    // withholds until has_odometry_ is set; the override runs ahead of that
+    // gate on purpose (no trajectory needed), so it must gate itself.
+    const double ego_speed_mps = has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0;
+    const bool fault = false;
+    const bool was_armed = stop_profile_.armed();
+    const bool active = stop_profile_.update(now, has_heartbeat_, hb_age, fault, ego_speed_mps);
+    if (!was_armed && stop_profile_.armed()) log_info("SI_OVERRIDE state=armed");
+    if (active && !override_was_active_) {
+      // stop_profile_.v0() -- the value the ramp actually uses -- not the raw
+      // reading above, which trip() may have clamped (e.g. a negative speed).
+      log_warn("SI_OVERRIDE state=ramp reason=%s v0=%.2f", stop_profile_.reason(),
+               stop_profile_.v0());
+    } else if (!active && override_was_active_) {
+      log_info("SI_OVERRIDE state=idle");
+    }
+    override_was_active_ = active;
+    if (active) {
+      publishStopCommand(now);
+      return;
+    }
+  }
+
   // 1. create input data
   const auto input_data = createInputData();
   if (!input_data) {
@@ -423,23 +467,67 @@ void Controller::publishControlCommand(
   out.lateral.stamp = out.stamp;
   out.longitudinal = lon_out.control_cmd;
 
+  publishOutput(out, "Control command");
+}
+
+void Controller::publishStopCommand(double now)
+{
+  ControlMsg out{};
+  out.stamp = Clock::toRosTime(now);
+  out.lateral.stamp = out.stamp;
+  // has_steering_ guards this the same way has_odometry_ guards ego_speed_mps
+  // in callbackTimerControl: current_steering_ is otherwise-uninitialized
+  // until the first /vehicle/status/steering_status sample, and the override
+  // can trip before that (arming needs only a heartbeat).
+  out.lateral.steering_tire_angle = has_steering_ ? current_steering_.steering_tire_angle : 0.0;
+  out.lateral.steering_tire_rotation_rate = 0.0;
+  out.lateral.is_defined_steering_tire_rotation_rate = false;
+  out.longitudinal.stamp = out.stamp;
+  out.longitudinal.velocity = stop_profile_.targetVelocity(now);
+  // Command the deceleration for as long as the override is active, not only
+  // while the open-loop ramp's computed velocity is still above zero: the
+  // ramp can reach zero before the vehicle has physically stopped (brake
+  // lag, a grade, an actuator limit below kStopDecelMps2), and commanding
+  // 0.0 at that instant is a brake release, not a hold. This property is
+  // asserted by test_stop_profile.cpp; compute it there, not inline here.
+  out.longitudinal.acceleration = stop_profile_.commandedAcceleration();
+  out.longitudinal.is_defined_acceleration = true;
+  out.longitudinal.is_defined_jerk = false;
+
+  publishOutput(out, "Stop command");
+}
+
+void Controller::publishOutput(const ControlMsg & out, const char * label)
+{
   if (common::can::output_mode_uses_dds(output_mode_)) {
     if (control_cmd_pub_ && control_cmd_pub_->publish(out)) {
-      log_debug("Control command published over DDS");
+      log_debug("%s published over DDS", label);
     } else {
-      log_error("Control command not published over DDS");
+      // log_error_throttle() keys on (__FILE__, __LINE__); this call site is
+      // shared by both the driving and the stop-override output paths, so
+      // that key would put both under one throttle bucket and the first
+      // "Stop command not published" could be swallowed for up to
+      // CONFIG_LOG_THROTTLE_RATE seconds by an unrelated failure on the other
+      // path. Key on label instead: label is a distinct string literal per
+      // call site (see publishControlCommand()/publishStopCommand()), and
+      // logger.hpp's throttle map is keyed by std::pair<const char*, int>,
+      // compared with the pair's default operator<, i.e. by the literal's
+      // pointer value -- so "Control command" and "Stop command" land in
+      // separate buckets even though both throttle calls sit on this same
+      // line.
+      common::logger::log_error_throttle_(label, __LINE__, "%s not published over DDS", label);
     }
   }
 
   if (common::can::output_mode_uses_can(output_mode_)) {
     if (!can_output_ || !can_output_->send(out, output_mode_)) {
       if (output_mode_ == common::can::ControlCommandOutputMode::CAN_ONLY) {
-        log_error("Control command not sent over CAN in CAN_ONLY mode");
+        log_error("%s not sent over CAN in CAN_ONLY mode", label);
       } else {
-        log_warn_throttle("Control command not sent over CAN; DDS output remains active");
+        log_warn_throttle("%s not sent over CAN; DDS output remains active", label);
       }
     } else {
-      log_debug("Control command sent over CAN");
+      log_debug("%s sent over CAN", label);
     }
   }
 }

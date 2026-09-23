@@ -317,4 +317,17 @@ if(BUILD_TEST STREQUAL "1")
         COMMENT "Running trajectory_buffer_policy host unit test"
         VERBATIM
     )
+
+    # ---- Host-compiled stop-profile unit test (Task 7) ----
+    # stop_profile.hpp is header-only pure logic (no DDS, no RTOS, no clock
+    # reads) deciding the Safety Island's own stop override, so it is
+    # host-tested directly, same pattern and BUILD_TEST=1 selector as the
+    # tests above.
+    set(STOP_PROFILE_TEST_MAIN ${ACTUATION_DIR}/test/test_stop_profile.cpp)
+    add_executable(stop_profile_test ${STOP_PROFILE_TEST_MAIN})
+    set_source_files_properties(${STOP_PROFILE_TEST_MAIN} PROPERTIES COMPILE_DEFINITIONS "main=main")
+    target_include_directories(stop_profile_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include)
+    target_compile_options(stop_profile_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET stop_profile_test POST_BUILD COMMAND stop_profile_test)
 endif()

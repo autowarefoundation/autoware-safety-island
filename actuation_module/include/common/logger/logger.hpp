@@ -164,6 +164,45 @@ inline void log_warn_throttle_(const char * file, int line, const char * format,
     }
 }
 
+inline void log_error_throttle_(const char * file, int line, const char * format, ...)
+{
+    using clock = std::chrono::steady_clock;
+    using time_point = clock::time_point;
+    using duration = std::chrono::duration<double>;
+
+    static std::map<std::pair<const char*, int>, time_point> last_print_times_error;
+    static pthread_mutex_t mutex_error = PTHREAD_MUTEX_INITIALIZER;
+
+    const double interval_seconds = CONFIG_LOG_THROTTLE_RATE;
+    const auto location_key = std::make_pair(file, line);
+    const auto now = clock::now();
+    bool should_print = false;
+
+    pthread_mutex_lock(&mutex_error);
+    auto it = last_print_times_error.find(location_key);
+
+    if (it == last_print_times_error.end()) {
+        should_print = true;
+        last_print_times_error.emplace(location_key, now);
+    } else {
+        const duration time_since_last_print = now - it->second;
+        if (time_since_last_print.count() >= interval_seconds) {
+            should_print = true;
+            it->second = now;
+        }
+    }
+    pthread_mutex_unlock(&mutex_error);
+
+    if (should_print) {
+        char formatted_msg_buffer[1024];
+        va_list args;
+        va_start(args, format);
+        vsnprintf(formatted_msg_buffer, sizeof(formatted_msg_buffer), format, args);
+        va_end(args);
+        log_error("%s", formatted_msg_buffer);
+    }
+}
+
 } // namespace common::logger
 
 // --- Per-cycle profiling instrumentation ------------------------------------

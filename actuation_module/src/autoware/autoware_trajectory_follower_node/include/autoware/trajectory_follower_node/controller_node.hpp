@@ -19,6 +19,7 @@
 #include "autoware/trajectory_follower_base/lateral_controller_base.hpp"
 #include "autoware/trajectory_follower_base/longitudinal_controller_base.hpp"
 #include "autoware/trajectory_follower_node/input_staleness_gate.hpp"
+#include "autoware/trajectory_follower_node/stop_profile.hpp"
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
 #include "autoware_vehicle_info_utils/vehicle_info_utils.hpp"
@@ -28,6 +29,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
@@ -140,6 +142,29 @@ private:
   static void callbackOdometry(const OdometryMsg* msg, void* arg);
   static void callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg);
   static void callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg);
+  static void callbackHeartbeat(const Float64StampedMsg* msg, void* arg);
+
+  // Safety Island override (CES 2027): see stop_profile.hpp.
+  static constexpr double kHeartbeatStaleSec = 0.5;
+  static constexpr double kStopDecelMps2 = 3.0;
+  StopProfile stop_profile_{kHeartbeatStaleSec, kStopDecelMps2};
+  bool has_heartbeat_{false};
+  // Clock::now() at receipt, never the sample's own stamp. Written from the
+  // DDS callback thread, read from the controller thread -- atomic for the
+  // same reason as input_staleness_gate.hpp's last_input_sec_: a plain
+  // 64-bit double store is not single-copy-atomic on ARMv8-R AArch32, and a
+  // torn read here would fabricate a wild age that could trip the override.
+  std::atomic<double> last_heartbeat_rx_{0.0};
+  static_assert(
+    std::atomic<double>::is_always_lock_free,
+    "last_heartbeat_rx_ must be a lock-free atomic: a locking fallback would "
+    "drag a mutex into DDS callback context on the FreeRTOS target");
+  bool override_was_active_{false};
+  void publishStopCommand(double now);
+  // Shared DDS/CAN dispatch for both the follower's normal control command
+  // and the Safety Island's stop command; \p label names the message in the
+  // log lines ("Control command" / "Stop command").
+  void publishOutput(const ControlMsg & out, const char * label);
 
   // Current Data
   TrajectoryMsg current_trajectory_;
