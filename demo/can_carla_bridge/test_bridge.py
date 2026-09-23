@@ -2,7 +2,6 @@
 """Exercise the bridge boundary without a running CARLA or CAN interface."""
 
 import argparse
-import struct
 import sys
 import unittest
 from types import SimpleNamespace
@@ -53,11 +52,10 @@ class BridgeTest(unittest.TestCase):
         return [call.args[0] for call in vehicle.apply_ackermann_control.call_args_list]
 
     def test_interrupt_brakes_with_last_steer(self):
-        frames = pack_cycle(7)
-        frames[1] = (0x101, struct.pack("<ii", 12250, 500))
-        controls = self.run_bridge([can_message(*frame) for frame in frames])
+        controls = self.run_bridge([can_message(*frame) for frame in pack_cycle(7)])
         self.assertEqual(len(controls), 2)
         self.assertEqual(controls[0]["speed"], 12.25)
+        self.assertEqual(controls[0]["acceleration"], -1.5)
         self.assertEqual(controls[0]["steer"], -0.125)
         self.assertEqual(controls[1]["speed"], 0.0)
         self.assertEqual(controls[1]["steer"], -0.125)
@@ -105,18 +103,23 @@ class BridgeTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not a vehicle"):
             bridge.find_ego(world, actor_id=42)
 
-    def test_goal_stop_brakes_but_moving_command_drives(self):
+    def test_goal_stop_preserves_acceleration_and_brakes_on_low_speed_deceleration(self):
         cfg = bridge.BridgeConfig(slew=0.3, default_accel=1.0, brake_accel=3.0, timeout_sec=0.5)
-        drive = DecodedControlCommand(velocity=4.0, acceleration=0.5, acceleration_defined=True)
-        self.assertEqual(bridge.map_ackermann(drive, 0.0, cfg, False)["speed"], 4.0)
-        for velocity, acceleration in ((0.1, 0.4), (2.0, -1.5)):
+        for velocity, acceleration in ((4.0, 0.5), (2.0, -1.5), (0.1, 0.4)):
             with self.subTest(velocity=velocity):
                 command = DecodedControlCommand(
                     velocity=velocity, acceleration=acceleration, acceleration_defined=True
                 )
                 control = bridge.map_ackermann(command, 0.0, cfg, False)
-                self.assertEqual(control["speed"], 0.0)
-                self.assertLessEqual(control["acceleration"], -3.0)
+                self.assertEqual(control["speed"], velocity)
+                self.assertEqual(control["acceleration"], acceleration)
+
+        stopped = DecodedControlCommand(
+            velocity=0.0, acceleration=-1.5, acceleration_defined=True
+        )
+        control = bridge.map_ackermann(stopped, 0.0, cfg, False)
+        self.assertEqual(control["speed"], 0.0)
+        self.assertEqual(control["acceleration"], -3.0)
 
 
 if __name__ == "__main__":

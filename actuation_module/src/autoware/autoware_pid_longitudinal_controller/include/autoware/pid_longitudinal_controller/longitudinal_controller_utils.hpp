@@ -79,7 +79,10 @@ std::pair<TrajectoryPointMsg, size_t> lerpTrajectoryPoint(
 {
   TrajectoryPointMsg interpolated_point;
 
-  if (points.size() < 2) {
+  if (points.empty()) {
+    return std::make_pair(TrajectoryPointMsg{}, static_cast<size_t>(0));
+  }
+  if (points.size() == 1) {
     return std::make_pair(points.front(), static_cast<size_t>(0));
   }
 
