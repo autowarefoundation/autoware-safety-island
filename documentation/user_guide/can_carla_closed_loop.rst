@@ -130,4 +130,5 @@ land on ``vcan0``. Native FVP CAN stays loopback-only.
 
 FVP is not real-time; use a larger ``--timeout`` than the 0.5 s POSIX default.
 Closed-loop still starts Open AD Kit ``safety-island-carla-simulation`` first.
-Its FVP TAP profile binds the domain-bridge's domain 2 to ``tap0``.
+Apply its ``docker-compose.fvp.yaml`` overlay so the domain-bridge's domain 2
+binds to ``tap0``.
