@@ -25,7 +25,12 @@ on:
       - feat/freertos-x5h-netif
       - feat/x5h-actuation-param-profiles
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      # Stacked PRs against the netif branch (this PR's base) do not match
+      # `main`. `push:` on the head branch also does not create upstream
+      # checks for a cross-repo PR, so the before-profile job never ran.
+      - feat/freertos-x5h-netif
   workflow_dispatch:
     inputs:
       devcontainer_image:
