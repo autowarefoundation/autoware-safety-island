@@ -93,7 +93,8 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
                                                               callbackAcceleration, this);
   auto subscriber_operation_mode_state = create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
                                                               &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
-                                                              callbackOperationModeState, this);
+                                                              callbackOperationModeState, this,
+                                                              DDS_DURABILITY_TRANSIENT_LOCAL);
     
   output_mode_ = common::can::configured_control_command_output_mode();
   log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));

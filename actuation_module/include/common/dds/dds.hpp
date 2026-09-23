@@ -134,16 +134,36 @@ public:
      * @param topic_name The name of the topic
      * @param topic_descriptor The DDS topic descriptor
      * @param callback The callback function to be called when a message is received
+     * @param arg Callback user argument
+     * @param durability DDS durability requested by this reader
      * @return std::shared_ptr<Subscriber<T>> Pointer to the created subscriber
      */
     template<typename T>
     std::shared_ptr<Subscriber<T>> create_subscription_dds(const std::string& topic_name, 
                             const dds_topic_descriptor_t* topic_descriptor, 
-                            callback_subscriber<T> callback, void* arg) 
+                            callback_subscriber<T> callback, void* arg,
+                            dds_durability_kind_t durability = DDS_DURABILITY_VOLATILE)
     {
         try {
+            // Do not change the shared QoS: other readers and all writers must
+            // keep their existing durability. CycloneDDS copies QoS at reader
+            // creation, so this temporary copy can be released afterwards.
+            std::unique_ptr<dds_qos_t, decltype(&dds_delete_qos)> reader_qos(nullptr, dds_delete_qos);
+            if (durability != DDS_DURABILITY_VOLATILE) {
+                reader_qos.reset(dds_create_qos());
+                if (!reader_qos) {
+                    log_error("%s -> could not create QoS for %s\n", node_name_.c_str(), topic_name.c_str());
+                    return nullptr;
+                }
+                if (dds_copy_qos(reader_qos.get(), m_dds_qos) != DDS_RETCODE_OK) {
+                    log_error("%s -> could not copy QoS for %s\n", node_name_.c_str(), topic_name.c_str());
+                    return nullptr;
+                }
+                dds_qset_durability(reader_qos.get(), durability);
+            }
             auto subscriber = std::make_shared<Subscriber<T>>(
-                node_name_, topic_name, m_dds_participant, m_dds_qos, topic_descriptor, callback, arg);
+                node_name_, topic_name, m_dds_participant,
+                reader_qos ? reader_qos.get() : m_dds_qos, topic_descriptor, callback, arg);
             
             // Store as ISubscriptionHandler
             subscriptions_.push_back(std::static_pointer_cast<ISubscriptionHandler>(subscriber));

@@ -142,14 +142,16 @@ public:
      * @param topic_descriptor Topic descriptor 
      * @param callback Callback function
      * @param arg Callback user argument
+     * @param durability DDS durability requested by this reader
      * @return bool true on success, false on failure
      */
     template<typename T>
     bool create_subscription(const std::string& topic_name, 
                            const dds_topic_descriptor_t* topic_descriptor, 
-                           callback_subscriber<T> callback, void* arg) {
+                           callback_subscriber<T> callback, void* arg,
+                           dds_durability_kind_t durability = DDS_DURABILITY_VOLATILE) {
 
-        auto subscription = dds_.create_subscription_dds<T>(topic_name, topic_descriptor, callback, arg);
+        auto subscription = dds_.create_subscription_dds<T>(topic_name, topic_descriptor, callback, arg, durability);
         return subscription != nullptr;
     }
 
