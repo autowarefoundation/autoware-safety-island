@@ -1,4 +1,4 @@
-"""Assemble placeholder classic CAN frames 0x100/0x101/0x102."""
+"""Assemble placeholder classic 0x100/0x101/0x102 or one 24-byte CAN-FD 0x103."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from typing import Optional
 LATERAL_ID = 0x100
 LONGITUDINAL_ID = 0x101
 STATUS_ID = 0x102
+FD_COMMAND_ID = 0x103
+FD_PAYLOAD_LENGTH = 24
 
 
 class DecoderEvent(Enum):
@@ -107,6 +109,24 @@ class ControlCommandDecoder:
         self._has_anchor = True
         self._clear_pending()
         return DecoderEvent.ACCEPTED
+
+    def feed_fd(self, can_id: int, data: bytes, length: int, now: float) -> DecoderEvent:
+        """Decode one CAN-FD command frame (0x103, 24 payload bytes).
+
+        The payload carries the classic lateral, longitudinal, and status
+        slices in order, so commit, replay, and watchdog rules are shared.
+        """
+        self._note_time(now)
+        if (
+            can_id != FD_COMMAND_ID
+            or length != FD_PAYLOAD_LENGTH
+            or len(data) < FD_PAYLOAD_LENGTH
+        ):
+            return DecoderEvent.IGNORED
+        payload = bytes(data[:FD_PAYLOAD_LENGTH])
+        self.feed(LATERAL_ID, payload[0:8], 8, False, now)
+        self.feed(LONGITUDINAL_ID, payload[8:16], 8, False, now)
+        return self.feed(STATUS_ID, payload[16:24], 8, False, now)
 
     def poll_watchdog(self, now: float, timeout_sec: float) -> DecoderEvent:
         self._note_time(now)

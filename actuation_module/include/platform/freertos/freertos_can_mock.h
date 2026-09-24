@@ -6,6 +6,7 @@
 #include <limits>
 #include <pthread.h>
 
+#include "common/can/can_fd_frame.hpp"
 #include "common/can/can_frame.hpp"
 #include "common/logger/logger.hpp"
 
@@ -63,6 +64,11 @@ inline bool can_init()
   return true;
 }
 
+inline bool can_fd_active()
+{
+  return false;
+}
+
 inline bool can_send(const CanFrame & frame)
 {
   RecordedCanFramesLock lock;
@@ -93,6 +99,12 @@ inline bool can_send_batch(const CanFrame * frames, const std::size_t count)
     }
   }
   return true;
+}
+
+inline bool can_send_fd(const CanFdFrame &)
+{
+  common::logger::log_error("CAN-FD is not supported by the FreeRTOS CAN mock");
+  return false;
 }
 
 }  // namespace common::can::platform

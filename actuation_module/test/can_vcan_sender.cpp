@@ -49,6 +49,22 @@ int main()
     output.send(make_sample_control_msg(), common::can::ControlCommandOutputMode::CAN_ONLY),
     "encoded command is sent");
 
+  const auto fd_encoded = common::can::encode_control_command_fd(
+    make_sample_control_msg(), common::can::ControlCommandOutputMode::CAN_ONLY, 0U);
+  ASSERT_MSG(fd_encoded.ok, "FD sample encodes");
+  ASSERT_MSG(
+    !common::can::platform::can_send_fd(fd_encoded.frame),
+    "classic SocketCAN refuses a CAN-FD send");
+
+  setenv("SAFETY_ISLAND_CAN_FORMAT", "invalid", 1);
+  ASSERT_MSG(!output.init(), "unknown CAN format fails init");
+
+  setenv("SAFETY_ISLAND_CAN_FORMAT", "fd", 1);
+  ASSERT_MSG(output.init(), "SocketCAN CAN-FD TX initializes on vcan0");
+  ASSERT_MSG(
+    output.send(make_sample_control_msg(), common::can::ControlCommandOutputMode::CAN_ONLY),
+    "encoded command is sent as CAN-FD");
+
   common::logger::log_info("vcan sender passed");
   return 0;
 }

@@ -9,11 +9,19 @@ from unittest.mock import Mock, patch
 
 import bridge
 from decoder import DecodedControlCommand
-from test_decoder import pack_cycle
+from test_decoder import pack_cycle, pack_fd_cycle
 
 
 def can_message(can_id, data, **flags):
     fields = dict(is_fd=False, is_error_frame=False, is_remote_frame=False)
+    fields.update(flags)
+    return SimpleNamespace(
+        arbitration_id=can_id, data=data, dlc=len(data), is_extended_id=False, **fields
+    )
+
+
+def can_fd_message(can_id, data, **flags):
+    fields = dict(is_fd=True, is_error_frame=False, is_remote_frame=False)
     fields.update(flags)
     return SimpleNamespace(
         arbitration_id=can_id, data=data, dlc=len(data), is_extended_id=False, **fields
@@ -31,7 +39,7 @@ class BridgeTest(unittest.TestCase):
                 args = bridge.parse_args()
                 self.assertEqual((args.ego_role, args.ego_id), (role, actor_id))
 
-    def run_bridge(self, messages):
+    def run_bridge(self, messages, can_format="classic"):
         bus = Mock()
         bus.recv.side_effect = [*messages, KeyboardInterrupt()]
         vehicle = Mock()
@@ -42,7 +50,7 @@ class BridgeTest(unittest.TestCase):
         args = argparse.Namespace(
             slew=0.3, default_accel=1.0, brake_accel=3.0, timeout=0.5,
             host="127.0.0.1", port=2000, interface="vcan0", dry_run=False,
-            ego_role="hero", ego_id=None,
+            ego_role="hero", ego_id=None, can_format=can_format,
         )
         with patch.dict(sys.modules, {"can": can_module, "carla": carla_module}), \
                 patch.object(bridge, "parse_args", return_value=args), \
@@ -72,6 +80,28 @@ class BridgeTest(unittest.TestCase):
                 ])
                 self.assertEqual(len(controls), 1)
                 self.assertEqual(controls[0]["speed"], 0.0)
+
+    def test_can_format_argument(self):
+        for options, expected in (([], "classic"), (["--can-format", "fd"], "fd")):
+            with self.subTest(options=options), patch.object(sys, "argv", ["bridge.py", *options]):
+                self.assertEqual(bridge.parse_args().can_format, expected)
+
+    def test_fd_mode_accepts_0x103_and_ignores_classic(self):
+        controls = self.run_bridge(
+            [can_message(*pack_cycle(9)[0]), can_fd_message(0x103, pack_fd_cycle(7))],
+            can_format="fd",
+        )
+        self.assertEqual(len(controls), 2)
+        self.assertEqual(controls[0]["speed"], 12.25)
+        self.assertEqual(controls[0]["steer"], -0.125)
+        self.assertEqual(controls[0]["acceleration"], -1.5)
+        self.assertEqual(controls[1]["speed"], 0.0)
+        self.assertEqual(controls[1]["acceleration"], 3.0)
+
+    def test_classic_mode_ignores_fd_frames(self):
+        controls = self.run_bridge([can_fd_message(0x103, pack_fd_cycle(7))])
+        self.assertEqual(len(controls), 1)
+        self.assertEqual(controls[0]["speed"], 0.0)
 
     def test_ego_selection_requires_one_exact_role(self):
         hero = SimpleNamespace(id=10, type_id="vehicle.tesla.model3", attributes={"role_name": "hero"})

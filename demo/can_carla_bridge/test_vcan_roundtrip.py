@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode a real SocketCAN command sent by the C++ Safety Island encoder."""
+"""Decode real SocketCAN frames sent by the C++ Safety Island encoder."""
 
 import socket
 import struct
@@ -11,10 +11,14 @@ from decoder import ControlCommandDecoder, DecoderEvent
 
 
 CAN_FRAME = struct.Struct("=IB3x8s")
+CAN_FD_FRAME = struct.Struct("=IBBBB64s")
 CAN_EFF_FLAG = 0x80000000
 CAN_RTR_FLAG = 0x40000000
 CAN_ERR_FLAG = 0x20000000
 CAN_SFF_MASK = 0x7FF
+CANFD_BRS = 0x01
+SOL_CAN_RAW = 101
+CAN_RAW_FD_FRAMES = 5
 
 
 def main(sender: str) -> None:
@@ -22,6 +26,7 @@ def main(sender: str) -> None:
     with socket.socket(socket.PF_CAN, socket.SOCK_RAW, socket.CAN_RAW) as receiver:
         receiver.bind(("vcan0",))
         receiver.settimeout(1.0)
+        receiver.setsockopt(SOL_CAN_RAW, CAN_RAW_FD_FRAMES, 1)
         subprocess.run([sender], check=True, timeout=10)
 
         for expected_id in (0x100, 0x101, 0x102):
@@ -35,8 +40,25 @@ def main(sender: str) -> None:
                 bool(can_id & CAN_EFF_FLAG), time.monotonic(),
             )
 
+        assert event == DecoderEvent.ACCEPTED
+        assert decoder.command.sequence == 0
+        assert abs(decoder.command.steering_tire_angle - 0.125) < 1e-6
+        assert abs(decoder.command.velocity - 12.25) < 1e-4
+        assert abs(decoder.command.acceleration + 1.5) < 1e-4
+
+        wire = receiver.recv(CAN_FD_FRAME.size)
+        assert len(wire) == CAN_FD_FRAME.size, "expected a CAN-FD frame"
+        can_id, length, flags, _res0, _res1, data = CAN_FD_FRAME.unpack(wire)
+        assert not can_id & (CAN_RTR_FLAG | CAN_ERR_FLAG)
+        assert (can_id & CAN_SFF_MASK) == 0x103
+        assert length == 24
+        assert not flags & CANFD_BRS, "BRS stays off"
+        event = decoder.feed_fd(
+            can_id & CAN_SFF_MASK, data[:length], length, time.monotonic()
+        )
+
     assert event == DecoderEvent.ACCEPTED
-    assert decoder.command.sequence == 0
+    assert decoder.command.sequence == 1
     assert abs(decoder.command.steering_tire_angle - 0.125) < 1e-6
     assert abs(decoder.command.velocity - 12.25) < 1e-4
     assert abs(decoder.command.acceleration + 1.5) < 1e-4

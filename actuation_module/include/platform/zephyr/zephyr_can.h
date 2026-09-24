@@ -6,6 +6,7 @@
 #include <cstring>
 #include <errno.h>
 
+#include "common/can/can_fd_frame.hpp"
 #include "common/can/can_frame.hpp"
 #include "common/logger/logger.hpp"
 #include "platform/platform_config.h"
@@ -159,6 +160,17 @@ inline bool can_send_batch(const CanFrame * frames, const std::size_t count)
   return true;
 }
 
+inline bool can_fd_active()
+{
+  return false;
+}
+
+inline bool can_send_fd(const CanFdFrame &)
+{
+  common::logger::log_error("CAN-FD output is not supported on Zephyr");
+  return false;
+}
+
 #else
 
 inline bool can_init()
@@ -172,6 +184,16 @@ inline bool can_send(const CanFrame &)
 }
 
 inline bool can_send_batch(const CanFrame *, const std::size_t)
+{
+  return false;
+}
+
+inline bool can_fd_active()
+{
+  return false;
+}
+
+inline bool can_send_fd(const CanFdFrame &)
 {
   return false;
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SocketCAN vcan0 roundtrip. Exit 77 if vcan cannot be created.
+# SocketCAN vcan0 roundtrip (classic + CAN-FD). Exit 77 if vcan cannot be created.
 
 set -euo pipefail
 
@@ -27,13 +27,14 @@ fi
 setup_vcan() {
   if ip link show vcan0 >/dev/null 2>&1; then
     ip link set up vcan0 >/dev/null 2>&1 || true
-    return 0
+  elif ip link add vcan0 type vcan 2>/dev/null && ip link set up vcan0 2>/dev/null; then
+    :
+  else
+    echo "SKIP: cannot create vcan0 (need CAP_NET_ADMIN and the vcan module)" >&2
+    exit 77
   fi
-  if ip link add vcan0 type vcan 2>/dev/null && ip link set up vcan0 2>/dev/null; then
-    return 0
-  fi
-  echo "SKIP: cannot create vcan0 (need CAP_NET_ADMIN and the vcan module)" >&2
-  exit 77
+  # CAN-FD payloads need the FD MTU; classic frames work at either size.
+  ip link set dev vcan0 mtu 72 >/dev/null 2>&1 || true
 }
 
 setup_vcan
