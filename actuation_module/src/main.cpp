@@ -22,7 +22,16 @@ int main(void)
     sleep(CONFIG_NET_DHCPV4_INITIAL_DELAY_MAX);
 #endif
 
-    configure_network();
+    const int network_rc = configure_network();
+#if defined(CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL) && \
+  CONFIG_CONTROL_CMD_CAN_TRANSPORT_UDP_TUNNEL
+    if (network_rc != 0) {
+        log_error("Network configuration required for CAN UDP tunnel");
+        std::exit(1);
+    }
+#else
+    (void)network_rc;
+#endif
 
     // TODO: Disable SNTP if no internet connection is available
 #if defined(CONFIG_ENABLE_SNTP) && CONFIG_ENABLE_SNTP

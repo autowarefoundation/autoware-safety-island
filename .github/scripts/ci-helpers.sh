@@ -8,6 +8,7 @@
 #   run_command_with_timeout <log_path> <timeout_seconds> <command> [args...]
 #   require_marker   <log_path> <fixed-string marker>
 #   kill_with_timeout <pid> [grace_seconds]
+#   ensure_fvp_available   (sets ARMFVP_BIN_PATH; uses ROOT_DIR)
 
 set -euo pipefail
 
@@ -15,6 +16,63 @@ set -euo pipefail
 # Bounds every CI step's worst-case wall time so a blocked-on-SIGTERM binary
 # cannot hang the runner.
 CI_KILL_AFTER_SECONDS="${CI_KILL_AFTER_SECONDS:-5}"
+
+# Arm FVP pin for the Zephyr FVP jobs. The devcontainer installs this exact
+# version at /usr/local/bin (see .devcontainer/Dockerfile), so CI takes the
+# PATH branch; the download below stays as a fallback for images that do not
+# ship FVP. Keep the URL and checksum in sync with the Dockerfile. Callers
+# must set ROOT_DIR before sourcing.
+FVP_BIN_NAME="FVP_BaseR_AEMv8R"
+FVP_URL="https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz"
+FVP_SHA256="627500afdb115701b412b85520e5c0e370b7f7e3f425f7ae4b1e8b14cbd4441a"
+FVP_INSTALL_DIR="${ROOT_DIR:-${PWD}}/build/tools/fvp"
+FVP_TARBALL="${ROOT_DIR:-${PWD}}/build/tools/fvp.tar.gz"
+
+# Make the pinned FVP available and export ARMFVP_BIN_PATH for west/CMake.
+# Prefers PATH, then an existing install dir, then downloads from the Arm CDN.
+# Installs atomically so a partial extraction is never reused.
+ensure_fvp_available()
+{
+  local fvp_bin
+  fvp_bin="$(command -v "${FVP_BIN_NAME}" || true)"
+  if [ -n "${fvp_bin}" ]; then
+    ARMFVP_BIN_PATH="$(dirname "${fvp_bin}")"
+    export ARMFVP_BIN_PATH
+    return 0
+  fi
+
+  if [ -x "${FVP_INSTALL_DIR}/bin/${FVP_BIN_NAME}" ]; then
+    ARMFVP_BIN_PATH="${FVP_INSTALL_DIR}/bin"
+    export ARMFVP_BIN_PATH
+    return 0
+  fi
+
+  if [ "$(uname -m)" != "x86_64" ]; then
+    echo "${FVP_BIN_NAME} is available from Arm as a Linux x86 host binary only." >&2
+    echo "Run Zephyr FVP validation on an amd64/x86_64 runner or devcontainer image." >&2
+    return 1
+  fi
+
+  echo "${FVP_BIN_NAME} not found; installing FVP from public ARM CDN..."
+  local staging="${FVP_INSTALL_DIR}.staging"
+  rm -rf "${staging}"
+  mkdir -p "${staging}" "$(dirname "${FVP_TARBALL}")"
+  wget -q --show-progress --progress=bar:force:noscroll "${FVP_URL}" -O "${FVP_TARBALL}"
+  printf '%s  %s\n' "${FVP_SHA256}" "${FVP_TARBALL}" | sha256sum -c -
+  tar -xzf "${FVP_TARBALL}" -C "${staging}" --strip-components=1
+  rm -f "${FVP_TARBALL}"
+
+  if [ ! -x "${staging}/bin/${FVP_BIN_NAME}" ]; then
+    echo "Missing FVP binary after install: ${staging}/bin/${FVP_BIN_NAME}" >&2
+    return 1
+  fi
+
+  rm -rf "${FVP_INSTALL_DIR}"
+  mv "${staging}" "${FVP_INSTALL_DIR}"
+
+  ARMFVP_BIN_PATH="${FVP_INSTALL_DIR}/bin"
+  export ARMFVP_BIN_PATH
+}
 
 dump_log() {
   local log="$1"

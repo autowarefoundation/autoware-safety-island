@@ -174,3 +174,67 @@ jobs:
           set -e
           sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/build" 2>/dev/null || true
           exit "${rc}"
+
+  build-zephyr-fvp-tap:
+    name: Zephyr FVP TAP
+    runs-on: ubuntu-latest
+
+    steps:
+      # vcan must exist in the kernel the container shares; loading it inside
+      # the job container is not possible, so prepare it on the runner host as
+      # the FreeRTOS POSIX vcan job does and run the tunnel test with host
+      # networking. CI fails rather than skipping if vcan cannot be created.
+      - name: Load vcan on the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+          sudo modprobe vcan
+          if ! ip link show vcan0 >/dev/null 2>&1; then
+            sudo ip link add vcan0 type vcan
+          fi
+          sudo ip link set up vcan0
+          ip link show vcan0
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Initialize build submodules (private s32ct_config excluded)
+        shell: bash
+        run: git submodule update --init --recursive cyclonedds zephyr freertos-kernel
+
+      - name: Restore Zephyr workspace cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .west
+            zephyr
+            actuation_module/zephyr_modules
+          key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
+          restore-keys: zephyr-workspace-
+
+      - name: Run Zephyr FVP TAP tunnel
+        shell: bash
+        env:
+          DEVCONTAINER_IMAGE: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
+        run: |
+          set +e
+          docker run --rm \
+            --entrypoint bash \
+            --network=host \
+            --cap-add=NET_ADMIN \
+            --device /dev/net/tun \
+            -v "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
+            -w "${GITHUB_WORKSPACE}" \
+            -e GITHUB_WORKSPACE \
+            -e GITHUB_ACTIONS \
+            -e HOME=/tmp \
+            "${DEVCONTAINER_IMAGE}" \
+            -lc 'git config --global --add safe.directory "*" && .github/scripts/run-zephyr-fvp-tap-ci.sh'
+          rc=$?
+          set -e
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/build" 2>/dev/null || true
+          exit "${rc}"
