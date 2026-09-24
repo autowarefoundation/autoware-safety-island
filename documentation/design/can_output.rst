@@ -59,6 +59,10 @@ early bring-up. Each command produces three classic 8-byte CAN frames:
 
 Non-finite command values are rejected before any CAN frame is sent.
 
+``freertos-posix`` can instead send the same three payloads as one 24-byte
+CAN-FD frame ``0x103`` when ``SAFETY_ISLAND_CAN_FORMAT=fd`` is set. That mode
+is opt-in and documented in :doc:`can_fd`; every other runtime stays classic.
+
 **********************
 Backends
 **********************

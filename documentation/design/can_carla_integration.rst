@@ -51,6 +51,10 @@ Shared decisions
   decode. The visual CARLA loop is a documented host demo.
 - **Mock is test-only.** Runtime CAN output does not fall back to the
   in-memory recorder when no interface is configured.
+- **CAN-FD is opt-in.** ``freertos-posix`` can send one 24-byte ``0x103``
+  frame instead of the classic three (``SAFETY_ISLAND_CAN_FORMAT=fd`` plus
+  ``bridge.py --can-format fd``). Every other runtime stays classic; see
+  :doc:`can_fd`.
 
 **********************
 Open-loop (PR 1)
@@ -110,7 +114,8 @@ Known limits
 - FVP TAP UDP is PR 3, not this demo.
 - S32Z hardware CAN is not this demo.
 
-Closed-loop with Open AD Kit is PR 2. Zephyr FVP is PR 3. CAN-FD is PR 4.
+Closed-loop with Open AD Kit is PR 2. Zephyr FVP is PR 3. CAN-FD is opt-in on
+the POSIX path; see :doc:`can_fd`.
 
 **********************
 Closed-loop (PR 2)
@@ -261,4 +266,4 @@ Known limits
 
 - CAN-over-UDP, not classic CAN end-to-end.
 - S32Z hardware CAN remains out of this stack.
-- CAN-FD is PR 4.
+- CAN-FD is opt-in and POSIX-only; the FVP tunnel stays classic.

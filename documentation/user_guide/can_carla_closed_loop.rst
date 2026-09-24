@@ -57,12 +57,26 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
      $ python3 demo/can_carla_bridge/bridge.py --interface vcan0 --ego-role ego_vehicle
 
 3. In RViz: set a goal, engage. ``candump vcan0`` should show ``0x100`` /
-   ``0x101`` / ``0x102``.
+   ``0x101`` / ``0x102`` (``0x103`` in CAN-FD mode).
 
 Confirm Autoware is not applying ``VehicleControl`` to the ego. The overlay
 skips ``apply_control()``; the CAN bridge applies
 ``VehicleAckermannControl``. Autoware Auto/Engage is required so SI sees
 ``AUTONOMOUS``; it does not mean Autoware drives CARLA.
+
+**********************
+CAN-FD (optional)
+**********************
+
+``freertos-posix`` can send one 24-byte ``0x103`` frame instead of the classic
+three. Everything else is unchanged:
+
+.. code-block:: console
+
+  $ SAFETY_ISLAND_CAN_FORMAT=fd SAFETY_ISLAND_CAN_IFACE=vcan0 ./build/freertos-posix/actuation_freertos
+  $ python3 demo/can_carla_bridge/bridge.py --interface vcan0 --can-format fd --ego-role ego_vehicle
+
+See :doc:`../design/can_fd`.
 
 **********************
 DDS

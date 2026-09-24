@@ -7,48 +7,74 @@
 CAN-FD
 ######
 
-Sketch only. Do not implement a runtime CAN-FD backend until the classic
-SocketCAN loop in :doc:`can_carla_integration` works.
-
-Classic CAN remains the demo contract (three 8-byte frames, IDs ``0x100`` /
-``0x101`` / ``0x102``). CAN-FD is an optional packing and API extension on the
-same ``freertos-posix`` SocketCAN path.
+CAN-FD is an opt-in transport on the ``freertos-posix`` SocketCAN path. It does
+not replace the classic demo contract in :doc:`can_output`: the three 8-byte
+frames (``0x100`` / ``0x101`` / ``0x102``) stay the default, and Zephyr, the
+FVP UDP tunnel, and S32Z hardware remain classic only.
 
 *************
-API sketch
+Enabling it
 *************
 
-Extend ``common::can::CanFrame`` without breaking classic senders:
+- Safety Island: build ``freertos-posix`` as usual, then set
+  ``SAFETY_ISLAND_CAN_FORMAT=fd`` next to ``SAFETY_ISLAND_CAN_IFACE``. The
+  default is ``classic``.
+- Host bridge: ``python3 demo/can_carla_bridge/bridge.py --can-format fd``.
+  The default is ``classic``.
+- ``vcan`` carries CAN-FD frames; current kernels give ``vcan0`` the FD MTU of
+  72 bytes. The ``vcan`` roundtrip script sets the MTU before running.
 
-- ``data`` capacity grows from 8 to 64 bytes; classic frames still set
-  ``dlc`` to 8 and use the first eight bytes.
-- ``bool fd{false}`` — FDF.
-- ``bool brs{false}`` — bit-rate switch.
-- Classic ``can_send`` ignores FD flags. An FD-aware backend reads them.
+Fail closed: an unknown ``SAFETY_ISLAND_CAN_FORMAT`` value, an interface whose
+MTU is below 72 (CAN-FD disabled), or a platform without FD support all make
+``can_init()`` fail instead of silently sending classic frames.
 
-Optional encoder mode (build-time or runtime flag, default off): pack the
-current three classic payloads into one FD frame (ID TBD, payload 24 bytes
-plus the status word). Decoder on the host bridge must accept either layout.
+*************
+Frame format
+*************
 
-``freertos-posix`` SocketCAN already used for classic TX can enable
-``CAN_RAW_FD_FRAMES`` when the iface is FD-capable (``vcan`` is). Zephyr and
-S32Z FD hardware are out of this sketch.
+FD mode replaces the classic three-frame batch with one 24-byte frame:
+
+.. list-table::
+   :widths: 18 30 52
+   :header-rows: 1
+
+   * - CAN ID
+     - Payload
+     - Scaling
+   * - ``0x103``
+     - lateral (8 bytes), longitudinal (8 bytes), status (8 bytes)
+     - the three classic payloads in order; see :doc:`can_output`
+
+``length`` is the payload byte count (24). The wire DLC is the CAN-FD encoding
+of that length: ``12`` for 24 bytes. FD DLC values 9–15 cover 12/16/20/24/32/
+48/64 bytes and are not byte counts. SocketCAN maps ``length`` to the wire DLC;
+BRS stays off.
+
+The status slice keeps the classic sequence and timestamp, so the host decoder
+applies the same commit, replay, and watchdog rules to both formats. A bridge
+instance decodes one format at a time (``--can-format``) and ignores frames in
+the other format.
 
 *************
 Non-goals
 *************
 
 - No OEM FD DBC.
-- No CARLA-side FD requirement (the bridge still decodes to
-  ``VehicleControl``).
-- No change to DDS inputs.
-- No FVP CAN-FD transport.
+- No FD on Zephyr, the FVP UDP tunnel, or S32Z hardware.
+- No BRS / second bitrate selection yet.
+- No change to the classic ``0x100`` / ``0x101`` / ``0x102`` contract.
 
 *************
-Acceptance for this PR
+Validation
 *************
 
-- This design note in the docs toctree.
-- ``CanFrame`` field sketch applied or clearly deferred with the struct
-  comment pointing here.
-- No requirement to ship an FD encoder, FD CI job, or CARLA demo change.
+- ``actuation_module/test/can_output_test.cpp`` checks the FD encoder frame id,
+  byte length 24, BRS off, and every payload offset against the classic
+  scaling.
+- ``actuation_module/test/can_vcan_sender.cpp`` sends one classic batch and one
+  FD frame on ``vcan0``; ``demo/can_carla_bridge/test_vcan_roundtrip.py``
+  decodes both and checks the sequence, replay, and watchdog rules.
+- The ``FreeRTOS POSIX vcan`` CI job runs both formats. No CARLA.
+
+vcan validates framing and the software path only. Bitrate, bus load, bus-off,
+and real transceivers need hardware.
