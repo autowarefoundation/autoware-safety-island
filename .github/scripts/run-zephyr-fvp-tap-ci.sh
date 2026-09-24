@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Privileged Zephyr FVP TAP UDP tunnel. Requires CAP_NET_ADMIN and /dev/net/tun.
+#
+# The workflow runs this in the devcontainer with host networking so the vcan0
+# interface prepared on the runner is visible and FVP can attach to host tap0.
+# The Zephyr workspace cache is restored by the workflow; initialize it here
+# when that cache is cold.
 
 set -euo pipefail
 
@@ -11,6 +16,20 @@ FVP_SHA256="627500afdb115701b412b85520e5c0e370b7f7e3f425f7ae4b1e8b14cbd4441a"
 FVP_INSTALL_DIR="${ROOT_DIR}/build/zephyr-fvp/tools/fvp"
 
 source "${ROOT_DIR}/.github/scripts/ci-helpers.sh"
+
+ensure_zephyr_workspace()
+{
+  pip3 install -q -r "${ROOT_DIR}/zephyr/scripts/requirements-base.txt"
+  pip3 install -q -r "${ROOT_DIR}/zephyr/scripts/requirements-build-test.txt"
+  (
+    cd "${ROOT_DIR}"
+    if [ ! -d .west ]; then
+      west init -l actuation_module
+      west update
+    fi
+    west zephyr-export
+  )
+}
 
 ensure_fvp_available()
 {
@@ -36,6 +55,7 @@ ensure_fvp_available()
 }
 
 mkdir -p "${ROOT_DIR}/build"
+ensure_zephyr_workspace
 ensure_fvp_available
 
 echo "Zephyr FVP TAP UDP tunnel build"
@@ -47,6 +67,10 @@ set +e
 tap_rc=$?
 set -e
 if [ "${tap_rc}" = "77" ]; then
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "FVP TAP tunnel skipped on CI (tun and vcan are required)" >&2
+    exit 1
+  fi
   echo "FVP TAP tunnel skipped (no CAP_NET_ADMIN, tun, or vcan)"
   exit 0
 fi
