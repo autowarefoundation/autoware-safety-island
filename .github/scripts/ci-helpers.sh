@@ -17,10 +17,11 @@ set -euo pipefail
 # cannot hang the runner.
 CI_KILL_AFTER_SECONDS="${CI_KILL_AFTER_SECONDS:-5}"
 
-# Arm FVP pin for the Zephyr FVP jobs. Single source for the version, the
-# download checksum, and the shared install directory that actions/cache keys
-# on FVP_SHA256. Callers must set ROOT_DIR before sourcing. Do not override the
-# pin from the environment: the workflow cache key is derived from FVP_SHA256.
+# Arm FVP pin for the Zephyr FVP jobs. The devcontainer installs this exact
+# version at /usr/local/bin (see .devcontainer/Dockerfile), so CI takes the
+# PATH branch; the download below stays as a fallback for images that do not
+# ship FVP. Keep the URL and checksum in sync with the Dockerfile. Callers
+# must set ROOT_DIR before sourcing.
 FVP_BIN_NAME="FVP_BaseR_AEMv8R"
 FVP_URL="https://developer.arm.com/-/cdn-downloads/permalink/FVPs-Architecture/FM-11.31/FVP_Base_AEMv8R_11.31_28_Linux_x86.tar.gz"
 FVP_SHA256="627500afdb115701b412b85520e5c0e370b7f7e3f425f7ae4b1e8b14cbd4441a"
@@ -28,8 +29,8 @@ FVP_INSTALL_DIR="${ROOT_DIR:-${PWD}}/build/tools/fvp"
 FVP_TARBALL="${ROOT_DIR:-${PWD}}/build/tools/fvp.tar.gz"
 
 # Make the pinned FVP available and export ARMFVP_BIN_PATH for west/CMake.
-# Prefers PATH, then the cached install dir, then downloads from the Arm CDN.
-# Installs atomically so a partial extraction is never cached or reused.
+# Prefers PATH, then an existing install dir, then downloads from the Arm CDN.
+# Installs atomically so a partial extraction is never reused.
 ensure_fvp_available()
 {
   local fvp_bin

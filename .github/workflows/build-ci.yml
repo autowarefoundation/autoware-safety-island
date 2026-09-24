@@ -60,24 +60,6 @@ jobs:
           fi
           west zephyr-export
 
-      - name: Resolve FVP pin
-        id: fvp
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha="$(sed -n 's/^FVP_SHA256="\(.*\)"$/\1/p' .github/scripts/ci-helpers.sh | head -n 1)"
-          if [ -z "${sha}" ]; then
-            echo "Cannot resolve FVP_SHA256 from .github/scripts/ci-helpers.sh" >&2
-            exit 1
-          fi
-          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore FVP cache
-        uses: actions/cache@v4
-        with:
-          path: build/tools/fvp
-          key: fvp-${{ steps.fvp.outputs.sha }}
-
       - name: Run Zephyr FVP validation
         shell: bash
         run: .github/scripts/run-zephyr-fvp-ci.sh
@@ -233,24 +215,6 @@ jobs:
             actuation_module/zephyr_modules
           key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
           restore-keys: zephyr-workspace-
-
-      - name: Resolve FVP pin
-        id: fvp
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha="$(sed -n 's/^FVP_SHA256="\(.*\)"$/\1/p' .github/scripts/ci-helpers.sh | head -n 1)"
-          if [ -z "${sha}" ]; then
-            echo "Cannot resolve FVP_SHA256 from .github/scripts/ci-helpers.sh" >&2
-            exit 1
-          fi
-          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore FVP cache
-        uses: actions/cache@v4
-        with:
-          path: build/tools/fvp
-          key: fvp-${{ steps.fvp.outputs.sha }}
 
       - name: Run Zephyr FVP TAP tunnel
         shell: bash
