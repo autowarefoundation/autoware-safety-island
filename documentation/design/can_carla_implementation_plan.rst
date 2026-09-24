@@ -414,21 +414,60 @@ PR 1 (#49) — ``freertos-posix`` + ``vcan``
    aligned. Closed-loop (PR 2) and CAN-FD (PR 3) stay stacked on the
    same ``vcan0`` decoder.
 
+PR 2 (#50) — Open AD Kit closed-loop
+====================================
+
+Autoware planning against CARLA, Safety Island as the controller, actuation
+still over classic CAN into the same ``vcan0`` bridge as PR 1. Autoware plus
+CARLA compose lives in Open AD Kit
+(``deployments/safety-island-carla-simulation/``, PR #146), including the
+domain-bridge. This repository keeps the SI binary, ``vcan0``, and
+``demo/can_carla_bridge``.
+
+7. **Sensors-only CARLA interface**
+   ``autoware_carla_interface`` has no upstream sensor-only flag.
+   ``SensorLoop`` calls ``ego_actor.apply_control()`` every tick. Overlay
+   Open AD Kit's ``overlay/patch_sensors_only.py`` skips that call
+   so the CAN bridge is the sole CARLA driver. Remap
+   ``input_control_cmd`` / ``output_actuation_cmd`` off the live topics.
+
+8. **Stub Autoware follower**
+   Open AD Kit mounts its stub ``control.launch.xml`` into the ``control``
+   service, same pattern as the planning-simulator demo.
+
+9. **SI ``CAN_ONLY`` and domain-bridge**
+   Build ``freertos-posix --control-output CAN_ONLY``. Bridge the five
+   DDS inputs domain 1 → 2. Do not rely on ``control_cmd`` 2 → 1.
+   Closed-loop CycloneDDS pins both domains to ``lo`` (Open AD Kit default).
+
+10. **Host CAN-CARLA bridge**
+    Same ``demo/can_carla_bridge/`` as PR 1. Pass ``--ego-role ego_vehicle``
+    matches Open AD Kit. ``VehicleAckermannControl`` mapping unchanged.
+
+11. **Pins and topic contract**
+    Open AD Kit's deployment ``config.env`` pins CARLA and component images
+    by digest. Record the Open AD Kit and Safety Island commits when you
+    run the demo. Its privilege-free tests check the five-input topic
+    matrix against ``bridge-config.yaml``.
+
+12. **Docs**
+    Closed-loop launch is two-repo. CI never starts CARLA or Open AD Kit.
+
 Follow-on PR — Zephyr FVP TAP tunnel
 ====================================
 
 Update issue #43 / PR #49 out-of-scope before landing this PR.
 
-7. **Zephyr UDP transport and gateway**
+13. **Zephyr UDP transport and gateway**
    Kconfig as above (output modes do not ``select CAN``), TAP conf
    fragment, ``build.sh`` flags, 48-byte pack/unpack unit tests, host
    gateway.
 
-8. **Zephyr FVP TAP integration**
+14. **Zephyr FVP TAP integration**
    Run FVP with hostbridge TAP, gateway, ``vcan0``, same decoder, FVP
    watchdog timeout. No CARLA.
 
-9. **CARLA bridge (FVP demo)**
+15. **CARLA bridge (FVP demo)**
    Same bridge as PR 1, documented TAP + gateway host demo.
 
 **********************
@@ -463,7 +502,8 @@ when the kernel has no ``vcan``.
   timeout.
 
 Never launch CARLA, a GPU job, or an Open AD Kit compose in GitHub
-Actions.
+Actions. The Open AD Kit companion PR tests the sensors-only overlay and
+five-input topic matrix; this repository tests ego ``role_name`` in the bridge.
 
 **********************
 Known limits

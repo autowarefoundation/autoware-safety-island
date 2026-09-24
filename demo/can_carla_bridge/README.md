@@ -24,7 +24,7 @@ Feed canned DDS inputs on domain 2 (rosbag or `--dds-publisher`). Then:
 
 ```bash
 python3 bridge.py --interface vcan0 --dry-run
-python3 bridge.py --interface vcan0 --host 127.0.0.1 --port 2000
+python3 bridge.py --interface vcan0 --host 127.0.0.1 --port 2000 --ego-role ego_vehicle
 ```
 
 `--dry-run` prints decoded Ackermann fields and does not need CARLA.
@@ -32,4 +32,5 @@ The live bridge requires exactly one vehicle with `role_name=hero` by default;
 use `--ego-role NAME` for another role or `--ego-id ID` to select a specific
 vehicle. It fails rather than driving an arbitrary vehicle if selection is
 missing or ambiguous.
-Watchdog timeout defaults to 0.5 s.
+For Open AD Kit, pass `--ego-role ego_vehicle` (see
+`documentation/user_guide/can_carla_closed_loop.rst`). Watchdog timeout defaults to 0.5 s.

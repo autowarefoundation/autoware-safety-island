@@ -82,11 +82,18 @@ them. The script exits 77 locally if ``vcan0`` cannot be created. GitHub
 Actions runs this in a separate ``FreeRTOS POSIX vcan`` job with
 ``--cap-add=NET_ADMIN`` and fails if the module is absent.
 
-Python decoder golden vectors (no ``vcan``, no ``python-can``):
+Python decoder golden vectors (no ``vcan``, no ``python-can``, no CARLA):
 
 .. code-block:: console
 
   $ python3 demo/can_carla_bridge/test_decoder.py
+  $ python3 demo/can_carla_bridge/test_bridge.py
+
+The closed-loop deployment contract check runs in Open AD Kit PR #146:
+
+.. code-block:: console
+
+  $ python3 deployments/safety-island-carla-simulation/test_contract.py
 
 ************
 DDS loopback

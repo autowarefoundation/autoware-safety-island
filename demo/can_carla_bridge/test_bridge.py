@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import bridge
+from decoder import DecodedControlCommand
 from test_decoder import pack_cycle
 
 
@@ -20,6 +21,16 @@ def can_message(can_id, data, **flags):
 
 
 class BridgeTest(unittest.TestCase):
+    def test_actor_selection_arguments(self):
+        for options, role, actor_id in (
+            ([], "hero", None),
+            (["--ego-role", "ego_vehicle"], "ego_vehicle", None),
+            (["--ego-id", "42"], "hero", 42),
+        ):
+            with self.subTest(options=options), patch.object(sys, "argv", ["bridge.py", *options]):
+                args = bridge.parse_args()
+                self.assertEqual((args.ego_role, args.ego_id), (role, actor_id))
+
     def run_bridge(self, messages):
         bus = Mock()
         bus.recv.side_effect = [*messages, KeyboardInterrupt()]
@@ -44,6 +55,7 @@ class BridgeTest(unittest.TestCase):
         controls = self.run_bridge([can_message(*frame) for frame in pack_cycle(7)])
         self.assertEqual(len(controls), 2)
         self.assertEqual(controls[0]["speed"], 12.25)
+        self.assertEqual(controls[0]["acceleration"], -1.5)
         self.assertEqual(controls[0]["steer"], -0.125)
         self.assertEqual(controls[1]["speed"], 0.0)
         self.assertEqual(controls[1]["steer"], -0.125)
@@ -64,12 +76,17 @@ class BridgeTest(unittest.TestCase):
     def test_ego_selection_requires_one_exact_role(self):
         hero = SimpleNamespace(id=10, type_id="vehicle.tesla.model3", attributes={"role_name": "hero"})
         other = SimpleNamespace(id=11, type_id="vehicle.audi.a2", attributes={"role_name": "npc"})
+        ego = SimpleNamespace(id=12, type_id="vehicle.toyota.prius", attributes={"role_name": "ego_vehicle"})
         world = Mock()
-        world.get_actors.return_value = [other, hero]
+        world.get_actors.return_value = [other, hero, ego]
         self.assertIs(bridge.find_ego(world), hero)
         self.assertIs(bridge.find_ego(world, "npc"), other)
+        self.assertIs(bridge.find_ego(world, "ego_vehicle"), ego)
         with self.assertRaisesRegex(RuntimeError, "found 0"):
             bridge.find_ego(world, "missing")
+        world.get_actors.return_value = [other, hero]
+        with self.assertRaisesRegex(RuntimeError, "found 0"):
+            bridge.find_ego(world, "ego_vehicle")
         world.get_actors.return_value = [hero, hero]
         with self.assertRaisesRegex(RuntimeError, "found 2"):
             bridge.find_ego(world)
@@ -85,6 +102,24 @@ class BridgeTest(unittest.TestCase):
         world.get_actor.return_value = SimpleNamespace(type_id="walker.pedestrian.0001")
         with self.assertRaisesRegex(RuntimeError, "not a vehicle"):
             bridge.find_ego(world, actor_id=42)
+
+    def test_goal_stop_preserves_acceleration_and_brakes_on_low_speed_deceleration(self):
+        cfg = bridge.BridgeConfig(slew=0.3, default_accel=1.0, brake_accel=3.0, timeout_sec=0.5)
+        for velocity, acceleration in ((4.0, 0.5), (2.0, -1.5), (0.1, 0.4)):
+            with self.subTest(velocity=velocity):
+                command = DecodedControlCommand(
+                    velocity=velocity, acceleration=acceleration, acceleration_defined=True
+                )
+                control = bridge.map_ackermann(command, 0.0, cfg, False)
+                self.assertEqual(control["speed"], velocity)
+                self.assertEqual(control["acceleration"], acceleration)
+
+        stopped = DecodedControlCommand(
+            velocity=0.0, acceleration=-1.5, acceleration_defined=True
+        )
+        control = bridge.map_ackermann(stopped, 0.0, cfg, False)
+        self.assertEqual(control["speed"], 0.0)
+        self.assertEqual(control["acceleration"], -3.0)
 
 
 if __name__ == "__main__":

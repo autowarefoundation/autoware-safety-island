@@ -27,6 +27,14 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
+Added
+-----
+
+- Open AD Kit closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and
+  host CAN-CARLA bridge. Autoware, sensors-only overlay, and loopback
+  domain-bridge live in Open AD Kit PR #146
+  (``deployments/safety-island-carla-simulation/``).
+
 Changed
 -------
 

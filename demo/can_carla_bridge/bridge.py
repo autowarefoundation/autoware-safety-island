@@ -22,6 +22,9 @@ class BridgeConfig:
     timeout_sec: float
 
 
+STOP_SPEED = 0.2
+
+
 def map_ackermann(
     command: DecodedControlCommand,
     last_steer: float,
@@ -41,6 +44,14 @@ def map_ackermann(
         abs(command.steering_tire_rotation_rate) if command.steering_rate_defined else cfg.slew
     )
     acceleration = command.acceleration if command.acceleration_defined else cfg.default_accel
+    if abs(command.velocity) <= STOP_SPEED and acceleration < 0.0:
+        return {
+            "steer": steer,
+            "steer_speed": steer_speed,
+            "speed": 0.0,
+            "acceleration": min(acceleration, -cfg.brake_accel),
+            "jerk": 0.0,
+        }
     return {
         "steer": steer,
         "steer_speed": steer_speed,
@@ -117,7 +128,9 @@ def main() -> int:
         carla = carla_mod
         client = carla.Client(args.host, args.port)
         client.set_timeout(10.0)
-        vehicle = find_ego(client.get_world(), args.ego_role, args.ego_id)
+        world = client.get_world()
+        world.wait_for_tick(seconds=10.0)
+        vehicle = find_ego(world, args.ego_role, args.ego_id)
 
     decoder = ControlCommandDecoder()
     last_steer = 0.0

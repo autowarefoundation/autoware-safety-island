@@ -19,6 +19,7 @@ hardware on S32Z and R-Car X5H.
 
    quickstart
    freertos_posix
+   can_carla_closed_loop
    avh
    s32z_board
    freertos_s32z2
