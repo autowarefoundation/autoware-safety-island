@@ -4,11 +4,13 @@
 #include <limits>
 
 #include "autoware/autoware_msgs/messages.hpp"
+#include "common/can/can_udp_tunnel.hpp"
 #include "common/can/control_command_can_output.hpp"
 #include "common/can/control_command_encoder.hpp"
 #include "common/can/control_command_output_mode.hpp"
 #include "common/logger/logger.hpp"
 #include "platform/platform_can.h"
+#include "platform/platform_network.h"
 
 #if defined(PLATFORM_ZEPHYR)
   #include <zephyr/device.h>
