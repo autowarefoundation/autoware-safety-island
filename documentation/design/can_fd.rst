@@ -22,7 +22,8 @@ Enabling it
 - Host bridge: ``python3 demo/can_carla_bridge/bridge.py --can-format fd``.
   The default is ``classic``.
 - ``vcan`` carries CAN-FD frames; current kernels give ``vcan0`` the FD MTU of
-  72 bytes. The ``vcan`` roundtrip script sets the MTU before running.
+  72 bytes. The ``vcan`` roundtrip script sets the FD MTU while the link is
+  down before running.
 
 Fail closed: an unknown ``SAFETY_ISLAND_CAN_FORMAT`` value, an interface whose
 MTU is below 72 (CAN-FD disabled), or a platform without FD support all make
@@ -52,8 +53,8 @@ BRS stays off.
 
 The status slice keeps the classic sequence and timestamp, so the host decoder
 applies the same commit, replay, and watchdog rules to both formats. A bridge
-instance decodes one format at a time (``--can-format``) and ignores frames in
-the other format.
+instance decodes one format at a time (``--can-format``), ignores frames in
+the other format, and ignores extended-ID frames in both.
 
 *************
 Non-goals
@@ -73,7 +74,11 @@ Validation
   scaling.
 - ``actuation_module/test/can_vcan_sender.cpp`` sends one classic batch and one
   FD frame on ``vcan0``; ``demo/can_carla_bridge/test_vcan_roundtrip.py``
-  decodes both and checks the sequence, replay, and watchdog rules.
+  decodes both and checks the sequence and watchdog rules. The script then
+  lowers the vcan MTU to 16 and checks CAN-FD init fails closed.
+- ``demo/can_carla_bridge/test_decoder.py`` and ``test_bridge.py`` cover the FD
+  golden vectors, extended-ID, replay and length rejection, and format
+  exclusivity.
 - The ``FreeRTOS POSIX vcan`` CI job runs both formats. No CARLA.
 
 vcan validates framing and the software path only. Bitrate, bus load, bus-off,
