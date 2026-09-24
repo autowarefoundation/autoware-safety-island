@@ -1,0 +1,74 @@
+#ifndef APPROVED_REQUEST_IDL_
+#define APPROVED_REQUEST_IDL_
+
+// Written for the Safety Island supervised output (vp_si_control_contract).
+// Not generated from a rosidl .msg: the C headers on the ROS/Jazzy side are
+// produced from the matching visionpilot-style definition by hand until the
+// safety_island_msgs package exists on the ROS side.
+
+#include "Time.idl"
+#include "Control.idl"
+
+module safety_island_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "The only actuator-facing Safety Island output: one approved driving" "\n"
+      "request per SI control cycle. SI is the only publisher. decision and" "\n"
+      "the identity fields let the observer/actuator correlate each output" "\n"
+      "with the SI sequence and with the fault event that produced its stop.")
+    struct ApprovedRequest {
+      @verbatim (language="comment", text=
+        "SI system clock when this request was produced.")
+      builtin_interfaces::msg::Time stamp;
+
+      @verbatim (language="comment", text=
+        "SI boot/session identity (changes on SI restart).")
+      uint32 session;
+
+      @verbatim (language="comment", text=
+        "Strictly increasing output sequence within one SI session.")
+      uint64 output_sequence;
+
+      @verbatim (language="comment", text=
+        "Requested driving decision:" "\n"
+        "0 = NORMAL   (carry control, computed by the follower or passed" "\n"
+        "             through from VisionPilot in VP_CONTROL)" "\n"
+        "1 = SI_STOP  (supervisor stop; see fault_id)" "\n"
+        "2 = HOLD     (keep the previous approved state)" "\n"
+        "Any value outside 0..2 is treated as HOLD by the actuator.")
+      octet decision;
+
+      @verbatim (language="comment", text=
+        "Configured supervision mode of this SI instance:" "\n"
+        "0 = SI_CONTROL (follower follows the selected trajectory source)" "\n"
+        "1 = VP_CONTROL (VisionPilot command supervised by SI, not recomputed)")
+      octet mode;
+
+      @verbatim (language="comment", text=
+        "Where the NORMAL control payload comes from:" "\n"
+        "0 = FOLLOWER (trajectory_follower on the selected trajectory)" "\n"
+        "1 = VP_COMMAND (accepted VisionPilot DrivingCommand, passed through)")
+      octet selected_source;
+
+      @verbatim (language="comment", text=
+        "VisionPilot cycle identity of the accepted input this output carries" "\n"
+        "(0/0 when the source is not VisionPilot or no cycle was accepted).")
+      uint32 source_session;
+
+      uint64 source_cycle;
+
+      @verbatim (language="comment", text=
+        "Identity of the fault event that caused the current SI_STOP/HOLD." "\n"
+        "Increments per detected fault; 0 whenever decision is NORMAL.")
+      uint32 fault_id;
+
+      @verbatim (language="comment", text=
+        "The actuation payload: for NORMAL, the approved driving request;" "\n"
+        "for SI_STOP, an explicit stop (target speed 0, signed negative" "\n"
+        "acceleration) so the actuator brakes without re-deciding itself.")
+      autoware_control_msgs::msg::Control control;
+    };
+  };
+};
+
+#endif  // APPROVED_REQUEST_IDL_

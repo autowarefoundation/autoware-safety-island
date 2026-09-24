@@ -18,7 +18,7 @@
 #include "autoware/trajectory_follower_base/control_horizon.hpp"
 #include "autoware/trajectory_follower_base/lateral_controller_base.hpp"
 #include "autoware/trajectory_follower_base/longitudinal_controller_base.hpp"
-#include "autoware/trajectory_follower_node/input_staleness_gate.hpp"
+#include "autoware/trajectory_follower_node/supervision.hpp"
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
 #include "autoware_vehicle_info_utils/vehicle_info_utils.hpp"
@@ -68,68 +68,6 @@ private:
 
   double timeout_thr_sec_;
 
-  // Input-staleness threshold for the control_cmd publication gate.
-  //
-  // Derivation (do not retune without re-deriving): the slowest required
-  // input is the trajectory at 10 Hz — expected period 0.1 s. That cadence
-  // is this repo's own ground truth, not an assumption: the edge-ECU peer
-  // publishes every input at PUBLISH_PERIOD_MS = 100 ("10 Hz — realistic
-  // input cadence for the controller", test/dds_pub.cpp), the reader-history
-  // sizing comment in common/dds/dds.hpp names the trajectory's "10 Hz
-  // producer", and every other required input (odometry, acceleration,
-  // steering, operation mode) arrives at the same 10 Hz or faster from the
-  // Autoware side, so 0.1 s bounds all expected periods.
-  //
-  // Multiplier: 5x the slowest expected period. Rationale:
-  //  - five consecutive missing samples of the slowest input is unambiguous
-  //    input loss, not jitter — the transport's reliability window
-  //    (max_blocking_time 30 ms, common/dds/dds.hpp) and observed link
-  //    jitter sit far below one 0.1 s period;
-  //  - 0.5 s spans at least three 0.15 s control cycles, so the gate's
-  //    decision is stable against control-cycle phasing instead of flapping
-  //    on a single borderline cycle;
-  //  - it equals the existing timeout_thr_sec_ default (0.5 s), this
-  //    codebase's only prior definition of "too old to act on" for control
-  //    data, keeping one staleness convention rather than introducing a
-  //    second number with a subtly different meaning.
-  static constexpr double kInputStalenessThresholdSec = 0.5;
-
-  // Hysteresis partner to the threshold above: once stale, the gate
-  // returns fresh only when the freshest input is younger than this.
-  //
-  // Derivation, from the same 10 Hz slowest-input cadence as above (do not
-  // retune one threshold without the other):
-  //  - lower bound: it must exceed the worst age a healthy, resumed 10 Hz
-  //    stream can show the gate — one 0.1 s input period plus up to one
-  //    0.15 s control cycle of sampling delay = 0.25 s — or the gate could
-  //    refuse to re-declare fresh on a link that has genuinely recovered;
-  //  - upper bound: the band up to the 0.5 s stale threshold must stay
-  //    wider than one slowest-input period (0.1 s), so an age cannot drift
-  //    across both thresholds within a single expected arrival — the
-  //    boundary flap observed on the board (stale then fresh within 0.6 s)
-  //    is exactly what the band absorbs.
-  //  0.35 s = 3.5x the slowest expected period sits between those bounds
-  //  with margin on each side.
-  static constexpr double kInputFreshThresholdSec = 0.35;
-
-  // Rate limit on REPORTED gate edges (the state itself is never rate
-  // limited — see input_staleness_gate.hpp). Each edge is one log line
-  // through the busy-polled 115200 UART, ~10 ms of console time; a link
-  // degraded to just-above-threshold inter-arrival can produce ~2 edges/s
-  // (~2 % console duty) that hysteresis cannot remove, because every
-  // arrival legitimately resets the age. One line per 10 s bounds the
-  // edge-log duty at ~0.1 % — under half the ~0.21 % the 5 s liveness
-  // beacon both x5h builds already pay — on an image whose known defect
-  // class is timing-sensitive.
-  static constexpr double kStalenessEdgeLogMinIntervalSec = 10.0;
-
-  // Gate deciding WHETHER control_cmd may be published (never WHAT is
-  // computed); fed with Clock::now() readings — see input_staleness_gate.hpp
-  // for the clock-discipline note.
-  InputStalenessGate input_staleness_gate_{
-    kInputStalenessThresholdSec, kInputFreshThresholdSec,
-    kStalenessEdgeLogMinIntervalSec};
-
   std::optional<LongitudinalOutput> longitudinal_output_{std::nullopt};
 
   std::shared_ptr<trajectory_follower::LongitudinalControllerBase> longitudinal_controller_;
@@ -141,6 +79,8 @@ private:
   static void callbackOdometry(const OdometryMsg* msg, void* arg);
   static void callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg);
   static void callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg);
+  static void callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg);
+  static void callbackReenable(const BoolMsg* msg, void* arg);
 
   // Current Data
   TrajectoryMsg current_trajectory_;
@@ -170,6 +110,90 @@ private:
   std::shared_ptr<common::can::ControlCommandCanOutput> can_output_;
   std::shared_ptr<Publisher<Float64StampedMsg>> pub_processing_time_lat_ms_;
   std::shared_ptr<Publisher<Float64StampedMsg>> pub_processing_time_lon_ms_;
+  std::shared_ptr<Publisher<ApprovedRequestMsg>> approved_request_pub_;
+
+  // -------------------------------------------------------------------
+  // Supervision (vp_si_control_contract, Safety Island issues #63/#64/#65)
+  //
+  // SI is the single actuation authority. Every actuator-facing byte on DDS
+  // and CAN is produced by publishApprovedRequest() below: the follower's
+  // raw output and the VP command are candidate inputs to the gate, never
+  // outputs. One supervised output per control cycle; on a fault the state
+  // latches to SI_STOP and only an explicit re-enable topic resumes NORMAL.
+  //
+  supervision::Mode supervision_mode_{supervision::Mode::SI_CONTROL};
+
+  // Per-source arrival-age timeouts (SI system clock; never message stamps —
+  // the selected sources carry CARLA sim time, and the VP command carries the
+  // VP host clock). Defaults follow the measured proposal in SI #62:
+  //  - candidate (trajectory in SI_CONTROL, DrivingCommand in VP_CONTROL):
+  //    1.0 s — the VP output maximum gap is 627–682 ms measured on the CARLA
+  //    rig, so 0.5 s would false-trip;
+  //  - ego feedback (odometry + acceleration at 20 Hz): 0.4 s default,
+  //    within the agreed 0.3–0.5 s band (measured max gap 116 ms);
+  //  - steering report and operation mode at 10 Hz: 0.5 s.
+  double source_timeout_candidate_ = 1.0;
+  double source_timeout_ego_ = 0.4;
+  double source_timeout_steering_ = 0.5;
+  double source_timeout_opmode_ = 0.5;
+
+  // Actuation sanity bounds applied to the VP command in VP_CONTROL: the
+  // supervisor never recomputes VP's decision, but it must reject a request
+  // it could not actuate (vp_si_control_contract: reject invalid requests
+  // instead of forwarding them).
+  double max_steering_rad_ = 0.6;
+  double max_abs_accel_mps2_ = 6.0;
+  double max_abs_velocity_mps_ = 60.0;
+
+  // SI_STOP acceleration demand (m/s^2, signed negative requested via
+  // StopControl): the actuator realizes the explicit stop without deciding.
+  float stop_decel_mps2_ = 1.5f;
+
+  supervision::SourceWatch watch_steering_;
+  supervision::SourceWatch watch_odom_;
+  supervision::SourceWatch watch_accel_;
+  supervision::SourceWatch watch_candidate_;
+  supervision::SourceWatch watch_vp_cmd_;
+  supervision::SourceWatch watch_opmode_;
+
+  // Fault latch state (SupervisionState::reason for operator visibility).
+  supervision::SupervisionState supervision_{};
+
+  // Operator re-enable request (Bool topic); consumed and logged once.
+  bool reenable_requested_ = false;
+
+  // Last approved control payload (for HOLD and for steering hold in SI_STOP).
+  ControlMsg last_approved_{};
+  bool has_approved_ = false;
+
+  // Output identity: one SI session per process, strictly increasing
+  // sequence per published ApprovedRequest; the observer can join every
+  // CARLA-applied frame to a decision and fault id from these.
+  uint32_t si_session_ = 0;
+  uint64_t out_seq_ = 0;
+
+  // VP command supervision state (VP_CONTROL).
+  DrivingCommandMsg current_vp_cmd_{};
+  bool has_vp_cmd_ = false;
+  uint32_t vp_session_ = 0;
+  bool vp_session_valid_ = false;
+  uint64_t vp_cycle_ = 0;
+  uint32_t accepted_source_session_ = 0;
+  uint64_t accepted_source_cycle_ = 0;
+
+  // First fault of the current control cycle (tentative): the SI_STOP is
+  // published by the control timer, so detection→brake is measured from the
+  // tick that declared the fault.
+  supervision::Mode decodeSupervisionMode(const std::string & mode) const;
+  void latchFault(const std::string & why);
+  bool supervisorStaleReason(double now, const char ** reason_out, double * age_out) const;
+  bool allSourcesFresh(double now) const;
+  void publishApprovedRequest(
+    supervision::Decision decision, supervision::SelectedSource source,
+    const ControlMsg & control);
+  void publishSiStop(double now);
+  void publishHold();
+  ControlMsg vpToControl(const DrivingCommandMsg & cmd) const;
   
   enum class LateralControllerMode {
     INVALID = 0,

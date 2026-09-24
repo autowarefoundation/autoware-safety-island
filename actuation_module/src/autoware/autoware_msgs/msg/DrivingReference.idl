@@ -1,0 +1,61 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from visionpilot_msgs/msg/DrivingReference.msg
+// generated code does not contain a copyright notice
+
+#include "Time.idl"
+
+module visionpilot_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "One VisionPilot path and speed/stop intent from a single camera cycle." "\n"
+      "" "\n"
+      "SI_CONTROL: the Safety Island selects this reference (or the Autoware" "\n"
+      "trajectory) and its follower proposes the command. The path and the" "\n"
+      "speed horizon belong to the same cycle; consumers must reject them if a" "\n"
+      "matched pair from one cycle is not available.")
+    struct DrivingReference {
+      @verbatim (language="comment", text=
+        "When VP produced this reference (VP host clock).")
+      builtin_interfaces::msg::Time stamp;
+
+      @verbatim (language="comment", text=
+        "Capture time of the camera frame this cycle came from; see DrivingCommand.")
+      builtin_interfaces::msg::Time source_stamp;
+
+      boolean has_source_stamp;
+
+      @verbatim (language="comment", text=
+        "VP process session and strictly increasing cycle counter.")
+      uint32 session;
+
+      uint64 cycle;
+
+      @verbatim (language="comment", text=
+        "False when the upstream pipeline produced no usable reference this cycle.")
+      boolean valid;
+
+      @verbatim (language="comment", text=
+        "Fused lane-center polynomial in base_link:" "\n"
+        "  y = a x^2 + b x + c, x forward [m], y left [m]." "\n"
+        "Consumers sample geometry from the polynomial instead of relying on a" "\n"
+        "fixed point count. path_valid=false means the fit is unavailable and the" "\n"
+        "reference must be rejected.")
+      boolean path_valid;
+
+      double path_a;
+
+      double path_b;
+
+      double path_c;
+
+      double path_x_max_m;
+
+      @verbatim (language="comment", text=
+        "Planned speed schedule: v m/s at t = i * horizon_dt_s.")
+      @unit (value="i")
+      double horizon_dt_s;
+
+      sequence<double> speed_horizon_mps;
+    };
+  };
+};
