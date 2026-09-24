@@ -5,9 +5,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 #include "autoware/autoware_msgs/messages.hpp"
+#include "common/can/can_fd_frame.hpp"
 #include "common/can/can_frame.hpp"
 #include "common/can/control_command_output_mode.hpp"
 
@@ -18,12 +20,27 @@ constexpr std::size_t kControlCommandCanFrameCount = 3U;
 constexpr uint32_t kLateralCommandCanId = 0x100U;
 constexpr uint32_t kLongitudinalCommandCanId = 0x101U;
 constexpr uint32_t kCommandStatusCanId = 0x102U;
+constexpr uint32_t kFdControlCommandCanId = 0x103U;
+constexpr std::size_t kControlCommandFdDataLength =
+  kControlCommandCanFrameCount * kCanMaxDataLength;
+
+static_assert(
+  kControlCommandFdDataLength <= kCanFdMaxDataLength,
+  "CAN-FD control command payload must fit the CAN-FD data limit");
 
 struct EncodedControlCommand
 {
   bool ok{false};
   const char * error{"not encoded"};
   std::array<CanFrame, kControlCommandCanFrameCount> frames{};
+  std::size_t count{0U};
+};
+
+struct EncodedControlCommandFd
+{
+  bool ok{false};
+  const char * error{"not encoded"};
+  CanFdFrame frame{};
   std::size_t count{0U};
 };
 
@@ -157,6 +174,51 @@ inline EncodedControlCommand encode_control_command(
   encoded.frames[1] = longitudinal;
   encoded.frames[2] = status;
   encoded.count = kControlCommandCanFrameCount;
+  encoded.ok = true;
+  encoded.error = nullptr;
+  return encoded;
+}
+
+// CAN-FD packing reuses the classic payload bytes one-to-one so both formats
+// share the same scaling, sequence, and status contract.
+inline EncodedControlCommandFd encode_control_command_fd(
+  const ControlMsg & msg,
+  const ControlCommandOutputMode mode,
+  const uint16_t sequence)
+{
+  EncodedControlCommandFd encoded{};
+
+  const auto classic = encode_control_command(msg, mode, sequence);
+  if (!classic.ok) {
+    encoded.error = classic.error;
+    return encoded;
+  }
+  if (classic.count == 0U) {
+    encoded.ok = true;
+    encoded.error = nullptr;
+    return encoded;
+  }
+
+  for (std::size_t index = 0U; index < classic.count; ++index) {
+    if (classic.frames[index].dlc != kCanMaxDataLength || classic.frames[index].extended) {
+      encoded.error = "classic frames are not CAN-FD packable";
+      return encoded;
+    }
+  }
+
+  CanFdFrame frame{};
+  frame.id = kFdControlCommandCanId;
+  frame.length = static_cast<uint8_t>(kControlCommandFdDataLength);
+  frame.brs = false;
+  for (std::size_t index = 0U; index < classic.count; ++index) {
+    std::memcpy(
+      frame.data.data() + index * kCanMaxDataLength,
+      classic.frames[index].data.data(),
+      kCanMaxDataLength);
+  }
+
+  encoded.frame = frame;
+  encoded.count = 1U;
   encoded.ok = true;
   encoded.error = nullptr;
   return encoded;

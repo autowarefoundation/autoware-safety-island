@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "common/can/can_fd_frame.hpp"
 #include "common/can/can_frame.hpp"
 #include "common/can/can_udp_tunnel.hpp"
 #include "common/logger/logger.hpp"
@@ -115,6 +116,17 @@ inline bool can_send_batch(const CanFrame * frames, const std::size_t count)
     return false;
   }
   return true;
+}
+
+inline bool can_fd_active()
+{
+  return false;
+}
+
+inline bool can_send_fd(const CanFdFrame &)
+{
+  common::logger::log_error("CAN-FD is not supported by the CAN UDP tunnel");
+  return false;
 }
 
 }  // namespace common::can::platform

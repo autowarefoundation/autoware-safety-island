@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cstdlib>
+#include <cstring>
 
 #include "autoware/autoware_msgs/messages.hpp"
 #include "common/can/control_command_can_output.hpp"
@@ -31,8 +32,25 @@ static ControlMsg make_sample_control_msg()
   return msg;
 }
 
-int main()
+// Fail-closed check for an interface below the CAN-FD MTU (run with the vcan
+// MTU lowered by run-vcan-roundtrip.sh).
+static int expect_fd_init_failure()
 {
+  setenv("SAFETY_ISLAND_CAN_IFACE", "vcan0", 1);
+  setenv("SAFETY_ISLAND_CAN_FORMAT", "fd", 1);
+  common::can::ControlCommandCanOutput output;
+  ASSERT_MSG(!output.init(), "CAN-FD init fails closed below the FD MTU");
+  common::logger::log_info("low-MTU CAN-FD init failed closed");
+  return 0;
+}
+
+int main(int argc, char ** argv)
+{
+  if (argc > 1 && std::strcmp(argv[1], "expect-fd-init-failure") == 0) {
+    common::logger::log_info("=== Starting SocketCAN low-MTU FD check ===");
+    return expect_fd_init_failure();
+  }
+
   common::logger::log_info("=== Starting SocketCAN vcan sender ===");
 
   unsetenv("SAFETY_ISLAND_CAN_IFACE");
@@ -48,6 +66,22 @@ int main()
   ASSERT_MSG(
     output.send(make_sample_control_msg(), common::can::ControlCommandOutputMode::CAN_ONLY),
     "encoded command is sent");
+
+  const auto fd_encoded = common::can::encode_control_command_fd(
+    make_sample_control_msg(), common::can::ControlCommandOutputMode::CAN_ONLY, 0U);
+  ASSERT_MSG(fd_encoded.ok, "FD sample encodes");
+  ASSERT_MSG(
+    !common::can::platform::can_send_fd(fd_encoded.frame),
+    "classic SocketCAN refuses a CAN-FD send");
+
+  setenv("SAFETY_ISLAND_CAN_FORMAT", "invalid", 1);
+  ASSERT_MSG(!output.init(), "unknown CAN format fails init");
+
+  setenv("SAFETY_ISLAND_CAN_FORMAT", "fd", 1);
+  ASSERT_MSG(output.init(), "SocketCAN CAN-FD TX initializes on vcan0");
+  ASSERT_MSG(
+    output.send(make_sample_control_msg(), common::can::ControlCommandOutputMode::CAN_ONLY),
+    "encoded command is sent as CAN-FD");
 
   common::logger::log_info("vcan sender passed");
   return 0;

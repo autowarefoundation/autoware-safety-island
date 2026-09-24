@@ -16,6 +16,10 @@ def pack_cycle(sequence: int) -> list[tuple[int, bytes]]:
     return [(0x100, lateral), (0x101, longitudinal), (0x102, status)]
 
 
+def pack_fd_cycle(sequence: int) -> bytes:
+    return b"".join(data for _, data in pack_cycle(sequence))
+
+
 def feed(decoder: ControlCommandDecoder, can_id: int, data: bytes, now: float, dlc: int = 8):
     return decoder.feed(can_id, data, dlc, False, now)
 
@@ -104,6 +108,23 @@ def main() -> int:
     assert feed(wrap, *wrap_replay[0], 0.2) == DecoderEvent.STORED
     assert feed(wrap, *wrap_replay[1], 0.2) == DecoderEvent.STORED
     assert feed(wrap, *wrap_replay[2], 0.2) == DecoderEvent.REJECTED
+
+    fd = ControlCommandDecoder()
+    fd_payload = pack_fd_cycle(7)
+    assert fd.feed_fd(0x103, fd_payload, 24, True, 0.0) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x103, fd_payload, 24, False, 0.0) == DecoderEvent.ACCEPTED
+    assert abs(fd.command.steering_tire_angle - 0.125) < 1e-9
+    assert abs(fd.command.velocity - 12.25) < 1e-9
+    assert abs(fd.command.acceleration + 1.5) < 1e-9
+    assert fd.command.sequence == 7
+
+    assert fd.feed_fd(0x103, fd_payload, 24, False, 0.1) == DecoderEvent.REJECTED
+    assert fd.feed_fd(0x103, pack_fd_cycle(8), 23, False, 0.1) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x102, pack_fd_cycle(8), 24, False, 0.1) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x103, pack_fd_cycle(8)[:16], 24, False, 0.1) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x103, pack_fd_cycle(8), 24, False, 0.1) == DecoderEvent.ACCEPTED
+    assert fd.command.sequence == 8
+
     print("decoder golden vectors passed")
     return 0
 

@@ -24,7 +24,11 @@ public:
   bool init()
   {
     LockGuard lock(mutex_);
+    fd_active_ = false;
     initialized_ = platform::can_init();
+    if (initialized_) {
+      fd_active_ = platform::can_fd_active();
+    }
     return initialized_;
   }
 
@@ -45,6 +49,22 @@ public:
     if (!initialized_) {
       common::logger::log_error("CAN output is not initialized");
       return false;
+    }
+
+    if (fd_active_) {
+      const auto encoded = encode_control_command_fd(msg, mode, sequence_);
+      if (!encoded.ok) {
+        common::logger::log_error("CAN-FD control command encoding failed: %s", encoded.error);
+        return false;
+      }
+
+      if (encoded.count != 0U && !platform::can_send_fd(encoded.frame)) {
+        common::logger::log_error("CAN-FD control command send failed");
+        return false;
+      }
+
+      ++sequence_;
+      return true;
     }
 
     const auto encoded = encode_control_command(msg, mode, sequence_);
@@ -86,6 +106,7 @@ private:
 
   mutable pthread_mutex_t mutex_ = PTHREAD_MUTEX_INITIALIZER;
   bool initialized_{false};
+  bool fd_active_{false};
   uint16_t sequence_{0U};
 };
 

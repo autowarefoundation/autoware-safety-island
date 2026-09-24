@@ -34,3 +34,8 @@ vehicle. It fails rather than driving an arbitrary vehicle if selection is
 missing or ambiguous.
 For Open AD Kit, pass `--ego-role ego_vehicle` (see
 `documentation/user_guide/can_carla_closed_loop.rst`). Watchdog timeout defaults to 0.5 s.
+
+CAN-FD is optional: run the Safety Island with
+`SAFETY_ISLAND_CAN_FORMAT=fd` and the bridge with `--can-format fd`. The bridge
+then decodes one 24-byte `0x103` frame instead of
+`0x100`/`0x101`/`0x102`.

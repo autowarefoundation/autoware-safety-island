@@ -69,6 +69,12 @@ def apply_ackermann(vehicle, carla, control):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interface", default="vcan0")
+    parser.add_argument(
+        "--can-format",
+        choices=("classic", "fd"),
+        default="classic",
+        help="classic 0x100/0x101/0x102 batch or one CAN-FD 0x103 frame",
+    )
     parser.add_argument("--timeout", type=float, default=0.5)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2000)
@@ -134,21 +140,34 @@ def main() -> int:
 
     decoder = ControlCommandDecoder()
     last_steer = 0.0
-    bus = can.Bus(channel=args.interface, bustype="socketcan")
+    bus_kwargs = {"channel": args.interface, "bustype": "socketcan"}
+    if args.can_format == "fd":
+        bus_kwargs["fd"] = True
+    bus = can.Bus(**bus_kwargs)
     try:
         while True:
             now = time.monotonic()
             decoder.poll_watchdog(now, cfg.timeout_sec)
             msg = bus.recv(timeout=0.05)
             event = DecoderEvent.IGNORED
-            if msg is not None and not (msg.is_fd or msg.is_error_frame or msg.is_remote_frame):
-                event = decoder.feed(
-                    msg.arbitration_id,
-                    bytes(msg.data),
-                    msg.dlc,
-                    msg.is_extended_id,
-                    time.monotonic(),
-                )
+            if msg is not None and not (msg.is_error_frame or msg.is_remote_frame):
+                if args.can_format == "fd":
+                    if msg.is_fd:
+                        event = decoder.feed_fd(
+                            msg.arbitration_id,
+                            bytes(msg.data),
+                            msg.dlc,
+                            msg.is_extended_id,
+                            time.monotonic(),
+                        )
+                elif not msg.is_fd:
+                    event = decoder.feed(
+                        msg.arbitration_id,
+                        bytes(msg.data),
+                        msg.dlc,
+                        msg.is_extended_id,
+                        time.monotonic(),
+                    )
             if decoder.in_safe_stop:
                 control = map_ackermann(decoder.command, last_steer, cfg, True)
                 event = DecoderEvent.SAFE_STOP

@@ -410,7 +410,8 @@ PR 1 (#49) — ``freertos-posix`` + ``vcan``
 
 6. **Docs**
    Keep this page, :doc:`can_carla_integration`, and :doc:`can_output`
-   aligned. Closed-loop is PR 2. Zephyr FVP is PR 3. CAN-FD is PR 4.
+   aligned. Closed-loop is PR 2. Zephyr FVP is PR 3. CAN-FD is opt-in
+   (PR 4).
 
 PR 2 (#50) — Open AD Kit closed-loop
 ====================================
@@ -469,6 +470,23 @@ Open-loop and closed-loop with ``zephyr-fvp --network tap``. Same
 15. **CARLA bridge (FVP demo)**
    Same bridge as PR 1, documented TAP + gateway host demo.
 
+PR 4 (#54) — CAN-FD (opt-in)
+==============================
+
+One 24-byte ``0x103`` frame replaces the classic batch on the same ``vcan0``
+path. Classic stays the default; Zephyr, the FVP tunnel, and S32Z hardware stay
+classic. FD is not a second command path.
+
+16. **FD frame and encoder**
+    ``CanFdFrame`` (64-byte capacity, byte ``length``, ``brs``) plus
+    ``encode_control_command_fd()``, which packs the classic payloads without
+    duplicating scaling. Test: frame id, length 24, BRS off, payload offsets.
+
+17. **Opt-in selection and bridge decode**
+    ``SAFETY_ISLAND_CAN_FORMAT=fd`` on POSIX SocketCAN (MTU below 72 fails
+    init) and ``bridge.py --can-format fd``. The decoder gains ``feed_fd()``
+    and reuses the commit, replay, and watchdog rules.
+
 **********************
 Tests and CI
 **********************
@@ -477,6 +495,7 @@ Privilege-free (existing job, no extra capabilities)
 ====================================================
 
 - Encoder payload, mode helpers, non-finite rejection.
+- PR 4: FD encoder frame id, byte length, BRS off, and payload offsets.
 - Mock recorder on ``freertos-posix --can-output-test``.
 - Failed encode or mid-batch send does not advance ``sequence_``.
 - Zephyr FVP ``zephyr,can-loopback`` on ``--can-output-test``.
@@ -498,6 +517,8 @@ when the kernel has no ``vcan``.
 - PR 3: Zephyr FVP TAP ``tap0`` at ``192.168.10.1/24``, FVP at
   ``192.168.10.2``, gateway → ``vcan0`` → same decoder, with the FVP
   timeout.
+- PR 4: the same ``vcan0`` roundtrip also sends one CAN-FD ``0x103`` frame
+  (``SAFETY_ISLAND_CAN_FORMAT=fd``) and decodes it.
 
 Never launch CARLA, a GPU job, or an Open AD Kit compose in GitHub
 Actions. The Open AD Kit companion PR tests the sensors-only overlay and

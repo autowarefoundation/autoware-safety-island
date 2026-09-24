@@ -3,6 +3,7 @@
 
 #include <cstddef>
 
+#include "common/can/can_fd_frame.hpp"
 #include "common/can/can_frame.hpp"
 #include "common/logger/logger.hpp"
 
@@ -15,12 +16,22 @@ inline bool can_init()
   return false;
 }
 
+inline bool can_fd_active()
+{
+  return false;
+}
+
 inline bool can_send(const CanFrame &)
 {
   return false;
 }
 
 inline bool can_send_batch(const CanFrame *, const std::size_t)
+{
+  return false;
+}
+
+inline bool can_send_fd(const CanFdFrame &)
 {
   return false;
 }

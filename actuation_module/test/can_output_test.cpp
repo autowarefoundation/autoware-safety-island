@@ -47,7 +47,8 @@ static ControlMsg make_sample_control_msg()
   return msg;
 }
 
-static int32_t read_i32_le(const common::can::CanFrame & frame, const std::size_t offset)
+template <typename FrameT>
+static int32_t read_i32_le(const FrameT & frame, const std::size_t offset)
 {
   const uint32_t raw =
     static_cast<uint32_t>(frame.data[offset]) |
@@ -57,14 +58,16 @@ static int32_t read_i32_le(const common::can::CanFrame & frame, const std::size_
   return static_cast<int32_t>(raw);
 }
 
-static uint16_t read_u16_le(const common::can::CanFrame & frame, const std::size_t offset)
+template <typename FrameT>
+static uint16_t read_u16_le(const FrameT & frame, const std::size_t offset)
 {
   return static_cast<uint16_t>(
     static_cast<uint16_t>(frame.data[offset]) |
     (static_cast<uint16_t>(frame.data[offset + 1]) << 8));
 }
 
-static uint32_t read_u32_le(const common::can::CanFrame & frame, const std::size_t offset)
+template <typename FrameT>
+static uint32_t read_u32_le(const FrameT & frame, const std::size_t offset)
 {
   return
     static_cast<uint32_t>(frame.data[offset]) |
@@ -128,6 +131,44 @@ static void test_non_finite_values_are_rejected()
   const auto encoded = common::can::encode_control_command(msg, ControlCommandOutputMode::CAN_ONLY, 0);
   ASSERT_MSG(!encoded.ok, "non-finite command is rejected");
   ASSERT_MSG(encoded.count == 0U, "rejected command produces no frames");
+}
+
+static void test_fd_encoder_payloads()
+{
+  using common::can::ControlCommandOutputMode;
+  const auto encoded = common::can::encode_control_command_fd(
+    make_sample_control_msg(), ControlCommandOutputMode::DDS_AND_CAN, 42U);
+
+  ASSERT_MSG(encoded.ok, "FD encoding succeeds");
+  ASSERT_MSG(encoded.count == 1U, "FD encoding produces one frame");
+  ASSERT_MSG(encoded.frame.id == common::can::kFdControlCommandCanId, "FD frame id");
+  ASSERT_MSG(encoded.frame.length == 24U, "FD frame byte length");
+  ASSERT_MSG(!encoded.frame.brs, "FD BRS stays off");
+
+  ASSERT_MSG(read_i32_le(encoded.frame, 0) == 125000, "FD steering angle scale");
+  ASSERT_MSG(read_i32_le(encoded.frame, 4) == -500000, "FD steering rate scale");
+  ASSERT_MSG(read_i32_le(encoded.frame, 8) == 12250, "FD velocity scale");
+  ASSERT_MSG(read_i32_le(encoded.frame, 12) == -1500, "FD acceleration scale");
+  ASSERT_MSG(encoded.frame.data[16] == 2U, "FD output mode");
+  ASSERT_MSG(encoded.frame.data[17] == 0x0BU, "FD status flags");
+  ASSERT_MSG(read_u16_le(encoded.frame, 18) == 42U, "FD status sequence");
+  ASSERT_MSG(read_u32_le(encoded.frame, 20) == 12345U, "FD status timestamp milliseconds");
+}
+
+static void test_fd_encoding_modes()
+{
+  using common::can::ControlCommandOutputMode;
+  const auto dds_only = common::can::encode_control_command_fd(
+    make_sample_control_msg(), ControlCommandOutputMode::DDS_ONLY, 0U);
+  ASSERT_MSG(dds_only.ok, "DDS_ONLY FD encoding succeeds");
+  ASSERT_MSG(dds_only.count == 0U, "DDS_ONLY produces no FD frame");
+
+  auto msg = make_sample_control_msg();
+  msg.longitudinal.velocity = std::numeric_limits<float>::quiet_NaN();
+  const auto rejected =
+    common::can::encode_control_command_fd(msg, ControlCommandOutputMode::CAN_ONLY, 0U);
+  ASSERT_MSG(!rejected.ok, "non-finite FD command is rejected");
+  ASSERT_MSG(rejected.count == 0U, "rejected FD command produces no frame");
 }
 
 static void assert_frame_equals(
@@ -366,6 +407,8 @@ int main()
   test_encoder_payloads();
   test_dds_only_encoding_has_no_frames();
   test_non_finite_values_are_rejected();
+  test_fd_encoder_payloads();
+  test_fd_encoding_modes();
   test_udp_tunnel_pack_unpack();
   test_udp_tunnel_golden_datagram();
 #if defined(PLATFORM_FREERTOS_CAN_MOCK)
