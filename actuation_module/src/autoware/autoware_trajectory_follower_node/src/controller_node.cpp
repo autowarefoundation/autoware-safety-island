@@ -137,10 +137,17 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
   auto subscriber_acceleration = create_subscription<AccelWithCovarianceStampedMsg>("/localization/acceleration",
                                                               &geometry_msgs_msg_AccelWithCovarianceStamped_desc,
                                                               callbackAcceleration, this);
+  // Durability must stay VOLATILE on this topic: the ros2 domain bridge
+  // (0.5.0) publishes with VOLATILE, and a TRANSIENT_LOCAL reader request is
+  // incompatible — the bridge logs "requesting incompatible QoS ... 
+  // DURABILITY_QOS_POLICY" and silently never delivers operation mode, so the
+  // follower never becomes ready (observed on the E2E rig 2026-09-25). The
+  // publisher republishes at 10 Hz, so a late-joining SI still gets a state
+  // within one period; a direct (unbridged) deployment that wants the last
+  // known state on join would need both ends changed together.
   auto subscriber_operation_mode_state = create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
                                                               &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
-                                                              callbackOperationModeState, this,
-                                                              DDS_DURABILITY_TRANSIENT_LOCAL);
+                                                              callbackOperationModeState, this);
     
   output_mode_ = common::can::configured_control_command_output_mode();
   log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));
@@ -465,11 +472,17 @@ void Controller::callbackTimerControl()
   // from the source-loss moment itself (vp_si_control_contract).
   const char * stale_reason = nullptr;
   double stale_age = 0.0;
+  const bool was_latched = supervision_.latched;
   if (supervisorStaleReason(now, &stale_reason, &stale_age)) {
     latchFault(std::string(stale_reason));
-    log_warn(
-      "SI fault: %s arrived %.2f s ago; latching SI_STOP (fault_id %u)",
-      stale_reason, stale_age, supervision_.fault_id);
+    if (!was_latched) {
+      // Edge-only detail; the continuing state is logged by latchFault at
+      // most when the reason changes. A per-tick line here would flood the
+      // UART console for as long as the fault lasts.
+      log_warn(
+        "SI fault: %s arrived %.2f s ago; latching SI_STOP (fault_id %u)",
+        stale_reason, stale_age, supervision_.fault_id);
+    }
   }
 
   // 2. Re-enable: an explicit operator request clears the latch only once
