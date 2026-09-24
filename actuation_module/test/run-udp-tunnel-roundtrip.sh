@@ -33,7 +33,19 @@ cleanup() {
   rm -f "${gateway_log}"
 }
 trap cleanup EXIT
-sleep 0.2
+
+# Wait for the gateway to bind before sending: a datagram sent earlier is lost.
+for _ in $(seq 1 50); do
+  if grep -q "listening on" "${gateway_log}" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+if ! grep -q "listening on" "${gateway_log}" 2>/dev/null; then
+  echo "gateway did not start listening" >&2
+  cat "${gateway_log}" >&2
+  exit 1
+fi
 
 python3 - "${ROOT_DIR}" "${BIND}" "${PORT}" "${IFACE}" <<'PY'
 import os
@@ -63,13 +75,16 @@ datagram = pack(
     )
 )
 
+# Bind the receiver before sending: raw CAN sockets only receive frames
+# delivered after bind, and the gateway injects immediately.
+can_sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
+can_sock.bind((iface,))
+can_sock.settimeout(1.0)
+
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp.sendto(datagram, (bind, port))
 udp.sendto(b"short", (bind, port))
 
-can_sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
-can_sock.bind((iface,))
-can_sock.settimeout(1.0)
 fmt = struct.Struct("=IB3x8s")
 decoder = ControlCommandDecoder()
 accepted = False
