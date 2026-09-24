@@ -8,6 +8,9 @@ BUILD_DIR="${1:-${ROOT_DIR}/build/zephyr-fvp-tap-can}"
 TAP="${FVP_TAP_INTERFACE:-tap0}"
 IFACE="${SAFETY_ISLAND_CAN_IFACE:-vcan0}"
 TIMEOUT_SECONDS="${FVP_TAP_TIMEOUT_SECONDS:-120}"
+# The collector starts before `west build --target run`, so its deadline must
+# outlive the FVP timeout to count commands emitted after a slow build or boot.
+COLLECTOR_TIMEOUT_SECONDS=$((TIMEOUT_SECONDS + 30))
 
 if [ ! -e /dev/net/tun ]; then
   echo "SKIP: /dev/net/tun is missing" >&2
@@ -45,14 +48,14 @@ python3 "${ROOT_DIR}/demo/can_tunnel_bridge/gateway.py" \
   >"${gateway_log}" 2>&1 &
 gateway_pid=$!
 
-python3 - "${ROOT_DIR}" "${IFACE}" "${accepted_file}" <<'PY' &
+python3 - "${ROOT_DIR}" "${IFACE}" "${accepted_file}" "${COLLECTOR_TIMEOUT_SECONDS}" <<'PY' &
 import os
 import socket
 import struct
 import sys
 import time
 
-root, iface, out = sys.argv[1], sys.argv[2], sys.argv[3]
+root, iface, out, collector_timeout = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
 sys.path.insert(0, os.path.join(root, "demo/can_carla_bridge"))
 from decoder import ControlCommandDecoder, DecoderEvent
 
@@ -62,7 +65,7 @@ can_sock.settimeout(1.0)
 fmt = struct.Struct("=IB3x8s")
 decoder = ControlCommandDecoder()
 accepted = 0
-deadline = time.monotonic() + 90.0
+deadline = time.monotonic() + collector_timeout
 while time.monotonic() < deadline:
     try:
         raw = can_sock.recv(16)
