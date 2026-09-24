@@ -16,6 +16,7 @@ Runtime design, DDS topic contracts, and forward-looking design work.
 
     architecture
     topics
+    vp_si_control_contract
     can_output
     can_carla_integration
     can_carla_implementation_plan
