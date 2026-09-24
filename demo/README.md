@@ -79,7 +79,7 @@ From the repository root:
 
 ```bash
 # in the Open AD Kit checkout:
-#   git fetch origin pull/146/head && git switch --detach 540fd13792c6e47546974ab7f9c9df5f575405e2
+#   git fetch origin pull/146/head && git switch --detach 4c9c3f8a1ca51de433e0dd515e10aca8fc4dcd96
 #   ./openadkit run safety-island-carla-simulation --gpu
 
 sudo ip link add vcan0 type vcan

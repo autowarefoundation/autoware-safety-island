@@ -39,7 +39,7 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
 
      $ cd /path/to/openadkit
      $ git fetch origin pull/146/head
-     $ git switch --detach 540fd13792c6e47546974ab7f9c9df5f575405e2
+     $ git switch --detach 4c9c3f8a1ca51de433e0dd515e10aca8fc4dcd96
      $ ./openadkit run safety-island-carla-simulation --gpu
 
    Do not start ``carla-simulation`` first and recreate
@@ -84,7 +84,7 @@ Pins
 **********************
 
 The commands above check out Open AD Kit PR #146 at commit
-``540fd13792c6e47546974ab7f9c9df5f575405e2`` for repeatable runs.
+``4c9c3f8a1ca51de433e0dd515e10aca8fc4dcd96`` for repeatable runs.
 Its ``deployments/safety-island-carla-simulation/config.env`` pins CARLA
 and component images by digest.
 
