@@ -39,7 +39,7 @@ also needs large UDP buffers; see that project's CARLA simulation docs.
 
      $ cd /path/to/openadkit
      $ git fetch origin pull/146/head
-     $ git switch --detach 4c9c3f8a1ca51de433e0dd515e10aca8fc4dcd96
+     $ git checkout FETCH_HEAD
      $ ./openadkit run safety-island-carla-simulation --gpu
 
    Do not start ``carla-simulation`` first and recreate
@@ -83,10 +83,10 @@ subscriber. ``/system/operation_mode/state`` is bridged with
 Pins
 **********************
 
-The commands above check out Open AD Kit PR #146 at commit
-``4c9c3f8a1ca51de433e0dd515e10aca8fc4dcd96`` for repeatable runs.
-Its ``deployments/safety-island-carla-simulation/config.env`` pins CARLA
-and component images by digest.
+Open AD Kit's ``deployments/safety-island-carla-simulation/config.env`` pins
+CARLA and component images by digest. Record ``git rev-parse HEAD`` in the
+Open AD Kit checkout alongside the Safety Island commit when you run the demo
+so a later rerun can use the same pair.
 
 **********************
 Tests

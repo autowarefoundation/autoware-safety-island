@@ -446,10 +446,9 @@ domain-bridge. This repository keeps the SI binary, ``vcan0``, and
 
 11. **Pins and topic contract**
     Open AD Kit's deployment ``config.env`` pins CARLA and component images
-    by digest. Check out PR #146 at commit
-    ``4c9c3f8a1ca51de433e0dd515e10aca8fc4dcd96`` for reproducibility.
-    Its privilege-free tests check the five-input topic matrix against
-    ``bridge-config.yaml``.
+    by digest. Record the Open AD Kit and Safety Island commits when you
+    run the demo. Its privilege-free tests check the five-input topic
+    matrix against ``bridge-config.yaml``.
 
 12. **Docs**
     Closed-loop launch is two-repo. CI never starts CARLA or Open AD Kit.
