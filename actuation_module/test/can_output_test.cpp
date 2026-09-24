@@ -232,6 +232,48 @@ static void test_udp_tunnel_pack_unpack()
     "sequence mismatch rejected");
 }
 
+// Fixed cross-language wire vector. Keep in sync with the GOLDEN constant in
+// demo/can_tunnel_bridge/test_datagram.py.
+static constexpr std::array<uint8_t, common::can::kCanUdpTunnelDatagramSize> kGoldenDatagram{
+  0x43U, 0x54U, 0x01U, 0x01U, 0x2AU, 0x00U, 0x00U, 0x00U,
+  0x00U, 0x01U, 0x00U, 0x00U, 0x08U, 0x48U, 0xE8U, 0x01U,
+  0x00U, 0xE0U, 0x5EU, 0xF8U, 0xFFU, 0x01U, 0x01U, 0x00U,
+  0x00U, 0x08U, 0xDAU, 0x2FU, 0x00U, 0x00U, 0x24U, 0xFAU,
+  0xFFU, 0xFFU, 0x02U, 0x01U, 0x00U, 0x00U, 0x08U, 0x01U,
+  0x0BU, 0x2AU, 0x00U, 0x39U, 0x30U, 0x00U, 0x00U, 0x00U,
+};
+
+static common::can::CanFrame make_wire_frame(
+  const uint32_t id, const std::array<uint8_t, common::can::kCanMaxDataLength> & data)
+{
+  common::can::CanFrame frame{};
+  frame.id = id;
+  frame.dlc = 8U;
+  frame.data = data;
+  return frame;
+}
+
+static void test_udp_tunnel_golden_datagram()
+{
+  const std::array<common::can::CanFrame, common::can::kControlCommandCanFrameCount> frames{
+    make_wire_frame(0x100U, {0x48U, 0xE8U, 0x01U, 0x00U, 0xE0U, 0x5EU, 0xF8U, 0xFFU}),
+    make_wire_frame(0x101U, {0xDAU, 0x2FU, 0x00U, 0x00U, 0x24U, 0xFAU, 0xFFU, 0xFFU}),
+    make_wire_frame(0x102U, {0x01U, 0x0BU, 0x2AU, 0x00U, 0x39U, 0x30U, 0x00U, 0x00U}),
+  };
+
+  const auto packed = common::can::pack_can_udp_tunnel(frames.data(), frames.size(), 42U);
+  ASSERT_MSG(packed.ok, "golden frames pack");
+  ASSERT_MSG(packed.bytes == kGoldenDatagram, "packed bytes match the cross-language wire vector");
+
+  const auto unpacked =
+    common::can::unpack_can_udp_tunnel(kGoldenDatagram.data(), kGoldenDatagram.size());
+  ASSERT_MSG(unpacked.ok, "golden datagram unpacks");
+  ASSERT_MSG(unpacked.sequence == 42U, "golden sequence");
+  assert_frame_equals(unpacked.frames[0], frames[0], "golden lateral frame");
+  assert_frame_equals(unpacked.frames[1], frames[1], "golden longitudinal frame");
+  assert_frame_equals(unpacked.frames[2], frames[2], "golden status frame");
+}
+
 #if defined(PLATFORM_ZEPHYR) && defined(CONFIG_CONTROL_CMD_CAN_OUTPUT) && \
   CONFIG_CONTROL_CMD_CAN_OUTPUT && defined(CONFIG_CAN)
 CAN_MSGQ_DEFINE(zephyr_can_rx_msgq, 8);
@@ -325,6 +367,7 @@ int main()
   test_dds_only_encoding_has_no_frames();
   test_non_finite_values_are_rejected();
   test_udp_tunnel_pack_unpack();
+  test_udp_tunnel_golden_datagram();
 #if defined(PLATFORM_FREERTOS_CAN_MOCK)
   test_freertos_can_output_records_frames();
   test_failed_batch_does_not_advance_sequence();
