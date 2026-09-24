@@ -301,7 +301,7 @@ Fixed little-endian layout, exact length 48 bytes:
    * - Offset
      - Size
      - Field
-    * - 0
+   * - 0
      - 2
      - magic bytes ``[0]=0x43, [1]=0x54`` (ASCII ``CT``). Do not encode
        this as little-endian ``uint16`` ``0x4354`` (that is ``TC`` on
