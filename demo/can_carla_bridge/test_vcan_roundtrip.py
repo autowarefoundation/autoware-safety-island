@@ -54,7 +54,8 @@ def main(sender: str) -> None:
         assert length == 24
         assert not flags & CANFD_BRS, "BRS stays off"
         event = decoder.feed_fd(
-            can_id & CAN_SFF_MASK, data[:length], length, time.monotonic()
+            can_id & CAN_SFF_MASK, data[:length], length,
+            bool(can_id & CAN_EFF_FLAG), time.monotonic(),
         )
 
     assert event == DecoderEvent.ACCEPTED

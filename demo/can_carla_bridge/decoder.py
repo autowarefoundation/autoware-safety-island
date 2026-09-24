@@ -110,15 +110,19 @@ class ControlCommandDecoder:
         self._clear_pending()
         return DecoderEvent.ACCEPTED
 
-    def feed_fd(self, can_id: int, data: bytes, length: int, now: float) -> DecoderEvent:
+    def feed_fd(
+        self, can_id: int, data: bytes, length: int, extended: bool, now: float
+    ) -> DecoderEvent:
         """Decode one CAN-FD command frame (0x103, 24 payload bytes).
 
         The payload carries the classic lateral, longitudinal, and status
         slices in order, so commit, replay, and watchdog rules are shared.
+        Extended-ID frames are ignored like classic ones.
         """
         self._note_time(now)
         if (
-            can_id != FD_COMMAND_ID
+            extended
+            or can_id != FD_COMMAND_ID
             or length != FD_PAYLOAD_LENGTH
             or len(data) < FD_PAYLOAD_LENGTH
         ):

@@ -111,17 +111,18 @@ def main() -> int:
 
     fd = ControlCommandDecoder()
     fd_payload = pack_fd_cycle(7)
-    assert fd.feed_fd(0x103, fd_payload, 24, 0.0) == DecoderEvent.ACCEPTED
+    assert fd.feed_fd(0x103, fd_payload, 24, True, 0.0) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x103, fd_payload, 24, False, 0.0) == DecoderEvent.ACCEPTED
     assert abs(fd.command.steering_tire_angle - 0.125) < 1e-9
     assert abs(fd.command.velocity - 12.25) < 1e-9
     assert abs(fd.command.acceleration + 1.5) < 1e-9
     assert fd.command.sequence == 7
 
-    assert fd.feed_fd(0x103, fd_payload, 24, 0.1) == DecoderEvent.REJECTED
-    assert fd.feed_fd(0x103, pack_fd_cycle(8), 23, 0.1) == DecoderEvent.IGNORED
-    assert fd.feed_fd(0x102, pack_fd_cycle(8), 24, 0.1) == DecoderEvent.IGNORED
-    assert fd.feed_fd(0x103, pack_fd_cycle(8)[:16], 24, 0.1) == DecoderEvent.IGNORED
-    assert fd.feed_fd(0x103, pack_fd_cycle(8), 24, 0.1) == DecoderEvent.ACCEPTED
+    assert fd.feed_fd(0x103, fd_payload, 24, False, 0.1) == DecoderEvent.REJECTED
+    assert fd.feed_fd(0x103, pack_fd_cycle(8), 23, False, 0.1) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x102, pack_fd_cycle(8), 24, False, 0.1) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x103, pack_fd_cycle(8)[:16], 24, False, 0.1) == DecoderEvent.IGNORED
+    assert fd.feed_fd(0x103, pack_fd_cycle(8), 24, False, 0.1) == DecoderEvent.ACCEPTED
     assert fd.command.sequence == 8
 
     print("decoder golden vectors passed")

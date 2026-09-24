@@ -157,6 +157,7 @@ def main() -> int:
                             msg.arbitration_id,
                             bytes(msg.data),
                             msg.dlc,
+                            msg.is_extended_id,
                             time.monotonic(),
                         )
                 elif not msg.is_fd:

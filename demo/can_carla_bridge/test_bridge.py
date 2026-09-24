@@ -13,19 +13,19 @@ from test_decoder import pack_cycle, pack_fd_cycle
 
 
 def can_message(can_id, data, **flags):
-    fields = dict(is_fd=False, is_error_frame=False, is_remote_frame=False)
-    fields.update(flags)
-    return SimpleNamespace(
-        arbitration_id=can_id, data=data, dlc=len(data), is_extended_id=False, **fields
+    fields = dict(
+        is_fd=False, is_error_frame=False, is_remote_frame=False, is_extended_id=False
     )
+    fields.update(flags)
+    return SimpleNamespace(arbitration_id=can_id, data=data, dlc=len(data), **fields)
 
 
 def can_fd_message(can_id, data, **flags):
-    fields = dict(is_fd=True, is_error_frame=False, is_remote_frame=False)
-    fields.update(flags)
-    return SimpleNamespace(
-        arbitration_id=can_id, data=data, dlc=len(data), is_extended_id=False, **fields
+    fields = dict(
+        is_fd=True, is_error_frame=False, is_remote_frame=False, is_extended_id=False
     )
+    fields.update(flags)
+    return SimpleNamespace(arbitration_id=can_id, data=data, dlc=len(data), **fields)
 
 
 class BridgeTest(unittest.TestCase):
@@ -97,6 +97,14 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(controls[0]["acceleration"], -1.5)
         self.assertEqual(controls[1]["speed"], 0.0)
         self.assertEqual(controls[1]["acceleration"], 3.0)
+
+    def test_fd_mode_ignores_extended_frames(self):
+        controls = self.run_bridge(
+            [can_fd_message(0x103, pack_fd_cycle(7), is_extended_id=True)],
+            can_format="fd",
+        )
+        self.assertEqual(len(controls), 1)
+        self.assertEqual(controls[0]["speed"], 0.0)
 
     def test_classic_mode_ignores_fd_frames(self):
         controls = self.run_bridge([can_fd_message(0x103, pack_fd_cycle(7))])
