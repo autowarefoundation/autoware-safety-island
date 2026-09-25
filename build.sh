@@ -33,7 +33,6 @@ BUILD_PLATFORM_SET=0
 NETWORK_PROFILE="default"
 DDS_NETWORK_INTERFACE=""
 CONTROL_CMD_OUTPUT_MODE=""
-SI_SUPERVISION_MODE=""
 # Repeatable pass-through for ad hoc CMake cache entries (e.g. instrumented
 # CI builds), forwarded verbatim as -D<value> to the freertos-x5h cmake
 # configure call in build_freertos_x5h(). Empty by default and only ever
@@ -134,11 +133,6 @@ function parse_args() {
       --control-output)
         require_arg "$1" "${2:-}"
         CONTROL_CMD_OUTPUT_MODE="$2"
-        shift 2
-        ;;
-      --supervision-mode)
-        require_arg "$1" "${2:-}"
-        SI_SUPERVISION_MODE="$2"
         shift 2
         ;;
       --cmake-define)
@@ -304,21 +298,6 @@ function normalize_platform() {
     esac
   fi
 
-  if [ -n "${SI_SUPERVISION_MODE}" ] && [ "${BUILD_PLATFORM}" != "freertos-posix" ]; then
-    echo -e "${RED}--supervision-mode is only valid for --platform freertos-posix${NC}" 1>&2
-    exit 1
-  fi
-  if [ -n "${SI_SUPERVISION_MODE}" ]; then
-    case "${SI_SUPERVISION_MODE}" in
-      si|vp) ;;
-      *)
-        echo -e "${RED}Invalid supervision mode: ${SI_SUPERVISION_MODE}${NC}" 1>&2
-        echo -e "${YELLOW}Valid modes: si vp${NC}" 1>&2
-        exit 1
-        ;;
-    esac
-  fi
-
   case "${BUILD_PLATFORM}" in
     freertos-s32z2|freertos-x5h)
       if [ "${BUILD_TEST_FLAG}" != "0" ]; then
@@ -460,9 +439,6 @@ function build_freertos_posix() {
   fi
   if [ -n "${CONTROL_CMD_OUTPUT_MODE}" ]; then
     freertos_args+=(-DCONFIG_CONTROL_CMD_OUTPUT_MODE="${CONTROL_CMD_OUTPUT_MODE}")
-  fi
-  if [ -n "${SI_SUPERVISION_MODE}" ]; then
-    freertos_args+=(-DCONFIG_SI_SUPERVISION_MODE="${SI_SUPERVISION_MODE}")
   fi
 
   cmake "${freertos_args[@]}"

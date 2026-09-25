@@ -23,7 +23,7 @@ enum class Decision : uint8_t
   HOLD = 2,     ///< no new approved decision; actuate the previous payload
 };
 
-/// Configured supervision mode (from the `supervision_mode` parameter).
+/// Startup-only supervision mode (SI_SUPERVISION_MODE, immutable for the run).
 enum class Mode : uint8_t
 {
   SI_CONTROL = 0,  ///< follower follows the selected trajectory source

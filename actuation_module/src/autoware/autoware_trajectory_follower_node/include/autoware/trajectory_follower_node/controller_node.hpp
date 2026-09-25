@@ -19,6 +19,8 @@
 #include "autoware/trajectory_follower_base/lateral_controller_base.hpp"
 #include "autoware/trajectory_follower_base/longitudinal_controller_base.hpp"
 #include "autoware/trajectory_follower_node/supervision.hpp"
+#include "autoware/trajectory_follower_node/candidate_identity.hpp"
+#include "autoware/trajectory_follower_node/startup_config.hpp"
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
 #include "autoware_vehicle_info_utils/vehicle_info_utils.hpp"
@@ -53,7 +55,7 @@ namespace trajectory_follower = ::autoware::motion::control::trajectory_follower
 class TRAJECTORY_FOLLOWER_PUBLIC Controller : public Node
 {
 public:
-  Controller();
+  explicit Controller(const StartupConfig & config);
   virtual ~Controller() {}
 
 private:
@@ -67,6 +69,7 @@ private:
   }
 
   double timeout_thr_sec_;
+  const StartupConfig startup_config_;
 
   std::optional<LongitudinalOutput> longitudinal_output_{std::nullopt};
 
@@ -79,6 +82,7 @@ private:
   static void callbackOdometry(const OdometryMsg* msg, void* arg);
   static void callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg);
   static void callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg);
+  static void callbackTrajectoryCandidate(const TrajectoryCandidateMsg* msg, void* arg);
   static void callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg);
   static void callbackReenable(const BoolMsg* msg, void* arg);
 
@@ -155,6 +159,8 @@ private:
   supervision::SourceWatch watch_candidate_;
   supervision::SourceWatch watch_vp_cmd_;
   supervision::SourceWatch watch_opmode_;
+  VpCandidateIdentity vp_candidate_identity_;
+  AutowareTrajectoryIdentity autoware_trajectory_identity_;
 
   // Fault latch state (SupervisionState::reason for operator visibility).
   supervision::SupervisionState supervision_{};
@@ -184,7 +190,6 @@ private:
   // First fault of the current control cycle (tentative): the SI_STOP is
   // published by the control timer, so detection→brake is measured from the
   // tick that declared the fault.
-  supervision::Mode decodeSupervisionMode(const std::string & mode) const;
   void latchFault(const std::string & why);
   bool supervisorStaleReason(double now, const char ** reason_out, double * age_out) const;
   bool allSourcesFresh(double now) const;

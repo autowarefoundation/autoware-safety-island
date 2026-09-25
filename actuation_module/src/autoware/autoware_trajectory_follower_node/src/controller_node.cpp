@@ -24,15 +24,6 @@ using namespace common::logger;
 
 #include "platform/platform_threading.h"
 
-// Supervision mode is a build-time configuration (vp_si_control_contract):
-// "si" is the follower-follows-source rig, "vp" is the VisionPilot
-// supervise-and-pass configuration. Delivered through the freertos config
-// header (--supervision-mode); the fallback keeps non-generated builds
-// (unit tests) compiling with the default.
-#ifndef CONFIG_SI_SUPERVISION_MODE
-#define CONFIG_SI_SUPERVISION_MODE "si"
-#endif
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -48,7 +39,8 @@ static K_THREAD_STACK_DEFINE(node_stack, CONFIG_THREAD_STACK_SIZE);
 
 namespace autoware::motion::control::trajectory_follower_node
 {
-Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
+Controller::Controller(const StartupConfig & config)
+: Node("controller", node_stack, STACK_SIZE), startup_config_(config)
 {
   using std::placeholders::_1;
 
@@ -59,8 +51,8 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
   // Supervision configuration (vp_si_control_contract): mode, per-source
   // arrival-age timeouts, actuation sanity bounds and the SI_STOP demand.
   // Defaults are the measured proposal in SI #62 (see controller_node.hpp).
-  supervision_mode_ = decodeSupervisionMode(
-    declare_parameter<std::string>("supervision_mode", CONFIG_SI_SUPERVISION_MODE));
+  supervision_mode_ = config.mode == StartupConfig::Mode::VP_CONTROL ?
+    supervision::Mode::VP_CONTROL : supervision::Mode::SI_CONTROL;
   source_timeout_candidate_ = declare_parameter<double>(
     "source_timeout_candidate_s", source_timeout_candidate_);
   source_timeout_ego_ = declare_parameter<double>(
@@ -78,8 +70,9 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
   stop_decel_mps2_ = static_cast<float>(declare_parameter<double>(
     "stop_decel_mps2", stop_decel_mps2_));
   log_info(
-    "Supervision mode: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %.2fs)",
+    "Supervision mode: %s; trajectory source: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %.2fs)",
     supervision_mode_ == supervision::Mode::VP_CONTROL ? "vp" : "si",
+    config.trajectory_source == StartupConfig::TrajectorySource::VP ? "vp" : "autoware",
     source_timeout_candidate_, source_timeout_ego_,
     source_timeout_steering_, source_timeout_opmode_);
 
@@ -128,9 +121,22 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
   auto subscriber_steering_status = create_subscription<SteeringReportMsg>("/vehicle/status/steering_status",
                                                               &autoware_vehicle_msgs_msg_SteeringReport_desc,
                                                               callbackSteeringStatus, this);
-  auto subscriber_trajectory = create_subscription<TrajectoryMsg_Raw>("/planning/scenario_planning/trajectory",
-                                                              &autoware_planning_msgs_msg_Trajectory_desc,
-                                                              callbackTrajectory, this);
+  if (supervision_mode_ == supervision::Mode::SI_CONTROL) {
+    if (startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP) {
+      if (!create_subscription<TrajectoryCandidateMsg>(
+        "/planning/visionpilot/trajectory_candidate",
+        &safety_island_msgs_msg_TrajectoryCandidate_desc,
+        callbackTrajectoryCandidate, this))
+      {
+        throw std::runtime_error("cannot subscribe to selected VP trajectory candidate");
+      }
+    } else if (!create_subscription<TrajectoryMsg_Raw>(
+      "/planning/scenario_planning/trajectory",
+      &autoware_planning_msgs_msg_Trajectory_desc, callbackTrajectory, this))
+    {
+      throw std::runtime_error("cannot subscribe to selected Autoware trajectory");
+    }
+  }
   auto subscriber_odometry = create_subscription<OdometryMsg>("/localization/kinematic_state",
                                                               &nav_msgs_msg_Odometry_desc,
                                                               callbackOdometry, this);
@@ -157,9 +163,13 @@ Controller::Controller() : Node("controller", node_stack, STACK_SIZE)
   // and the single actuator-facing supervised output (ApprovedRequest carrying
   // session/sequence/decision/source/cycle identity alongside the control
   // payload).
-  create_subscription<DrivingCommandMsg>(
-    "/vehicle/driving_command", &visionpilot_msgs_msg_DrivingCommand_desc,
-    callbackDrivingCommand, this);
+  if (supervision_mode_ == supervision::Mode::VP_CONTROL &&
+    !create_subscription<DrivingCommandMsg>(
+      "/vehicle/driving_command", &visionpilot_msgs_msg_DrivingCommand_desc,
+      callbackDrivingCommand, this))
+  {
+    throw std::runtime_error("cannot subscribe to selected VP driving command");
+  }
   create_subscription<BoolMsg>(
     "/control/safety_island/reenable", &std_msgs_msg_Bool_desc,
     callbackReenable, this);
@@ -262,14 +272,39 @@ void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, 
 }
 
 void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
-  // static int count = 0;
-  // log_debug("-------TRAJECTORY----IDX %d----", count++);
-  // log_debug("Timestamp: %f", Clock::toDouble(msg->header.stamp));
-  // log_debug("Trajectory size: %u", msg->points._length);
-  // log_debug("-------------------------------");
-
-  // Copy the data instead of storing the pointer
   Controller* controller = static_cast<Controller*>(arg);
+  if (controller->supervision_mode_ != supervision::Mode::SI_CONTROL ||
+    controller->startup_config_.trajectory_source != StartupConfig::TrajectorySource::AUTOWARE)
+  {
+    return;
+  }
+  if (!msg || msg->points._length == 0 || msg->points._length > 250 ||
+    !msg->points._buffer)
+  {
+    controller->latchFault("invalid autoware trajectory");
+    return;
+  }
+  for (uint32_t i = 0; i < msg->points._length; ++i) {
+    const auto & point = msg->points._buffer[i];
+    if (!std::isfinite(point.pose.position.x) || !std::isfinite(point.pose.position.y) ||
+      !std::isfinite(point.longitudinal_velocity_mps) ||
+      !std::isfinite(point.acceleration_mps2))
+    {
+      controller->latchFault("non-finite autoware trajectory");
+      return;
+    }
+  }
+  const SourceStamp stamp{msg->header.stamp.sec, msg->header.stamp.nanosec};
+  const auto check = controller->autoware_trajectory_identity_.check(stamp);
+  if (check == CandidateCheck::DUPLICATE) {
+    return;  // a republished old plan is not fresh
+  }
+  if (check != CandidateCheck::ACCEPT) {
+    controller->latchFault("autoware trajectory stamp regression or invalid stamp");
+    return;
+  }
+
+  // Copy the loaned DDS sample; the follower only consumes the points and stamp.
   controller->current_trajectory_ = TrajectoryMsg(msg);  // Copy the entire message
   // TrajectoryMsg deep-copies points but its `header = msg->header` shallow-copies
   // the loaned char* frame_id, which dds_return_loan() frees once this callback
@@ -278,6 +313,53 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   // is currently disabled, but this keeps the field safe for any future reader).
   controller->current_trajectory_.header.frame_id = nullptr;
   controller->has_trajectory_ = true;
+  controller->autoware_trajectory_identity_.note(stamp);
+  controller->watch_candidate_.note(Clock::now());
+}
+
+void Controller::callbackTrajectoryCandidate(const TrajectoryCandidateMsg* msg, void* arg)
+{
+  Controller* controller = static_cast<Controller*>(arg);
+  if (controller->supervision_mode_ != supervision::Mode::SI_CONTROL ||
+    controller->startup_config_.trajectory_source != StartupConfig::TrajectorySource::VP)
+  {
+    return;
+  }
+  if (!msg || msg->trajectory.points._length == 0 ||
+    msg->trajectory.points._length > 13 || !msg->trajectory.points._buffer)
+  {
+    controller->latchFault("invalid vp trajectory candidate");
+    return;
+  }
+  for (uint32_t i = 0; i < msg->trajectory.points._length; ++i) {
+    const auto & point = msg->trajectory.points._buffer[i];
+    if (!std::isfinite(point.pose.position.x) || !std::isfinite(point.pose.position.y) ||
+      !std::isfinite(point.longitudinal_velocity_mps) ||
+      !std::isfinite(point.acceleration_mps2))
+    {
+      controller->latchFault("non-finite vp trajectory candidate");
+      return;
+    }
+  }
+  const SourceStamp stamp{
+    msg->trajectory.header.stamp.sec, msg->trajectory.header.stamp.nanosec};
+  const auto check = controller->vp_candidate_identity_.check(
+    msg->source_session, msg->source_cycle, stamp);
+  if (check == CandidateCheck::DUPLICATE) {
+    return;  // same VP cycle or camera frame: do not refresh the watchdog
+  }
+  if (check != CandidateCheck::ACCEPT) {
+    controller->latchFault("vp trajectory candidate regression or invalid stamp");
+    return;
+  }
+
+  controller->current_trajectory_ = TrajectoryMsg(&msg->trajectory);
+  // frame_id is a loaned char*: never retain it beyond this callback.
+  controller->current_trajectory_.header.frame_id = nullptr;
+  controller->has_trajectory_ = true;
+  controller->vp_candidate_identity_.note(msg->source_session, msg->source_cycle, stamp);
+  controller->accepted_source_session_ = msg->source_session;
+  controller->accepted_source_cycle_ = msg->source_cycle;
   controller->watch_candidate_.note(Clock::now());
 }
 
@@ -638,18 +720,6 @@ void Controller::publishControlCommand(
   // topic) is written only by publishApprovedRequest() below.
   publishApprovedRequest(
     supervision::Decision::NORMAL, supervision::SelectedSource::FOLLOWER, out);
-}
-
-supervision::Mode Controller::decodeSupervisionMode(const std::string & mode) const
-{
-  if (mode == "vp") {
-    return supervision::Mode::VP_CONTROL;
-  }
-  if (mode == "si") {
-    return supervision::Mode::SI_CONTROL;
-  }
-  log_error("Invalid supervision_mode '%s' (expected 'si' or 'vp')", mode.c_str());
-  std::exit(1);
 }
 
 void Controller::latchFault(const std::string & why)

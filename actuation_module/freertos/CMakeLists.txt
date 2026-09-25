@@ -72,14 +72,6 @@ set(CONFIG_ENABLE_SNTP OFF CACHE BOOL "Enable SNTP time sync")
 set(CONFIG_CONTROL_CMD_OUTPUT_MODE "DDS_ONLY" CACHE STRING "Control command output mode: DDS_ONLY, CAN_ONLY, DDS_AND_CAN")
 set_property(CACHE CONFIG_CONTROL_CMD_OUTPUT_MODE PROPERTY STRINGS "DDS_ONLY" "CAN_ONLY" "DDS_AND_CAN")
 
-# Supervision mode (vp_si_control_contract): "si" default, "vp" for the
-# VisionPilot supervise-and-pass configuration.
-set(CONFIG_SI_SUPERVISION_MODE "si" CACHE STRING "Supervision mode: si, vp")
-set_property(CACHE CONFIG_SI_SUPERVISION_MODE PROPERTY STRINGS "si" "vp")
-if(NOT CONFIG_SI_SUPERVISION_MODE STREQUAL "si" AND NOT CONFIG_SI_SUPERVISION_MODE STREQUAL "vp")
-    message(FATAL_ERROR "Unsupported CONFIG_SI_SUPERVISION_MODE=${CONFIG_SI_SUPERVISION_MODE}. Use si or vp.")
-endif()
-
 set(CONFIG_CONTROL_CMD_OUTPUT_DDS_ONLY 0)
 set(CONFIG_CONTROL_CMD_OUTPUT_CAN_ONLY 0)
 set(CONFIG_CONTROL_CMD_OUTPUT_DDS_AND_CAN 0)
@@ -340,6 +332,25 @@ if(BUILD_TEST STREQUAL "1")
     add_custom_command(TARGET trajectory_buffer_policy_test POST_BUILD
         COMMAND trajectory_buffer_policy_test
         COMMENT "Running trajectory_buffer_policy host unit test"
+        VERBATIM
+    )
+
+    # Startup selection and source-identity checks are pure host logic; keep
+    # them in the existing --unit-test build rather than relying on a manual
+    # compiler command during rig verification.
+    set(CANDIDATE_SELECTION_TEST_MAIN
+        ${ACTUATION_DIR}/test/test_candidate_selection.cpp)
+    add_executable(candidate_selection_test ${CANDIDATE_SELECTION_TEST_MAIN})
+    set_source_files_properties(${CANDIDATE_SELECTION_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+    target_include_directories(candidate_selection_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+    target_compile_options(candidate_selection_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET candidate_selection_test POST_BUILD
+        COMMAND candidate_selection_test
+        COMMENT "Running candidate selection host unit test"
         VERBATIM
     )
 endif()

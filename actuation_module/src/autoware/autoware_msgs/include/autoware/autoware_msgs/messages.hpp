@@ -27,6 +27,7 @@
 #include "DrivingCommand.h"
 #include "DrivingReference.h"
 #include "ApprovedRequest.h"
+#include "TrajectoryCandidate.h"
 #include "Bool.h"
 
 using Float32MultiArrayStampedMsg = tier4_debug_msgs_msg_Float32MultiArrayStamped;
@@ -54,6 +55,7 @@ using PoseStampedMsg = geometry_msgs_msg_PoseStamped;
 using DrivingCommandMsg = visionpilot_msgs_msg_DrivingCommand;
 using DrivingReferenceMsg = visionpilot_msgs_msg_DrivingReference;
 using ApprovedRequestMsg = safety_island_msgs_msg_ApprovedRequest;
+using TrajectoryCandidateMsg = safety_island_msgs_msg_TrajectoryCandidate;
 using BoolMsg = std_msgs_msg_Bool;
 
 // supervision octet values; keep in sync with ApprovedRequest.idl

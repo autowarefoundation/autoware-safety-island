@@ -1,0 +1,18 @@
+#ifndef TRAJECTORY_CANDIDATE_IDL_
+#define TRAJECTORY_CANDIDATE_IDL_
+
+// Keep this wire layout identical to safety_island_msgs/msg/TrajectoryCandidate.msg
+// in the E2E rig. Original VP identity must not be replaced by adapter identity.
+#include "Trajectory.idl"
+
+module safety_island_msgs {
+  module msg {
+    struct TrajectoryCandidate {
+      autoware_planning_msgs::msg::Trajectory trajectory;
+      uint32 source_session;
+      uint64 source_cycle;
+    };
+  };
+};
+
+#endif  // TRAJECTORY_CANDIDATE_IDL_

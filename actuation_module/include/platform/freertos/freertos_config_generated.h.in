@@ -23,7 +23,6 @@
 // Supervision mode: "si" (follower follows the selected trajectory source)
 // or "vp" (VisionPilot command supervised and passed through, never
 // recomputed). See vp_si_control_contract / SI issues #63/#64/#65.
-#define CONFIG_SI_SUPERVISION_MODE "@CONFIG_SI_SUPERVISION_MODE@"
 
 // Threading
 #define CONFIG_THREAD_STACK_SIZE @CONFIG_THREAD_STACK_SIZE@

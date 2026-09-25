@@ -68,13 +68,16 @@ Wire and source-identity decisions
 ==================================
 
 The existing Autoware ``autoware_planning_msgs/msg/Trajectory`` input
-and follower algorithm remain supported. Its current DDS topic is
-``/planning/scenario_planning/trajectory`` (domain 1 to SI domain 2).
-Autoware and VP must not share an anonymous follower input: VP gets a
-distinct candidate ingress, or both inputs get an unambiguous source
-identity before SI selection. An unselected input must not feed the
-follower or refresh the selected input's freshness clock. Test both
-publishers running concurrently and selected-source loss.
+and follower algorithm remain supported without an Autoware-side adapter.
+Its topic is ``/planning/scenario_planning/trajectory`` (domain 1 to 2).
+The VP adapter instead publishes a ``safety_island_msgs/msg/TrajectoryCandidate``
+containing a standard trajectory and the original VP session/cycle on
+``/planning/visionpilot/trajectory_candidate``. The same SI binary reads
+``SI_SUPERVISION_MODE`` and ``SI_TRAJECTORY_SOURCE`` once at startup and
+subscribes **only** to the selected input (or the VP command in VP_CONTROL).
+Neither fault nor re-enable can change it; an invalid or missing startup
+combination is fatal, not a silent default. Run both publishers concurrently
+and inject selected-source loss to verify isolation.
 
 The VP command must be **one compound message**, not independently
 arriving steering, acceleration and speed samples. It must carry steering
@@ -89,16 +92,16 @@ original source identity must survive the adapter's conversion to an SI
 trajectory; old, mismatched or reordered data must not become fresh just
 because an adapter or DDS bridge republishes it. Define the VP-to-adapter
 reference type and the metadata carried through the VP-specific SI ingress.
-The current E2E adapter publishes freshly stamped stop trajectories when
-VP path/horizon/ego input is absent, stale or malformed, and on a 1 s
-no-path watchdog. That is **not** the target fault boundary: do not let
-adapter-generated stop trajectories refresh the selected VP input or
-mask the SI fault event. Reject/report invalid references; SI owns the
-selected-source watchdog and resulting stop/hold decision. A genuine
-VP-chosen stop in a valid path/speed cycle remains a normal candidate.
-SI's current gate is also refreshed by *any* input; replace it with
-selected-source and per-feedback freshness checks rather than carrying
-over that behavior.
+The E2E adapter rejects/reports invalid references without publishing a
+fabricated stop trajectory. A genuine VP-chosen stop in a valid path/speed
+cycle remains a normal candidate. SI checks the original VP session/cycle
+and progress of the camera source stamp before refreshing its selected
+candidate watchdog. Equal source stamps (replayed frames) do not refresh
+it; regressions latch SI_STOP. The source stamp uses CARLA simulation time
+and is compared only with earlier source stamps, **not** SI wall time.
+The selected arrival watchdog is separate. Native Autoware trajectories
+have no session/cycle; SI checks progress of their header stamps instead,
+without inventing an Autoware producer identity.
 
 SI publishes through **one supervised DDS command output** for all three
 configurations. The wire contract must carry a unique SI session and
@@ -112,10 +115,9 @@ Implementations and wire layout
 -------------------------------
 
 The VP side is **implemented** on the fork branch
-``feat/vp-si-interface`` (``visionpilot_msgs``). The SI output is now
-**implemented** in the SI control loop behind the supervisor (IDL below);
-the VP-specific candidate ingress and the cross-vendor type check remain
-open.
+``feat/vp-si-interface`` (``visionpilot_msgs``). SI's supervised output
+and VP-specific candidate ingress are implemented. The clean rig replay
+and cross-DDS wire check are recorded in the E2E evidence separately.
 
 .. list-table::
    :header-rows: 1
@@ -135,20 +137,19 @@ open.
    * - ``/planning/scenario_planning/trajectory`` (1 → 2)
      - ``autoware_planning_msgs/msg/Trajectory``
      - Existing Autoware-only input
-   * - ``/planning/trajectory_candidate`` (1 → 2)
-     - ``safety_island_msgs/msg/TrajectoryCandidate``
-     - Proposed: the VP-only adapter result and original cycle identity;
-       today the adapter reuses the shared Trajectory topic, so the
-       distinct ingress exists only with this message
+    * - ``/planning/visionpilot/trajectory_candidate`` (1 → 2)
+      - ``safety_island_msgs/msg/TrajectoryCandidate``
+      - VP-only adapter result containing a standard ``Trajectory`` and
+        the original VP ``source_session`` / ``source_cycle``;
+        Autoware needs no wrapper
    * - ``/control/safety_island/approved_request`` (2 → 1)
      - ``safety_island_msgs/msg/ApprovedRequest``
      - Implemented (SI IDL): the only actuator-facing output; SI-only
        authoring with SI ``session`` + strictly increasing
        ``output_sequence``, decision ``NORMAL`` / ``SI_STOP`` / ``HOLD``,
        configured mode, selected source, VP cycle identity and ``fault_id``.
-       The legacy ``control_cmd`` topic still carries the gate-approved
-       payload as a transition surface until the single-writer CARLA
-       actuator consumes ``ApprovedRequest`` directly (E2E #2).
+        Legacy ``control_cmd`` stays on domain 2 only; the single-writer
+        CARLA actuator consumes ``ApprovedRequest`` directly there (E2E #2).
 
 The VP messages are published once per processed camera cycle and carry
 the source stamp of the image that produced the decision; the legacy
@@ -158,16 +159,15 @@ current plan is heading, not a consumer re-derivation.
 ``DrivingReference``'s path and speed horizon always come from one cycle.
 
 SI-facing sizes must stay within the SI runtime's 1400 B DDS message
-limit. ``DrivingCommand`` is a few hundred bytes; the adapter's SI
-trajectory candidate is bounded to the existing ~1300 B budget; the SI
-output stays a ``Control``-sized sample. The SI-side IDL mirror of
+limit. ``DrivingCommand`` is a few hundred bytes; a 13-point VP candidate
+with ``map`` frame ID serializes to **1188 B**, within the adapter's 1300 B
+budget; the SI output stays a ``Control``-sized sample. The SI-side IDL mirror of
 ``visionpilot_msgs`` was generated from the fork's ``.msg`` definitions
 with ``rosidl_adapter`` and compiles in the SI build (0.11 idlc; the
 ``@verbatim`` comments are skipped with the usual warnings). The
-``ApprovedRequest`` IDL is hand-written because the SI is currently the
-only definition of that type; still open: the cross-vendor type check
-(Jazzy ↔ SI CycloneDDS serialization interop) and a ROS-side
-``safety_island_msgs`` package for the actuator.
+``ApprovedRequest`` and ``TrajectoryCandidate`` IDLs have matching ROS-side
+``safety_island_msgs`` definitions in the E2E rig. Build/replay must check
+ROS-to-SI serialization interop; a generated type alone is not live proof.
 
 Measured cadence and identity (VPS, 2026-09-25)
 -----------------------------------------------
@@ -353,8 +353,8 @@ guaranteed component response times. Also report fault onset to SI
 detection separately, so a slow watchdog cannot be hidden by a fast
 post-detection response.
 
-Required decisions before closing #62
-=====================================
+Decision status
+===============
 
 .. list-table::
    :header-rows: 1
@@ -365,31 +365,40 @@ Required decisions before closing #62
    * - VP command and reference schema
      - **Implemented** in fork branch ``feat/vp-si-interface``
        (``visionpilot_msgs``; topics and fields above). The SI-side IDL
-       mirror is also implemented (generated from the ``.msg`` files);
-       still open: the cross-vendor type check.
+       mirrors are implemented and the ROS↔SI wire path is exercised on the
+       E2E rig (VP command passthrough: 69 matched cycles, 0 mismatches).
    * - SI candidate and output schema
      - Output **implemented** as the ``ApprovedRequest`` IDL: one
        actuator-facing output per control cycle with session,
        ``output_sequence``, decision and fault correlation; the legacy
        ``control_cmd`` topic carries the gate-approved payload for
-       transition. Still open: the distinct VP candidate ingress (the
-       adapter reuses the shared Trajectory topic today).
+       transition. The distinct VP candidate ingress is also implemented:
+       ``safety_island_msgs/msg/TrajectoryCandidate`` on
+       ``/planning/visionpilot/trajectory_candidate`` carries a standard
+       trajectory plus the original VP session/cycle (13 points =
+       1188 B CDR, validated end-to-end on the rig).
    * - Source-age watchdogs
-     - **Implemented** in the SI supervisor as parameters with the
-       proposed defaults (candidate 1.0 s, ego 0.4 s, steering/opmode
-       0.5 s), per-source by design. Approval still pending; re-measure on
-       the CARLA sim-time bridge.
+     - **Implemented** in the SI supervisor with the proposed defaults
+       (candidate 1.0 s, ego 0.4 s, steering/opmode 0.5 s), per-source by
+       design. Final-ingress rig runs report SI-stated selected-source ages
+       of 1.01–1.10 s at detection; the injection→latch figure is reported
+       separately because a multi-node source container adds its own
+       shutdown time.
    * - Restart and re-enable rules
-     - **Implemented** v0.1: session change handling, cycle-regression
-       rejection, SI_STOP latch with ``fault_id`` and an explicit
-       ``/control/safety_island/reenable`` (``std_msgs/Bool``) that
-       requires all sources fresh again. Elapsed fault-to-brake timing
-       uses SI system-clock stamps inside ``ApprovedRequest``; the 500 ms
-       measurement still needs rig validation with the actuator.
+     - **Implemented** and rig-validated: session change handling,
+       cycle-regression rejection, SI_STOP latch with ``fault_id`` and an
+       explicit ``/control/safety_island/reenable`` (``std_msgs/Bool``)
+       that requires all sources fresh again. Elapsed fault-to-brake timing
+       uses SI system-clock stamps inside ``ApprovedRequest``; the E2E rig
+       measured **6–14 ms** from SI detection to the first applied CARLA
+       brake frame on the final binary (see
+       ``openadkit-e2e/docs/e2e2-stop-gate.md``).
    * - CARLA actuator implementation
-     - Separate single-writer component agreed. Implement and validate
-       its normal regulation, steering/units, explicit SI stop/hold
-       realization, brake calibration and sequence-to-frame observation
+     - **Implemented** in the E2E rig (``deploy/nodes/carla_actuator.py``):
+       the sole CARLA control writer, consuming ``ApprovedRequest`` directly
+       on domain 2 and realizing SI's NORMAL/SI_STOP/HOLD decisions without
+       any local watchdog or mode logic. Rig-validated with the three
+       final-ingress gates and concurrent-publisher isolation runs.
    * - Per-scenario pass/fail gates
      - Initially 500 ms from SI fault detection to first CARLA braking
        frame while SI is running; missing or late application fails.
