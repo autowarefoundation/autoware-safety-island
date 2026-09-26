@@ -571,25 +571,24 @@ void Controller::callbackTimerControl()
   // every checked source is fresh again — a still-dead source cannot resume
   // normal driving (vp_si_control_contract: "a fault never silently changes
   // mode or source; resuming normal driving requires explicit re-enable").
+  // A cleared latch resumes NORMAL supervision in this same tick (no extra
+  // SI_STOP without an active fault).
   if (supervision_.latched) {
-    if (reenable_requested_) {
-      if (allSourcesFresh(now)) {
-        supervision_.latched = false;
-        supervision_.reason.clear();
-        reenable_requested_ = false;
-        log_info("SI re-enabled by operator request; resuming NORMAL supervision");
-      } else {
+    const bool requested = reenable_requested_;
+    if (supervision_.stopThisTick(reenable_requested_, requested && allSourcesFresh(now))) {
+      if (requested) {
         log_warn_throttle(
           "Re-enable requested but not all sources are fresh; staying in SI_STOP");
       }
-    }
-    publishSiStop(now);
+      publishSiStop(now);
 
-    PROFILE_POINT(cyc_t_end);
-    PROFILE_LOG(
-      "CYCLE in=0.0 lat=0.0 lon=0.0 pub=0.0 total=%.1f [ms] (SI_STOP)",
-      PROFILE_MS(cyc_t0, cyc_t_end));
-    return;
+      PROFILE_POINT(cyc_t_end);
+      PROFILE_LOG(
+        "CYCLE in=0.0 lat=0.0 lon=0.0 pub=0.0 total=%.1f [ms] (SI_STOP)",
+        PROFILE_MS(cyc_t0, cyc_t_end));
+      return;
+    }
+    log_info("SI re-enabled by operator request; resuming NORMAL supervision");
   }
 
   // 3. Supervisor decision for this cycle.

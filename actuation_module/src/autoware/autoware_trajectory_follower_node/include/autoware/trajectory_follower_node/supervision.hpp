@@ -8,6 +8,7 @@
 #include <string>
 
 #include "autoware/autoware_msgs/messages.hpp"
+#include "autoware/trajectory_follower_node/supervision_latch.hpp"
 
 namespace autoware::motion::control::trajectory_follower_node
 {
@@ -65,28 +66,6 @@ public:
 private:
   double last_arrival_ = 0.0;
   bool ever_ = false;
-};
-
-/// SI fault latch. Once latched, publication stays SI_STOP until an explicit
-/// operator re-enable arrives AND every selected-source check is fresh again
-/// (vp_si_control_contract: "a fault never silently changes mode or source;
-/// resuming normal driving requires explicit re-enable").
-struct SupervisionState
-{
-  bool latched = false;
-  uint32_t fault_id = 0;
-  std::string reason;
-
-  /// Latch (or re-latch) on a fault; the fault id increments only when the
-  /// previous fault had been cleared, so one ongoing fault keeps one id.
-  void latch(const std::string & why)
-  {
-    if (!latched) {
-      ++fault_id;
-    }
-    latched = true;
-    reason = why;
-  }
 };
 
 /// Build the explicit SI-stop control payload: hold the last known steering

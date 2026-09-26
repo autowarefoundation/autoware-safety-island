@@ -353,4 +353,22 @@ if(BUILD_TEST STREQUAL "1")
         COMMENT "Running candidate selection host unit test"
         VERBATIM
     )
+
+    # The SI fault latch and its re-enable step are pure host logic, same
+    # pattern as the tests above.
+    set(SUPERVISION_LATCH_TEST_MAIN
+        ${ACTUATION_DIR}/test/test_supervision_latch.cpp)
+    add_executable(supervision_latch_test ${SUPERVISION_LATCH_TEST_MAIN})
+    set_source_files_properties(${SUPERVISION_LATCH_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+    target_include_directories(supervision_latch_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+    target_compile_options(supervision_latch_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET supervision_latch_test POST_BUILD
+        COMMAND supervision_latch_test
+        COMMENT "Running supervision latch host unit test"
+        VERBATIM
+    )
 endif()
