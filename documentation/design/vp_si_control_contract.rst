@@ -79,8 +79,11 @@ reproduces the adapter's output (13 points, same speed profile) within
 1e-9 on 3000 randomized references. The same SI binary reads
 ``SI_SUPERVISION_MODE`` and ``SI_TRAJECTORY_SOURCE`` once at startup and
 subscribes **only** to the selected input (or the VP command in VP_CONTROL).
-Neither fault nor re-enable can change it; an invalid or missing startup
-combination is fatal, not a silent default. Run both publishers concurrently
+Neither fault nor re-enable can change it; an invalid, unsupported or
+half-set startup combination is fatal. With neither variable set (targets
+without an environment, such as Zephyr), the build default applies:
+``SI_DEFAULT_SUPERVISION_MODE``/``SI_DEFAULT_TRAJECTORY_SOURCE``, ``si``/``autoware``
+unless overridden at compile time, and the SI logs that it used it. Run both publishers concurrently
 and inject selected-source loss to verify isolation.
 
 The VP command must be **one compound message**, not independently

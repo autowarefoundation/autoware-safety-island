@@ -670,7 +670,7 @@ void Controller::callbackTimerControl()
   }
 
   // 4. SI_CONTROL: the follower follows the selected trajectory source
-  // (the adapter's validated VP reference, or Autoware planning in the
+  // (the SI-placed VP driving reference, or Autoware planning in the
   // third configuration). Its output is only a candidate input to the
   // gate; everything actuator-facing still goes through
   // publishApprovedRequest() below.

@@ -16,8 +16,9 @@ int main(void)
     using autoware::motion::control::trajectory_follower_node::StartupConfig;
 
     // Fail before creating any DDS endpoint or actuator-facing publisher if
-    // the requested startup mode/source is missing or inconsistent. The
-    // selection is copied into Controller and cannot change during a run.
+    // the requested startup mode/source is invalid or half-set; with neither
+    // variable set the build default applies. The selection is copied into
+    // Controller and cannot change during a run.
     std::optional<StartupConfig> startup;
     try {
         startup = StartupConfig::fromEnvironment();
@@ -26,6 +27,11 @@ int main(void)
         // FreeRTOS POSIX runs this main inside a task. Returning would delete
         // the task but leave the scheduler/process alive without an SI.
         std::exit(1);
+    }
+
+    if (startup->build_default) {
+        log_info("SI_SUPERVISION_MODE/SI_TRAJECTORY_SOURCE unset: build default %s/%s",
+                 SI_DEFAULT_SUPERVISION_MODE, SI_DEFAULT_TRAJECTORY_SOURCE);
     }
 
     log_success("-----------------------------------------");

@@ -8,6 +8,16 @@
 #include <stdexcept>
 #include <string>
 
+// Build-time selection used when neither environment variable is set. The
+// defaults keep the upstream behaviour (SI follows Autoware), so targets
+// without an environment (Zephyr, bare-metal FreeRTOS) boot as before.
+#ifndef SI_DEFAULT_SUPERVISION_MODE
+#define SI_DEFAULT_SUPERVISION_MODE "si"
+#endif
+#ifndef SI_DEFAULT_TRAJECTORY_SOURCE
+#define SI_DEFAULT_TRAJECTORY_SOURCE "autoware"
+#endif
+
 namespace autoware::motion::control::trajectory_follower_node
 {
 
@@ -21,6 +31,7 @@ struct StartupConfig
 
   Mode mode;
   TrajectorySource trajectory_source;
+  bool build_default = false;
 
   static StartupConfig parse(const std::string & mode, const std::string & source)
   {
@@ -39,15 +50,25 @@ struct StartupConfig
     };
   }
 
-  static StartupConfig fromEnvironment()
+  // Both unset: the build default. Exactly one set is ambiguous and fatal;
+  // an invalid value or combination is fatal as in parse().
+  static StartupConfig fromValues(const char * mode, const char * source)
   {
-    const char * mode = std::getenv("SI_SUPERVISION_MODE");
-    const char * source = std::getenv("SI_TRAJECTORY_SOURCE");
+    if (!mode && !source) {
+      StartupConfig config = parse(SI_DEFAULT_SUPERVISION_MODE, SI_DEFAULT_TRAJECTORY_SOURCE);
+      config.build_default = true;
+      return config;
+    }
     if (!mode || !source) {
       throw std::invalid_argument(
-        "SI_SUPERVISION_MODE and SI_TRAJECTORY_SOURCE are required at startup");
+        "set both SI_SUPERVISION_MODE and SI_TRAJECTORY_SOURCE, or neither");
     }
     return parse(mode, source);
+  }
+
+  static StartupConfig fromEnvironment()
+  {
+    return fromValues(std::getenv("SI_SUPERVISION_MODE"), std::getenv("SI_TRAJECTORY_SOURCE"));
   }
 };
 

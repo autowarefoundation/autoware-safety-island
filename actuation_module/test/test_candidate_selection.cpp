@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <initializer_list>
 #include <stdexcept>
+#include <utility>
 
 using namespace autoware::motion::control::trajectory_follower_node;
 
@@ -36,14 +37,23 @@ int main()
   } catch (const std::invalid_argument &) {}
   unsetenv("SI_SUPERVISION_MODE");
   unsetenv("SI_TRAJECTORY_SOURCE");
-  try {
-    StartupConfig::fromEnvironment();
-    assert(false && "missing startup configuration accepted");
-  } catch (const std::invalid_argument &) {}
+  const auto fallback = StartupConfig::fromEnvironment();
+  assert(fallback.build_default);
+  assert(fallback.mode == StartupConfig::Mode::SI_CONTROL);
+  assert(fallback.trajectory_source == StartupConfig::TrajectorySource::AUTOWARE);
+  for (const auto & half : {std::pair<const char *, const char *>{"vp", nullptr},
+      std::pair<const char *, const char *>{nullptr, "vp"}})
+  {
+    try {
+      StartupConfig::fromValues(half.first, half.second);
+      assert(false && "half-set startup configuration accepted");
+    } catch (const std::invalid_argument &) {}
+  }
   setenv("SI_SUPERVISION_MODE", "si", 1);
   setenv("SI_TRAJECTORY_SOURCE", "vp", 1);
   assert(StartupConfig::fromEnvironment().trajectory_source ==
     StartupConfig::TrajectorySource::VP);
+  assert(!StartupConfig::fromEnvironment().build_default);
 
   VpCandidateIdentity state;
   SourceStamp first{42, 100};
