@@ -70,9 +70,13 @@ Wire and source-identity decisions
 The existing Autoware ``autoware_planning_msgs/msg/Trajectory`` input
 and follower algorithm remain supported without an Autoware-side adapter.
 Its topic is ``/planning/scenario_planning/trajectory`` (domain 1 to 2).
-The VP adapter instead publishes a ``safety_island_msgs/msg/TrajectoryCandidate``
-containing a standard trajectory and the original VP session/cycle on
-``/planning/visionpilot/trajectory_candidate``. The same SI binary reads
+VP needs no adapter either: SI subscribes to VP's own
+``visionpilot_msgs/msg/DrivingReference`` on ``/vehicle/driving_reference``
+and converts it to a follower trajectory itself (``vp_reference.hpp``). The
+earlier E2E adapter and its ``safety_island_msgs/msg/TrajectoryCandidate`` on
+``/planning/visionpilot/trajectory_candidate`` are retired; the SI conversion
+reproduces the adapter's output (13 points, same speed profile) within
+1e-9 on 3000 randomized references. The same SI binary reads
 ``SI_SUPERVISION_MODE`` and ``SI_TRAJECTORY_SOURCE`` once at startup and
 subscribes **only** to the selected input (or the VP command in VP_CONTROL).
 Neither fault nor re-enable can change it; an invalid or missing startup
@@ -87,14 +91,15 @@ cycle number, and validity. Sign conventions, optional fields, bounds,
 serialized size, QoS, the exact ROS/DDS type and topic must be frozen
 before implementing the VP and SI producers/consumers.
 
-The VP path and speed/stop intent likewise come from one VP cycle. Their
-original source identity must survive the adapter's conversion to an SI
-trajectory; old, mismatched or reordered data must not become fresh just
-because an adapter or DDS bridge republishes it. Define the VP-to-adapter
-reference type and the metadata carried through the VP-specific SI ingress.
-The E2E adapter rejects/reports invalid references without publishing a
-fabricated stop trajectory. A genuine VP-chosen stop in a valid path/speed
-cycle remains a normal candidate. SI checks the original VP session/cycle
+The VP path and speed/stop intent likewise come from one VP cycle. SI
+checks their identity on the reference itself, so old, mismatched or
+reordered data cannot become fresh because a DDS bridge republishes it. A
+reference VP marks unusable (invalid, no path, no source stamp, no speed
+horizon) or one without a same-frame ego sample is ignored and logged,
+never turned into a fabricated stop: only an accepted reference refreshes
+the selected-source watchdog, which owns the stop. Malformed values
+(non-finite, oversized horizon) latch SI_STOP. A genuine VP-chosen stop in a
+valid path/speed cycle remains a normal candidate. SI checks the original VP session/cycle
 and progress of the camera source stamp before refreshing its selected
 candidate watchdog. Equal source stamps (replayed frames) do not refresh
 it; regressions latch SI_STOP. The source stamp uses CARLA simulation time
@@ -130,18 +135,13 @@ and cross-DDS wire check are recorded in the E2E evidence separately.
      - ``visionpilot_msgs/msg/DrivingCommand``
      - Implemented: steering tyre angle, VP-selected target speed, signed
        acceleration, source capture stamp, VP session + cycle
-   * - ``/vehicle/driving_reference`` (1)
+   * - ``/vehicle/driving_reference`` (1 → 2)
      - ``visionpilot_msgs/msg/DrivingReference``
      - Implemented: lane polynomial (a, b, c, x_max), speed horizon
-       (20 × 0.05 s), same identity fields
+       (20 × 0.05 s), same identity fields; SI's SI_CONTROL + VP input
    * - ``/planning/scenario_planning/trajectory`` (1 → 2)
      - ``autoware_planning_msgs/msg/Trajectory``
      - Existing Autoware-only input
-    * - ``/planning/visionpilot/trajectory_candidate`` (1 → 2)
-      - ``safety_island_msgs/msg/TrajectoryCandidate``
-      - VP-only adapter result containing a standard ``Trajectory`` and
-        the original VP ``source_session`` / ``source_cycle``;
-        Autoware needs no wrapper
    * - ``/control/safety_island/approved_request`` (2 → 1)
      - ``safety_island_msgs/msg/ApprovedRequest``
      - Implemented (SI IDL): the only actuator-facing output; SI-only
@@ -159,9 +159,9 @@ current plan is heading, not a consumer re-derivation.
 ``DrivingReference``'s path and speed horizon always come from one cycle.
 
 SI-facing sizes must stay within the SI runtime's 1400 B DDS message
-limit. ``DrivingCommand`` is a few hundred bytes; a 13-point VP candidate
-with ``map`` frame ID serializes to **1188 B**, within the adapter's 1300 B
-budget; the SI output stays a ``Control``-sized sample. The SI-side IDL mirror of
+limit. ``DrivingCommand`` is a few hundred bytes and ``DrivingReference``
+(four path doubles plus a 20-sample horizon) under 300 B; the SI output
+stays a ``Control``-sized sample. The SI-side IDL mirror of
 ``visionpilot_msgs`` was generated from the fork's ``.msg`` definitions
 with ``rosidl_adapter`` and compiles in the SI build (0.11 idlc; the
 ``@verbatim`` comments are skipped with the usual warnings). The
@@ -245,8 +245,9 @@ Re-measured over 90 s: every one of 820 VP command cycles had an exact
 ego sample with the **same source stamp (100%)**; 806/820 source stamps
 were also seen on the camera stream by the probe (loss of large image
 samples in transport, not a VP fault); all identity checks above still
-held. The adapter can therefore require an exact same-stamp ego sample
-and reject the reference when it is missing, without inventing a stop.
+held. SI therefore requires an exact same-stamp ego sample (a bounded
+history of ~10 s of odometry) and ignores the reference when it is missing,
+without inventing a stop.
 
 Camera, ego and deadline clocks
 ===============================
@@ -256,8 +257,8 @@ capture time. CARLA world snapshots expose a frame number and simulated
 world time. The bridge must retain this **source** identity on camera and
 ego samples; using its publication time for both hides acquisition and
 sampling skew. VP must preserve the input frame identity through
-inference and planning. The first-rig adapter uses only an exact-match
-ego sample, never just the latest available pose.
+inference and planning. SI's VP ingress uses only an exact-match ego
+sample, never just the latest available pose.
 
 On two pinned 0.9.16 VPS smoke runs (Town04, 20 Hz fixed world ticks,
 10 Hz RGB camera at 640 × 480 and at the rig's 1920 × 1280 resolution),
@@ -372,11 +373,10 @@ Decision status
        actuator-facing output per control cycle with session,
        ``output_sequence``, decision and fault correlation; the legacy
        ``control_cmd`` topic carries the gate-approved payload for
-       transition. The distinct VP candidate ingress is also implemented:
-       ``safety_island_msgs/msg/TrajectoryCandidate`` on
-       ``/planning/visionpilot/trajectory_candidate`` carries a standard
-       trajectory plus the original VP session/cycle (13 points =
-       1188 B CDR, validated end-to-end on the rig).
+       transition. VP ingress is native: SI reads ``DrivingReference`` on
+       ``/vehicle/driving_reference`` and builds the 13-point follower
+       trajectory itself (host test ``vp_reference_test``); the former
+       ``TrajectoryCandidate`` adapter path is retired.
    * - Source-age watchdogs
      - **Implemented** in the SI supervisor with the proposed defaults
        (candidate 1.0 s, ego 0.4 s, steering/opmode 0.5 s), per-source by

@@ -123,12 +123,14 @@ Controller::Controller(const StartupConfig & config)
                                                               callbackSteeringStatus, this);
   if (supervision_mode_ == supervision::Mode::SI_CONTROL) {
     if (startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP) {
-      if (!create_subscription<TrajectoryCandidateMsg>(
-        "/planning/visionpilot/trajectory_candidate",
-        &safety_island_msgs_msg_TrajectoryCandidate_desc,
-        callbackTrajectoryCandidate, this))
+      // VP's own path + speed schedule; the SI places it with the same-frame
+      // ego pose (vp_reference.hpp), so no adapter sits between VP and SI.
+      if (!create_subscription<DrivingReferenceMsg>(
+        "/vehicle/driving_reference",
+        &visionpilot_msgs_msg_DrivingReference_desc,
+        callbackDrivingReference, this))
       {
-        throw std::runtime_error("cannot subscribe to selected VP trajectory candidate");
+        throw std::runtime_error("cannot subscribe to selected VP driving reference");
       }
     } else if (!create_subscription<TrajectoryMsg_Raw>(
       "/planning/scenario_planning/trajectory",
@@ -251,6 +253,15 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
   controller->watch_odom_.note(Clock::now());
+  if (controller->supervision_mode_ == supervision::Mode::SI_CONTROL &&
+    controller->startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP)
+  {
+    const auto & q = msg->pose.pose.orientation;
+    controller->ego_history_.note(
+      msg->header.stamp.sec, msg->header.stamp.nanosec,
+      {msg->pose.pose.position.x, msg->pose.pose.position.y,
+        vp_reference::yawFromQuaternion(q.x, q.y, q.z, q.w)});
+  }
 }
 
 void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg) {
@@ -317,7 +328,7 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   controller->watch_candidate_.note(Clock::now());
 }
 
-void Controller::callbackTrajectoryCandidate(const TrajectoryCandidateMsg* msg, void* arg)
+void Controller::callbackDrivingReference(const DrivingReferenceMsg* msg, void* arg)
 {
   Controller* controller = static_cast<Controller*>(arg);
   if (controller->supervision_mode_ != supervision::Mode::SI_CONTROL ||
@@ -325,41 +336,85 @@ void Controller::callbackTrajectoryCandidate(const TrajectoryCandidateMsg* msg, 
   {
     return;
   }
-  if (!msg || msg->trajectory.points._length == 0 ||
-    msg->trajectory.points._length > 13 || !msg->trajectory.points._buffer)
+  // An unusable reference is ignored, never turned into a stop: only a fresh
+  // accepted reference refreshes the source watchdog, which owns the stop.
+  auto ignore = [controller](const char * why) {
+      ++controller->vp_reference_rejects_;
+      log_warn_throttle(
+        "VP driving reference ignored: %s (%llu ignored so far)", why,
+        (unsigned long long)controller->vp_reference_rejects_);
+    };
+  if (!msg || msg->speed_horizon_mps._length > vp_reference::kMaxHorizon ||
+    (msg->speed_horizon_mps._length > 0 && !msg->speed_horizon_mps._buffer))
   {
-    controller->latchFault("invalid vp trajectory candidate");
+    controller->latchFault("invalid vp driving reference");
     return;
   }
-  for (uint32_t i = 0; i < msg->trajectory.points._length; ++i) {
-    const auto & point = msg->trajectory.points._buffer[i];
-    if (!std::isfinite(point.pose.position.x) || !std::isfinite(point.pose.position.y) ||
-      !std::isfinite(point.longitudinal_velocity_mps) ||
-      !std::isfinite(point.acceleration_mps2))
-    {
-      controller->latchFault("non-finite vp trajectory candidate");
-      return;
-    }
+  const uint32_t horizon_len = msg->speed_horizon_mps._length;
+  const auto reason = vp_reference::referenceReason(
+    msg->valid, msg->path_valid, msg->has_source_stamp, horizon_len,
+    msg->horizon_dt_s, msg->path_x_max_m);
+  if (reason != vp_reference::Reject::NONE) {
+    ignore(vp_reference::rejectName(reason));
+    return;
   }
-  const SourceStamp stamp{
-    msg->trajectory.header.stamp.sec, msg->trajectory.header.stamp.nanosec};
-  const auto check = controller->vp_candidate_identity_.check(
-    msg->source_session, msg->source_cycle, stamp);
+  bool finite = std::isfinite(msg->path_a) && std::isfinite(msg->path_b) &&
+    std::isfinite(msg->path_c) && std::isfinite(msg->path_x_max_m) &&
+    std::isfinite(msg->horizon_dt_s);
+  for (uint32_t i = 0; finite && i < horizon_len; ++i) {
+    finite = std::isfinite(msg->speed_horizon_mps._buffer[i]);
+  }
+  if (!finite) {
+    controller->latchFault("non-finite vp driving reference");
+    return;
+  }
+  const SourceStamp stamp{msg->source_stamp.sec, msg->source_stamp.nanosec};
+  const auto check = controller->vp_candidate_identity_.check(msg->session, msg->cycle, stamp);
   if (check == CandidateCheck::DUPLICATE) {
     return;  // same VP cycle or camera frame: do not refresh the watchdog
   }
   if (check != CandidateCheck::ACCEPT) {
-    controller->latchFault("vp trajectory candidate regression or invalid stamp");
+    controller->latchFault("vp driving reference regression or invalid stamp");
+    return;
+  }
+  vp_reference::Pose2D ego{};
+  if (!controller->ego_history_.find(stamp.sec, stamp.nanosec, ego)) {
+    ignore("no-same-frame-ego");
+    return;
+  }
+  const std::vector<double> horizon(
+    msg->speed_horizon_mps._buffer, msg->speed_horizon_mps._buffer + horizon_len);
+  std::vector<vp_reference::Point> points;
+  if (!vp_reference::convert(
+      msg->path_a, msg->path_b, msg->path_c, msg->path_x_max_m, ego, horizon,
+      msg->horizon_dt_s, points))
+  {
+    ignore("bad-shape");
     return;
   }
 
-  controller->current_trajectory_ = TrajectoryMsg(&msg->trajectory);
-  // frame_id is a loaned char*: never retain it beyond this callback.
-  controller->current_trajectory_.header.frame_id = nullptr;
+  TrajectoryMsg trajectory;
+  trajectory.header.stamp = msg->source_stamp;
+  trajectory.header.frame_id = nullptr;  // the follower reads points and stamp only
+  for (const auto & p : points) {
+    TrajectoryPointMsg point{};
+    point.pose.position.x = p.x;
+    point.pose.position.y = p.y;
+    point.pose.orientation.z = std::sin(0.5 * p.yaw);
+    point.pose.orientation.w = std::cos(0.5 * p.yaw);
+    point.longitudinal_velocity_mps = static_cast<float>(p.velocity_mps);
+    point.acceleration_mps2 = static_cast<float>(p.acceleration_mps2);
+    const double t = std::max(0.0, p.time_from_start_s);
+    point.time_from_start.sec = static_cast<int32_t>(t);
+    point.time_from_start.nanosec = static_cast<uint32_t>(
+      std::min(999999999.0, std::round((t - std::floor(t)) * 1e9)));
+    trajectory.points.push_back(point);
+  }
+  controller->current_trajectory_ = std::move(trajectory);
   controller->has_trajectory_ = true;
-  controller->vp_candidate_identity_.note(msg->source_session, msg->source_cycle, stamp);
-  controller->accepted_source_session_ = msg->source_session;
-  controller->accepted_source_cycle_ = msg->source_cycle;
+  controller->vp_candidate_identity_.note(msg->session, msg->cycle, stamp);
+  controller->accepted_source_session_ = msg->session;
+  controller->accepted_source_cycle_ = msg->cycle;
   controller->watch_candidate_.note(Clock::now());
 }
 

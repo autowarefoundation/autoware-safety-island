@@ -20,6 +20,7 @@
 #include "autoware/trajectory_follower_base/longitudinal_controller_base.hpp"
 #include "autoware/trajectory_follower_node/supervision.hpp"
 #include "autoware/trajectory_follower_node/candidate_identity.hpp"
+#include "autoware/trajectory_follower_node/vp_reference.hpp"
 #include "autoware/trajectory_follower_node/startup_config.hpp"
 #include "autoware/trajectory_follower_node/visibility_control.hpp"
 #include "autoware/universe_utils/system/stop_watch.hpp"
@@ -82,7 +83,7 @@ private:
   static void callbackOdometry(const OdometryMsg* msg, void* arg);
   static void callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, void* arg);
   static void callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg);
-  static void callbackTrajectoryCandidate(const TrajectoryCandidateMsg* msg, void* arg);
+  static void callbackDrivingReference(const DrivingReferenceMsg* msg, void* arg);
   static void callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg);
   static void callbackReenable(const BoolMsg* msg, void* arg);
 
@@ -160,6 +161,10 @@ private:
   supervision::SourceWatch watch_vp_cmd_;
   supervision::SourceWatch watch_opmode_;
   VpCandidateIdentity vp_candidate_identity_;
+  // SI_CONTROL + VP: same-frame ego poses that place VP's reference path,
+  // and the count of references ignored for each reason (logged throttled).
+  vp_reference::EgoHistory ego_history_;
+  uint64_t vp_reference_rejects_ = 0;
   AutowareTrajectoryIdentity autoware_trajectory_identity_;
 
   // Fault latch state (SupervisionState::reason for operator visibility).

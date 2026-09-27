@@ -371,4 +371,22 @@ if(BUILD_TEST STREQUAL "1")
         COMMENT "Running supervision latch host unit test"
         VERBATIM
     )
+
+    # VP DrivingReference -> follower trajectory (SI_CONTROL + VP ingress) is
+    # pure host logic too.
+    set(VP_REFERENCE_TEST_MAIN
+        ${ACTUATION_DIR}/test/test_vp_reference.cpp)
+    add_executable(vp_reference_test ${VP_REFERENCE_TEST_MAIN})
+    set_source_files_properties(${VP_REFERENCE_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+    target_include_directories(vp_reference_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+    target_compile_options(vp_reference_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET vp_reference_test POST_BUILD
+        COMMAND vp_reference_test
+        COMMENT "Running VP reference host unit test"
+        VERBATIM
+    )
 endif()
