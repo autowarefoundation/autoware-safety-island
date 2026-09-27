@@ -165,8 +165,8 @@ stays a ``Control``-sized sample. The SI-side IDL mirror of
 ``visionpilot_msgs`` was generated from the fork's ``.msg`` definitions
 with ``rosidl_adapter`` and compiles in the SI build (0.11 idlc; the
 ``@verbatim`` comments are skipped with the usual warnings). The
-``ApprovedRequest`` and ``TrajectoryCandidate`` IDLs have matching ROS-side
-``safety_island_msgs`` definitions in the E2E rig. Build/replay must check
+``ApprovedRequest`` IDL has a matching ROS-side
+``safety_island_msgs`` definition in the E2E rig. Build/replay must check
 ROS-to-SI serialization interop; a generated type alone is not live proof.
 
 Measured cadence and identity (VPS, 2026-09-25)
