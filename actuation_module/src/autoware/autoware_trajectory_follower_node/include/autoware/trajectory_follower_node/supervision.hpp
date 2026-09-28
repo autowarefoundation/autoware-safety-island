@@ -21,7 +21,8 @@ enum class Decision : uint8_t
 {
   NORMAL = 0,   ///< approved request computed this cycle
   SI_STOP = 1,  ///< supervisor stop; fault_id identifies the fault event
-  HOLD = 2,     ///< no new approved decision; actuate the previous payload
+  HOLD = 2,     ///< no new approved decision; consumer keeps its previous state
+                ///< (payload is the conservative stopped command, never a brake release)
 };
 
 /// Startup-only supervision mode (SI_SUPERVISION_MODE, immutable for the run).

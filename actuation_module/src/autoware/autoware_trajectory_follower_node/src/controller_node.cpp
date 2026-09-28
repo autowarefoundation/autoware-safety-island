@@ -951,7 +951,18 @@ void Controller::publishSiStop(double now)
 
 void Controller::publishHold()
 {
-  ControlMsg hold{};  // zeroed values are the legitimate neutral HOLD payload
+  // HOLD means "no new approved decision this cycle" (nothing to follow yet,
+  // or the follower is not ready). The ApprovedRequest consumer keeps its
+  // previous state; the payload only reaches the legacy control_cmd/CAN
+  // surface, where an all-zero command is a zero acceleration, i.e. a brake
+  // release. Carry the conservative stopped payload instead (velocity 0, the
+  // stop deceleration, last known steering) so a not-ready cycle never
+  // releases the brake on that surface.
+  ControlMsg hold = supervision::StopControl{}(
+    has_approved_ ? &last_approved_ : nullptr, stop_decel_mps2_);
+  hold.stamp = Clock::toRosTime(Clock::now());
+  hold.lateral.stamp = hold.stamp;
+  hold.longitudinal.stamp = hold.stamp;
   publishApprovedRequest(
     supervision::Decision::HOLD,
     supervision_mode_ == supervision::Mode::VP_CONTROL ?
