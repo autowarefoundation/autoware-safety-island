@@ -55,6 +55,33 @@ int main()
     StartupConfig::TrajectorySource::VP);
   assert(!StartupConfig::fromEnvironment().build_default);
 
+  // Legacy control_cmd policy: build default "always", explicit values, and
+  // a fatal invalid value on both the mode/source and the default path.
+  unsetenv("SI_LEGACY_CONTROL_CMD");
+  assert(StartupConfig::fromEnvironment().legacy_control_cmd ==
+    StartupConfig::LegacyControlCmd::ALWAYS);
+  setenv("SI_LEGACY_CONTROL_CMD", "stop_only", 1);
+  assert(StartupConfig::fromEnvironment().legacy_control_cmd ==
+    StartupConfig::LegacyControlCmd::STOP_ONLY);
+  setenv("SI_LEGACY_CONTROL_CMD", "always", 1);
+  assert(StartupConfig::fromEnvironment().legacy_control_cmd ==
+    StartupConfig::LegacyControlCmd::ALWAYS);
+  assert(StartupConfig::fromValues("si", "autoware", "stop_only").legacy_control_cmd ==
+    StartupConfig::LegacyControlCmd::STOP_ONLY);
+  assert(StartupConfig::fromValues(nullptr, nullptr, "stop_only").legacy_control_cmd ==
+    StartupConfig::LegacyControlCmd::STOP_ONLY);
+  for (const auto & bad : {"", "STOP_ONLY", "never"}) {
+    for (const auto & modes : {std::pair<const char *, const char *>{nullptr, nullptr},
+        std::pair<const char *, const char *>{"si", "vp"}})
+    {
+      try {
+        StartupConfig::fromValues(modes.first, modes.second, bad);
+        assert(false && "invalid legacy control_cmd policy accepted");
+      } catch (const std::invalid_argument &) {}
+    }
+  }
+  unsetenv("SI_LEGACY_CONTROL_CMD");
+
   VpCandidateIdentity state;
   SourceStamp first{42, 100};
   assert(state.check(7, 1, first) == CandidateCheck::ACCEPT);

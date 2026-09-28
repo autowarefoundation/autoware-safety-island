@@ -86,6 +86,17 @@ without an environment, such as Zephyr), the build default applies:
 unless overridden at compile time, and the SI logs that it used it. Run both publishers concurrently
 and inject selected-source loss to verify isolation.
 
+``SI_LEGACY_CONTROL_CMD`` (``always`` | ``stop_only``, build default
+``SI_DEFAULT_LEGACY_CONTROL_CMD`` = ``always``) selects what reaches the
+**legacy** DDS ``control_cmd`` topic. ``always`` publishes every approved
+payload, as before. ``stop_only`` publishes only ``SI_STOP`` there, for a
+consumer that arbitrates "a fresh SI command wins over my own driver" (the
+X5H CES demo's bench arbiter): SI is heard only when it overrides. It is a
+transitional compatibility switch, not a second control path:
+``ApprovedRequest`` stays the only authoritative output and is never
+filtered, and CAN output is not affected. An invalid value is fatal at
+startup.
+
 The VP command must be **one compound message**, not independently
 arriving steering, acceleration and speed samples. It must carry steering
 in tire radians, VP's target speed in m/s, acceleration/deceleration in
@@ -402,6 +413,14 @@ Decision status
        on domain 2 and realizing SI's NORMAL/SI_STOP/HOLD decisions without
        any local watchdog or mode logic. Rig-validated with the three
        final-ingress gates and concurrent-publisher isolation runs.
+   * - Follower-independent fault response (SI #64)
+     - **Partly implemented.** Supervision and the SI_STOP decision run at
+       the start of the control tick, before the follower/MPC, and use
+       per-source checks, the single output and the explicit re-enable.
+       They still share the follower's timer and thread, so a follower that
+       hangs or overruns also stops the supervisor. A separately scheduled
+       supervisor with a bounded execution path, and a test that a hung
+       follower still yields SI_STOP, remain **open**.
    * - Per-scenario pass/fail gates
      - Initially 500 ms from SI fault detection to first CARLA braking
        frame while SI is running; missing or late application fails.

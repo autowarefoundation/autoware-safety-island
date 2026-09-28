@@ -75,6 +75,10 @@ Controller::Controller(const StartupConfig & config)
     config.trajectory_source == StartupConfig::TrajectorySource::VP ? "vp" : "autoware",
     source_timeout_candidate_, source_timeout_ego_,
     source_timeout_steering_, source_timeout_opmode_);
+  log_info(
+    "Legacy control_cmd policy: %s",
+    config.legacy_control_cmd == StartupConfig::LegacyControlCmd::STOP_ONLY ?
+    "stop_only" : "always");
 
   // Output identity: a nonzero SI session for this process boot, written
   // into every ApprovedRequest so the observer can tell SI restarts apart.
@@ -888,7 +892,13 @@ void Controller::publishApprovedRequest(
   legacy.stamp = approved_stamp;
   legacy.lateral.stamp = approved_stamp;
 
-  if (common::can::output_mode_uses_dds(output_mode_)) {
+  // Legacy DDS surface policy: STOP_ONLY publishes only SI_STOP here, so a
+  // consumer that lets a fresh SI command win over its own driver hears SI
+  // only when SI overrides. It never affects ApprovedRequest or CAN below.
+  const bool legacy_dds_enabled =
+    startup_config_.legacy_control_cmd == StartupConfig::LegacyControlCmd::ALWAYS ||
+    decision == supervision::Decision::SI_STOP;
+  if (legacy_dds_enabled && common::can::output_mode_uses_dds(output_mode_)) {
     if (control_cmd_pub_) {
       if (!control_cmd_pub_->publish(legacy)) {
         log_error("Legacy control_cmd publication failed (approved still counted)");
