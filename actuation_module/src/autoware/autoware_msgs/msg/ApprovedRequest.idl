@@ -58,8 +58,8 @@ module safety_island_msgs {
       uint64 source_cycle;
 
       @verbatim (language="comment", text=
-        "Identity of the fault event that caused the current SI_STOP/HOLD." "\n"
-        "Increments per detected fault; 0 whenever decision is NORMAL.")
+        "Identity of the fault event that caused the current SI_STOP." "\n"
+        "Increments per detected fault; 0 whenever decision is NORMAL or HOLD.")
       uint32 fault_id;
 
       @verbatim (language="comment", text=

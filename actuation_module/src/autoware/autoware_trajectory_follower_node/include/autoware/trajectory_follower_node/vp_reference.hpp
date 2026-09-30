@@ -43,7 +43,10 @@ constexpr double kSpeedLeadM = 1.0;
 // Near-field arcs always represented so the follower's target lands on the
 // transcribed ramp/stop instead of a coarse 25 m chord.
 constexpr std::array<double, 4> kNearArcsM{0.25, 0.5, 1.0, 2.0};
-constexpr std::size_t kMaxHorizon = 200;   // sanity bound on speed_horizon_mps
+// Sanity bound on speed_horizon_mps. VP sends 20 samples; 100 doubles (800 B)
+// plus the path fields stay inside the SI runtime's 1400 B DDS message limit,
+// which a larger horizon could not be delivered through anyway.
+constexpr std::size_t kMaxHorizon = 100;
 constexpr std::size_t kEgoHistory = 400;   // ~10 s of 20 Hz odometry
 
 struct Pose2D

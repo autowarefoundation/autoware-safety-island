@@ -42,8 +42,9 @@ enum class SelectedSource : uint8_t
 /// Build the explicit SI-stop control payload: hold the last known steering
 /// (never command a steer reset during a stop) and command a standstill with
 /// a signed negative acceleration so the vehicle stops regardless of its
-/// current speed target. While stopped (SI_STOP hold) the follower's stop
-/// machinery keeps the vehicle parked.
+/// current speed target. The follower does not run while SI_STOP is latched:
+/// the stop is repeated every control cycle and the actuator holds the
+/// standstill from that demand.
 struct StopControl
 {
   ControlMsg operator()(const ControlMsg * last_approved, float stop_accel_mps2) const

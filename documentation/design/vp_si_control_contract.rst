@@ -174,7 +174,7 @@ current plan is heading, not a consumer re-derivation.
 
 SI-facing sizes must stay within the SI runtime's 1400 B DDS message
 limit. ``DrivingCommand`` is a few hundred bytes and ``DrivingReference``
-(four path doubles plus a 20-sample horizon) under 300 B; the SI output
+(four path doubles plus a 20-sample horizon) under 300 B, and the SI rejects a horizon longer than 100 samples so a reference always fits the limit; the SI output
 stays a ``Control``-sized sample. The SI-side IDL mirror of
 ``visionpilot_msgs`` was generated from the fork's ``.msg`` definitions
 with ``rosidl_adapter`` and compiles in the SI build (0.11 idlc; the
@@ -402,9 +402,12 @@ Decision status
      - **Implemented** and rig-validated: session change handling,
        cycle-regression rejection, SI_STOP latch with ``fault_id`` and an
        explicit ``/control/safety_island/reenable`` (``std_msgs/Bool``)
-       that requires all sources fresh again. Elapsed fault-to-brake timing
-       uses SI system-clock stamps inside ``ApprovedRequest``; the E2E rig
-       measured **6–14 ms** from SI detection to the first applied CARLA
+       that requires all sources fresh again, within a validity window
+       (``reenable_window_s``, default 5 s; an unanswered press expires). Elapsed
+       fault-to-brake timing compares the SI system-clock stamps inside
+       ``ApprovedRequest`` with the CARLA observer's clock, which is valid only
+       where both share a clock and the correlation is recorded (see the clock
+       rule above); the E2E rig measured **6–14 ms** from SI detection to the first applied CARLA
        brake frame on the final binary (see
        ``openadkit-e2e/docs/e2e2-stop-gate.md``).
    * - CARLA actuator implementation
