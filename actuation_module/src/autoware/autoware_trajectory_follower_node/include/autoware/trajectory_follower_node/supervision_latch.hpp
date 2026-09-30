@@ -14,6 +14,21 @@ namespace autoware::motion::control::trajectory_follower_node
 namespace supervision
 {
 
+/// SI boot/session identity written into every ApprovedRequest: epoch
+/// milliseconds, low 31 bits, never zero. The epoch-millisecond value
+/// (~1.8e12) is out of uint32_t range, so the conversion goes through
+/// uint64_t: a direct double->uint32_t conversion is undefined and the ARM
+/// targets' saturating conversion (AArch32 __aeabi_d2uiz, AArch64 FCVTZU)
+/// collapses it to the constant 0xFFFFFFFF, which the mask would turn into
+/// 0x7FFFFFFF on every boot. Pure logic (the caller passes the time), so it is
+/// host-tested.
+inline uint32_t siSessionFromClock(double now_seconds)
+{
+  const uint64_t ms = static_cast<uint64_t>(now_seconds * 1000.0);
+  const uint32_t session = static_cast<uint32_t>(ms & 0x7fffffffu);
+  return session == 0 ? 1u : session;
+}
+
 /// SI fault latch. Once latched, publication stays SI_STOP until an explicit
 /// operator re-enable arrives AND every selected-source check is fresh again
 /// (vp_si_control_contract: "a fault never silently changes mode or source;

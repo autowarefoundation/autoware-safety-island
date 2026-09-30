@@ -91,10 +91,10 @@ Controller::Controller(const StartupConfig & config)
 
   // Output identity: a nonzero SI session for this process boot, written
   // into every ApprovedRequest so the observer can tell SI restarts apart.
-  si_session_ = static_cast<uint32_t>(Clock::now() * 1000.0) & 0x7fffffffu;
-  if (si_session_ == 0) {
-    si_session_ = 1;
-  }
+  // The helper keeps the conversion defined: the epoch-millisecond value is
+  // out of uint32_t range, and the ARM targets' saturating conversion would
+  // otherwise collapse every boot to the same constant.
+  si_session_ = supervision::siSessionFromClock(Clock::now());
 
   const auto lateral_controller_mode =
     getLateralControllerMode(declare_parameter<std::string>("lateral_controller_mode", "mpc"));

@@ -12,6 +12,7 @@ using autoware::motion::control::trajectory_follower_node::supervision::Reenable
 using autoware::motion::control::trajectory_follower_node::supervision::SourceWatch;
 using autoware::motion::control::trajectory_follower_node::supervision::envelopeViolation;
 using autoware::motion::control::trajectory_follower_node::supervision::SupervisionState;
+using autoware::motion::control::trajectory_follower_node::supervision::siSessionFromClock;
 
 int main()
 {
@@ -72,6 +73,15 @@ int main()
   stale_press.request(10.0);
   (void)stale_press.expireIfOld(10.0 + 60.0, 5.0);
   assert(late.stopThisTick(stale_press.pending, true) && late.latched);
+
+  // SI session identity: the epoch-millisecond value is out of uint32_t
+  // range; the helper must still produce a defined, nonzero, boot-varying
+  // session (a direct cast was undefined and collapsed to a constant on the
+  // ARM targets' saturating conversion).
+  const uint32_t si_a = siSessionFromClock(1790784948.001);
+  const uint32_t si_b = siSessionFromClock(1790784948.002);
+  assert(si_a != 0 && si_b != 0 && si_a != si_b);
+  assert(siSessionFromClock(0.0) == 1);  // zero maps to the nonzero sentinel
 
   // Envelope: inside passes; each bound fails on its own; NaN and inf fail.
   const Envelope lim{0.6, 60.0, 6.0};
