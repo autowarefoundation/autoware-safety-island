@@ -123,6 +123,19 @@ int main()
     assert(out.size() >= vr::kMinFollowerPoints);
   }
 
+  // A finite horizon that overflows the derived schedule (a last sample near
+  // DBL_MAX makes the fallback acceleration inf) is an unusable shape: the
+  // follower would reject the non-finite field and the SI would publish HOLD
+  // every tick while the accepted reference kept its watchdog fresh.
+  {
+    std::vector<double> overflow_horizon(19, 0.0);
+    overflow_horizon.push_back(1.79e308);
+    std::vector<vr::Point> out;
+    assert(!vr::convert(
+      0.0, 0.0, 0.0, 30.0, {0.0, 0.0, 0.0}, overflow_horizon, 0.05, out));
+    assert(out.empty());
+  }
+
   // Ego poses match on the exact simulator-frame stamp only, newest first,
   // and the oldest fall out of the bounded history.
   {

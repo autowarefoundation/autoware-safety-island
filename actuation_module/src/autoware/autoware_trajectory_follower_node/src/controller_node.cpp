@@ -434,8 +434,12 @@ void Controller::callbackDrivingReference(const DrivingReferenceMsg* msg, void* 
     point.pose.orientation.w = std::cos(0.5 * p.yaw);
     point.longitudinal_velocity_mps = static_cast<float>(p.velocity_mps);
     point.acceleration_mps2 = static_cast<float>(p.acceleration_mps2);
+    // time_from_start is informational for this follower; clamp the seconds
+    // into int32 rather than casting a huge finite derived time out of range
+    // (undefined behavior). convert() already rejects non-finite times.
     const double t = std::max(0.0, p.time_from_start_s);
-    point.time_from_start.sec = static_cast<int32_t>(t);
+    point.time_from_start.sec = static_cast<int32_t>(
+      std::min(t, static_cast<double>(std::numeric_limits<int32_t>::max())));
     point.time_from_start.nanosec = static_cast<uint32_t>(
       std::min(999999999.0, std::round((t - std::floor(t)) * 1e9)));
     trajectory.points.push_back(point);

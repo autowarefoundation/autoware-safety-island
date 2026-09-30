@@ -242,8 +242,9 @@ inline void sampleSpatial(
 }  // namespace detail
 
 // The follower trajectory for one reference, or false when it has no usable
-// shape: corrupt geometry, or fewer points than the follower can run. `horizon`
-// is VP's speed schedule at `dt` spacing (>= 2 samples).
+// shape: corrupt geometry, derived values that overflow to inf/nan, or fewer
+// points than the follower can run. `horizon` is VP's speed schedule at `dt`
+// spacing (>= 2 samples).
 inline bool convert(
   double a, double b, double c, double x_max_m, const Pose2D & ego,
   const std::vector<double> & horizon, double dt, std::vector<Point> & out)
@@ -324,6 +325,21 @@ inline bool convert(
       const double span = times[i1] - times[i0];
       const double otherwise = i == 0 ? fallback : 0.0;
       accels[i] = span > 1e-6 ? (speeds[i1] - speeds[i0]) / span : otherwise;
+    }
+  }
+
+  // A finite horizon can still overflow the derived schedule: a last sample
+  // near DBL_MAX makes the fallback acceleration inf. The follower rejects a
+  // trajectory with non-finite fields, so accepting it would leave the SI
+  // publishing HOLD every tick while the accepted reference kept its
+  // watchdog fresh. Report the shape as unusable instead: the selected-source
+  // watchdog then owns the stop, exactly like the other bad-shape cases.
+  for (std::size_t i = 0; i < n; ++i) {
+    if (!std::isfinite(speeds[i]) || !std::isfinite(times[i]) ||
+      !std::isfinite(accels[i]))
+    {
+      out.clear();
+      return false;
     }
   }
 
