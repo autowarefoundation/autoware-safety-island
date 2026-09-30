@@ -33,6 +33,10 @@ namespace vp_reference
 
 constexpr double kExtentCapM = 25.0;       // trajectory length the follower gets
 constexpr std::size_t kMaxPoints = 13;     // follower point budget
+// Fewer points than the MPC's isReady() floor cannot produce a runnable
+// follower tick; a converted path below this is an unusable shape (ignored,
+// never a fresh-but-unrunnable trajectory).
+constexpr std::size_t kMinFollowerPoints = 3;
 constexpr double kPathSpacingM = 1.0;      // polynomial sampling step
 constexpr double kResampleStepM = 0.25;    // internal densification
 // Points are read this far ahead on the speed schedule. The follower's
@@ -238,7 +242,8 @@ inline void sampleSpatial(
 }  // namespace detail
 
 // The follower trajectory for one reference, or false when it has no usable
-// shape. `horizon` is VP's speed schedule at `dt` spacing (>= 2 samples).
+// shape: corrupt geometry, or fewer points than the follower can run. `horizon`
+// is VP's speed schedule at `dt` spacing (>= 2 samples).
 inline bool convert(
   double a, double b, double c, double x_max_m, const Pose2D & ego,
   const std::vector<double> & horizon, double dt, std::vector<Point> & out)
@@ -324,6 +329,13 @@ inline bool convert(
 
   for (std::size_t i = 0; i < n; ++i) {
     out.push_back({selected[i].x, selected[i].y, selected[i].yaw, speeds[i], times[i], accels[i]});
+  }
+  if (out.size() < kMinFollowerPoints) {
+    // A path this short cannot produce a runnable follower tick: report it as
+    // an unusable shape so the caller ignores it and the selected-source
+    // watchdog owns the stop.
+    out.clear();
+    return false;
   }
   return true;
 }

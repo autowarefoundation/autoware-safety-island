@@ -109,8 +109,9 @@ The VP path and speed/stop intent likewise come from one VP cycle. SI
 checks their identity on the reference itself, so old, mismatched or
 reordered data cannot become fresh because a DDS bridge republishes it. A
 reference VP marks unusable (invalid, no path, no source stamp, no speed
-horizon) or one without a same-frame ego sample is ignored and logged,
-never turned into a fabricated stop: only an accepted reference refreshes
+horizon), one without a same-frame ego sample, or one that converts to fewer
+points than the follower can run is ignored and logged, never turned into a
+fabricated stop: only an accepted reference refreshes
 the selected-source watchdog, which owns the stop. Malformed values
 (non-finite, oversized horizon) latch SI_STOP. A genuine VP-chosen stop in a
 valid path/speed cycle remains a normal candidate. SI checks the original VP session/cycle
@@ -120,7 +121,9 @@ it; regressions latch SI_STOP. The source stamp uses CARLA simulation time
 and is compared only with earlier source stamps, **not** SI wall time.
 The selected arrival watchdog is separate. Native Autoware trajectories
 have no session/cycle; SI checks progress of their header stamps instead,
-without inventing an Autoware producer identity.
+without inventing an Autoware producer identity, and latches SI_STOP for a
+trajectory shorter than the follower's minimum point count or with any field
+the follower consumes non-finite.
 
 SI publishes through **one supervised DDS command output** for all three
 configurations. The wire contract must carry a unique SI session and
@@ -162,8 +165,8 @@ and cross-DDS wire check are recorded in the E2E evidence separately.
        authoring with SI ``session`` + strictly increasing
        ``output_sequence``, decision ``NORMAL`` / ``SI_STOP`` / ``HOLD``,
        configured mode, selected source, VP cycle identity and ``fault_id``.
-        Legacy ``control_cmd`` stays on domain 2 only; the single-writer
-        CARLA actuator consumes ``ApprovedRequest`` directly there (E2E #2).
+       Legacy ``control_cmd`` stays on domain 2 only; the single-writer
+       CARLA actuator consumes ``ApprovedRequest`` directly there (E2E #2).
 
 The VP messages are published once per processed camera cycle and carry
 the source stamp of the image that produced the decision; the legacy

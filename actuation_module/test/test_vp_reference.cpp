@@ -112,6 +112,15 @@ int main()
     assert(!vr::convert(0.0, 0.0, 0.0, 0.0, {0, 0, 0}, std::vector<double>(20, 1.0), 0.05, out));
     assert(!vr::convert(0.0, 0.0, 0.0, 20.0, {0, 0, 0}, {1.0}, 0.05, out));
     assert(!vr::convert(0.0, 0.0, 0.0, 20.0, {0, 0, 0}, std::vector<double>(20, 1.0), 0.0, out));
+    // A path shorter than the follower's point floor is unusable too, not a
+    // trajectory to hand on: the caller ignores it and the source watchdog
+    // owns the stop. A degenerate x_max of 0.5 m converts to fewer than
+    // kMinFollowerPoints points and must be rejected.
+    assert(!vr::convert(0.0, 0.0, 0.0, 0.5, {0, 0, 0}, std::vector<double>(20, 1.0), 0.05, out));
+    assert(out.empty());
+    assert(!vr::convert(0.0, 0.0, 1.5, 0.5, {0, 0, 0}, std::vector<double>(20, 1.0), 0.05, out));
+    assert(vr::convert(0.0, 0.0, 0.0, 1.0, {0, 0, 0}, std::vector<double>(20, 1.0), 0.05, out));
+    assert(out.size() >= vr::kMinFollowerPoints);
   }
 
   // Ego poses match on the exact simulator-frame stamp only, newest first,
@@ -147,8 +156,10 @@ int main()
         Case{1.0e4, 0.0, 0.0, 30.0}, Case{1.0e12, 0.0, 0.0, 30.0}, Case{0.0, 1.0e9, 0.0, 30.0}})
     {
       std::vector<vr::Point> out;
-      assert(vr::convert(k.a, k.b, k.c, k.x_max, {0, 0, 0}, horizon, 0.05, out));
-      assert(out.size() <= vr::kMaxPoints);
+      const bool ok = vr::convert(k.a, k.b, k.c, k.x_max, {0, 0, 0}, horizon, 0.05, out);
+      // Degenerate but finite geometry either bounds to a usable trajectory or
+      // is rejected as an unusable shape; either way it must not stall.
+      assert(ok == (out.size() >= vr::kMinFollowerPoints && out.size() <= vr::kMaxPoints));
     }
     // Overflow to a non-finite coordinate is an unusable shape, not a path.
     std::vector<vr::Point> out;

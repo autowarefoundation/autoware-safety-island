@@ -298,8 +298,14 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   {
     return;
   }
-  if (!msg || msg->points._length == 0 || msg->points._length > 250 ||
-    !msg->points._buffer)
+  // Ingress must accept only what the follower can run: the MPC's isReady()
+  // requires at least vp_reference::kMinFollowerPoints points, and its
+  // isValidTrajectory() additionally consumes the orientation quaternion,
+  // lateral velocity, heading rate and wheel angles. A trajectory that passed
+  // SI but failed the follower would keep the source watchdog fresh while
+  // every tick published HOLD instead of the required fault response.
+  if (!msg || msg->points._length < vp_reference::kMinFollowerPoints ||
+    msg->points._length > 250 || !msg->points._buffer)
   {
     controller->latchFault("invalid autoware trajectory");
     return;
@@ -307,8 +313,15 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   for (uint32_t i = 0; i < msg->points._length; ++i) {
     const auto & point = msg->points._buffer[i];
     if (!std::isfinite(point.pose.position.x) || !std::isfinite(point.pose.position.y) ||
+      !std::isfinite(point.pose.position.z) ||
+      !std::isfinite(point.pose.orientation.x) || !std::isfinite(point.pose.orientation.y) ||
+      !std::isfinite(point.pose.orientation.z) || !std::isfinite(point.pose.orientation.w) ||
       !std::isfinite(point.longitudinal_velocity_mps) ||
-      !std::isfinite(point.acceleration_mps2))
+      !std::isfinite(point.lateral_velocity_mps) ||
+      !std::isfinite(point.acceleration_mps2) ||
+      !std::isfinite(point.heading_rate_rps) ||
+      !std::isfinite(point.front_wheel_angle_rad) ||
+      !std::isfinite(point.rear_wheel_angle_rad))
     {
       controller->latchFault("non-finite autoware trajectory");
       return;
