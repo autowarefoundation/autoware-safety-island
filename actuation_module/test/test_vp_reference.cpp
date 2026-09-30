@@ -3,8 +3,11 @@
 
 #include "autoware/trajectory_follower_node/vp_reference.hpp"
 
+#include <unistd.h>
+
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace vr = autoware::motion::control::trajectory_follower_node::vp_reference;
@@ -126,6 +129,43 @@ int main()
     for (uint32_t i = 0; i < vr::kEgoHistory; ++i) {history.note(2, i, {0.0, 0.0, 0.0});}
     assert(!history.find(1, 100000000u, pose));
     assert(history.find(2, 0, pose) && history.find(2, vr::kEgoHistory - 1, pose));
+  }
+
+  // Bounded work. A finite but degenerate reference (a huge curvature, a huge
+  // or infinite x_max) passes every shape check, so convert() itself must
+  // bound the CPU and heap it spends on it: the SI control thread runs it, and
+  // a stall or a bad_alloc there would silence every watchdog. Before the
+  // bound, a = 1e4 took seconds and ~1.5 GB. The alarm turns a regression
+  // into a failed test instead of a hung or out-of-memory one.
+  {
+    alarm(30);
+    const std::vector<double> horizon(20, 5.0);
+    const double inf = std::numeric_limits<double>::infinity();
+    struct Case {double a, b, c, x_max;};
+    for (const Case & k : {
+        Case{0.0, 0.0, 0.0, 1.0e6}, Case{0.0, 0.0, 0.0, inf}, Case{100.0, 0.0, 0.0, 30.0},
+        Case{1.0e4, 0.0, 0.0, 30.0}, Case{1.0e12, 0.0, 0.0, 30.0}, Case{0.0, 1.0e9, 0.0, 30.0}})
+    {
+      std::vector<vr::Point> out;
+      assert(vr::convert(k.a, k.b, k.c, k.x_max, {0, 0, 0}, horizon, 0.05, out));
+      assert(out.size() <= vr::kMaxPoints);
+    }
+    // Overflow to a non-finite coordinate is an unusable shape, not a path.
+    std::vector<vr::Point> out;
+    assert(!vr::convert(1.0e308, 0.0, 0.0, 30.0, {0, 0, 0}, horizon, 0.05, out));
+    assert(out.empty());
+    // x_max beyond the extent the follower reads changes nothing: the samples
+    // past kExtentCapM were never used.
+    std::vector<vr::Point> at_cap;
+    std::vector<vr::Point> far_beyond;
+    assert(vr::convert(0.004, 0.02, 0.5, vr::kExtentCapM, {3, 4, 0.2}, horizon, 0.05, at_cap));
+    assert(vr::convert(0.004, 0.02, 0.5, 1.0e6, {3, 4, 0.2}, horizon, 0.05, far_beyond));
+    assert(at_cap.size() == far_beyond.size());
+    for (std::size_t i = 0; i < at_cap.size(); ++i) {
+      assert(near(at_cap[i].x, far_beyond[i].x, 1e-9) && near(at_cap[i].y, far_beyond[i].y, 1e-9));
+      assert(near(at_cap[i].velocity_mps, far_beyond[i].velocity_mps, 1e-9));
+    }
+    alarm(0);
   }
 
   assert(near(vr::yawFromQuaternion(0.0, 0.0, std::sin(0.4), std::cos(0.4)), 0.8));

@@ -171,20 +171,33 @@ inline std::vector<std::size_t> selectIndices(
   return out;
 }
 
-inline std::vector<Pose2D> resample(std::vector<Pose2D> pts, double step_m)
+// Densifies the polyline to `step_m` spacing, but only as far as the follower
+// can ever use it: it stops right after the first point whose arc length
+// reaches `arc_cap_m`. The output is a prefix of the unbounded result, so
+// everything the selection below reads (arcs up to the cap, and the nearest
+// point to the cap itself) is unchanged, while the work and the allocation
+// stay bounded whatever curvature VP reports. A reference with a huge `a`
+// would otherwise ask for millions of points per segment.
+inline std::vector<Pose2D> resample(std::vector<Pose2D> pts, double step_m, double arc_cap_m)
 {
   if (pts.size() < 2) {return pts;}
   std::vector<Pose2D> out{pts.front()};
+  double arc = 0.0;
   for (std::size_t i = 1; i < pts.size(); ++i) {
     const Pose2D & a = pts[i - 1];
     const Pose2D & b = pts[i];
     const double seg = std::hypot(b.x - a.x, b.y - a.y);
     if (seg <= 1e-9) {continue;}
     const double dyaw = wrapAngle(b.yaw - a.yaw);
-    const int n = std::max(1, static_cast<int>(std::ceil(seg / step_m)));
+    // Clamp before the int conversion: seg / step_m can exceed INT_MAX.
+    const int n = std::max(1, static_cast<int>(std::ceil(std::min(seg / step_m, 1.0e6))));
     for (int k = 1; k <= n; ++k) {
       const double f = static_cast<double>(k) / n;
-      out.push_back({a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, wrapAngle(a.yaw + dyaw * f)});
+      const Pose2D p{
+        a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, wrapAngle(a.yaw + dyaw * f)};
+      arc += std::hypot(p.x - out.back().x, p.y - out.back().y);
+      out.push_back(p);
+      if (arc >= arc_cap_m) {return out;}
     }
   }
   return out;
@@ -232,15 +245,24 @@ inline bool convert(
 
   // Sample the polynomial (tangent yaw = atan(2ax + b)) and place it with
   // the same-frame ego pose.
+  //
+  // Bounded work: the follower reads at most kExtentCapM of arc and the arc
+  // is never shorter than the x it spans, so sampling past x = kExtentCapM
+  // adds nothing (an x_max of 1e6, or +inf, must not become 1e6 samples). A
+  // value that overflows is an unusable shape, not a path to hand on.
   std::vector<Pose2D> world;
   const double cy = std::cos(ego.yaw);
   const double sy = std::sin(ego.yaw);
-  for (double x = 0.0; x <= x_max_m + 1e-9; x += kPathSpacingM) {
+  const double x_limit = std::min(x_max_m, kExtentCapM);
+  for (double x = 0.0; x <= x_limit + 1e-9; x += kPathSpacingM) {
     const double y = a * x * x + b * x + c;
     const double yaw = std::atan(2.0 * a * x + b);
-    world.push_back({ego.x + x * cy - y * sy, ego.y + x * sy + y * cy, wrapAngle(ego.yaw + yaw)});
+    const Pose2D p{
+      ego.x + x * cy - y * sy, ego.y + x * sy + y * cy, wrapAngle(ego.yaw + yaw)};
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.yaw)) {return false;}
+    world.push_back(p);
   }
-  world = detail::resample(std::move(world), kResampleStepM);
+  world = detail::resample(std::move(world), kResampleStepM, kExtentCapM);
   const auto full = detail::cumulativeArcLengths(world);
 
   auto indices = detail::selectIndices(full, kExtentCapM, kMaxPoints);
