@@ -65,15 +65,17 @@ struct SupervisionState
 /// subtracted from SI's clock (vp_si_control_contract: "A CARLA episode time
 /// in seconds must not be subtracted from SI's Unix/system clock").
 ///
-/// Threading: note() runs on CycloneDDS callback threads and stale()/ageSec()
-/// on the controller thread, so the arrival time crosses threads. A plain
-/// 64-bit double store is not single-copy-atomic on ARMv8-R AArch32 (it can be
-/// preempted between the halves), and a torn read would fabricate a wild age
-/// and latch a spurious SI_STOP that only an explicit re-enable clears. The
-/// arrival time is therefore one lock-free std::atomic<double>, the same
-/// reasoning as input_staleness_gate.hpp's last_input_sec_. "Never seen" is
-/// the -1.0 sentinel in that same atomic, so ever() and the age can never
-/// disagree; every reader takes exactly one load.
+/// Threading: today note() and stale()/ageSec() run on the same thread.
+/// Node::main_thread_entry_ polls the DDS subscriptions (callbacks run inside
+/// execute_subscriptions()) and then the control timer, both on the one
+/// controller thread, and no DDS listener is registered. The arrival time is
+/// nevertheless one lock-free std::atomic<double> so the class stays correct
+/// if a callback ever moves to another thread (e.g. a DDS listener): a plain
+/// 64-bit double store is not single-copy-atomic on ARMv8-R AArch32, and a
+/// torn read would fabricate a wild age and latch a spurious SI_STOP that only
+/// an explicit re-enable clears. It costs nothing on this target. "Never seen"
+/// is the -1.0 sentinel in that same atomic, so ever() and the age cannot
+/// disagree and every reader takes exactly one load.
 class SourceWatch
 {
 public:

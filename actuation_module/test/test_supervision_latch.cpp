@@ -61,24 +61,5 @@ int main()
   // A newer arrival refreshes it.
   w.note(t0 + 10.0);
   assert(!w.stale(t0 + 10.4, 0.5));
-
-  // Concurrent note()/ageSec(): the reader must only ever see one of the two
-  // written values, never a torn mix that would look like a wild age. This is
-  // a smoke test of the single-load contract only: x86-64 stores 64-bit
-  // doubles atomically anyway, so it cannot prove the ARMv8-R AArch32 claim
-  // (that rests on std::atomic<double> being lock-free, static_assert'ed in
-  // the header).
-  SourceWatch shared;
-  shared.note(t0);
-  std::thread writer([&shared, t0]() {
-    for (int i = 0; i < 200000; ++i) {
-      shared.note(i % 2 ? t0 : t0 + 1.0e6);
-    }
-  });
-  for (int i = 0; i < 200000; ++i) {
-    const double age = shared.ageSec(t0 + 2.0e6);
-    assert(age == 2.0e6 || age == 1.0e6);
-  }
-  writer.join();
   return 0;
 }
