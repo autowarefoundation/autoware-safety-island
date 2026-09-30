@@ -170,8 +170,10 @@ private:
   // Fault latch state (SupervisionState::reason for operator visibility).
   supervision::SupervisionState supervision_{};
 
-  // Operator re-enable request (Bool topic); consumed and logged once.
-  bool reenable_requested_ = false;
+  // Operator re-enable request (Bool topic). It stays pending while a source
+  // is stale, but expires after reenable_window_s_ (see ReenableRequest).
+  supervision::ReenableRequest reenable_;
+  double reenable_window_s_ = 5.0;
 
   // Last approved control payload (for HOLD and for steering hold in SI_STOP).
   ControlMsg last_approved_{};
@@ -203,6 +205,13 @@ private:
     const ControlMsg & control);
   void publishSiStop(double now);
   void publishHold();
+  // The conservative stopped payload shared by SI_STOP and HOLD: velocity 0,
+  // the stop deceleration, and the last known steering (from the last approved
+  // command, else the vehicle's steering report, else 0).
+  ControlMsg stoppedPayload(double now) const;
+  // True once odometry, acceleration, steering and operation mode have each
+  // arrived at least once.
+  bool feedbackSeen() const;
   ControlMsg vpToControl(const DrivingCommandMsg & cmd) const;
   
   enum class LateralControllerMode {

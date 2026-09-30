@@ -69,6 +69,7 @@ Controller::Controller(const StartupConfig & config)
     "max_abs_velocity_mps", max_abs_velocity_mps_);
   stop_decel_mps2_ = static_cast<float>(declare_parameter<double>(
     "stop_decel_mps2", stop_decel_mps2_));
+  reenable_window_s_ = declare_parameter<double>("reenable_window_s", reenable_window_s_);
   log_info(
     "Supervision mode: %s; trajectory source: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %.2fs)",
     supervision_mode_ == supervision::Mode::VP_CONTROL ? "vp" : "si",
@@ -508,8 +509,10 @@ void Controller::callbackReenable(const BoolMsg* msg, void* arg)
 {
   Controller* controller = static_cast<Controller*>(arg);
   if (msg->data) {
-    controller->reenable_requested_ = true;
-    log_info("Operator re-enable requested (takes effect when all sources are fresh)");
+    controller->reenable_.request(Clock::now());
+    log_info(
+      "Operator re-enable requested (takes effect when all sources are fresh, within %.1f s)",
+      controller->reenable_window_s_);
   }
 }
 
@@ -633,8 +636,11 @@ void Controller::callbackTimerControl()
   // A cleared latch resumes NORMAL supervision in this same tick (no extra
   // SI_STOP without an active fault).
   if (supervision_.latched) {
-    const bool requested = reenable_requested_;
-    if (supervision_.stopThisTick(reenable_requested_, requested && allSourcesFresh(now))) {
+    if (reenable_.expireIfOld(now, reenable_window_s_)) {
+      log_warn("Re-enable request expired after %.1f s without all sources fresh", reenable_window_s_);
+    }
+    const bool requested = reenable_.pending;
+    if (supervision_.stopThisTick(reenable_.pending, requested && allSourcesFresh(now))) {
       if (requested) {
         log_warn_throttle(
           "Re-enable requested but not all sources are fresh; staying in SI_STOP");
@@ -656,6 +662,16 @@ void Controller::callbackTimerControl()
     // the accepted VP command becomes the approved payload unchanged.
     if (!has_vp_cmd_) {
       log_info_throttle("VP_CONTROL: no accepted VP command yet");
+      publishHold();
+      return;
+    }
+    // SI_CONTROL is held back by processData() until the vehicle feedback has
+    // arrived; VP_CONTROL has no follower, so it needs the same guard. A
+    // source that was never seen is not "stale", so without this a bridge that
+    // never delivers odometry, acceleration, steering or operation mode would
+    // let VisionPilot's commands through as NORMAL indefinitely.
+    if (!feedbackSeen()) {
+      log_info_throttle("VP_CONTROL: waiting for vehicle feedback (odometry, acceleration, steering, operation mode)");
       publishHold();
       return;
     }
@@ -804,9 +820,12 @@ void Controller::latchFault(const std::string & why)
   if (!supervision_.latched) {
     supervision_.latch(why);
     log_warn("SI_STOP latched: %s (fault_id %u)", why.c_str(), supervision_.fault_id);
-    reenable_requested_ = false;  // a fault invalidates an earlier re-enable request
+    reenable_.clear();  // a fault invalidates an earlier re-enable request
   } else if (supervision_.reason != why) {
     supervision_.reason = why;
+    // A different fault than the one the operator's press answered: the press
+    // predates it, so it must not clear it.
+    reenable_.clear();
     log_warn_throttle("SI_STOP continues: %s (fault_id %u)", why.c_str(), supervision_.fault_id);
   }
 }
@@ -958,24 +977,38 @@ void Controller::publishApprovedRequest(
   }
 }
 
+ControlMsg Controller::stoppedPayload(double now) const
+{
+  // Never command a steer reset: hold the last approved steering, and before
+  // any command was approved the vehicle's own steering report.
+  ControlMsg seed{};
+  const ControlMsg * known = nullptr;
+  if (has_approved_) {
+    known = &last_approved_;
+  } else if (has_steering_) {
+    seed.lateral.steering_tire_angle = current_steering_.steering_tire_angle;
+    known = &seed;
+  }
+  ControlMsg out = supervision::StopControl{}(known, stop_decel_mps2_);
+  out.stamp = Clock::toRosTime(now);
+  out.lateral.stamp = out.stamp;
+  out.longitudinal.stamp = out.stamp;
+  return out;
+}
+
+bool Controller::feedbackSeen() const
+{
+  return watch_odom_.ever() && watch_accel_.ever() && watch_steering_.ever() &&
+         watch_opmode_.ever();
+}
+
 void Controller::publishSiStop(double now)
 {
-  ControlMsg stop{};
-  if (has_approved_) {
-    stop.lateral = last_approved_.lateral;  // hold the known steering during the stop
-  }
-  stop.stamp = Clock::toRosTime(now);
-  stop.lateral.stamp = stop.stamp;
-  stop.longitudinal.stamp = stop.stamp;
-  stop.longitudinal.velocity = 0.0f;
-  stop.longitudinal.acceleration = -stop_decel_mps2_;
-  stop.longitudinal.is_defined_acceleration = true;
-
   publishApprovedRequest(
     supervision::Decision::SI_STOP,
     supervision_mode_ == supervision::Mode::VP_CONTROL ?
     supervision::SelectedSource::VP_COMMAND : supervision::SelectedSource::FOLLOWER,
-    stop);
+    stoppedPayload(now));
 }
 
 void Controller::publishHold()
@@ -984,19 +1017,13 @@ void Controller::publishHold()
   // or the follower is not ready). The ApprovedRequest consumer keeps its
   // previous state; the payload only reaches the legacy control_cmd/CAN
   // surface, where an all-zero command is a zero acceleration, i.e. a brake
-  // release. Carry the conservative stopped payload instead (velocity 0, the
-  // stop deceleration, last known steering) so a not-ready cycle never
-  // releases the brake on that surface.
-  ControlMsg hold = supervision::StopControl{}(
-    has_approved_ ? &last_approved_ : nullptr, stop_decel_mps2_);
-  hold.stamp = Clock::toRosTime(Clock::now());
-  hold.lateral.stamp = hold.stamp;
-  hold.longitudinal.stamp = hold.stamp;
+  // release. Carry the conservative stopped payload instead so a not-ready
+  // cycle never releases the brake on that surface.
   publishApprovedRequest(
     supervision::Decision::HOLD,
     supervision_mode_ == supervision::Mode::VP_CONTROL ?
     supervision::SelectedSource::VP_COMMAND : supervision::SelectedSource::FOLLOWER,
-    hold);
+    stoppedPayload(Clock::now()));
 }
 
 void Controller::publishProcessingTime(

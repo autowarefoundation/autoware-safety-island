@@ -8,6 +8,7 @@
 #include <limits>
 
 using autoware::motion::control::trajectory_follower_node::supervision::Envelope;
+using autoware::motion::control::trajectory_follower_node::supervision::ReenableRequest;
 using autoware::motion::control::trajectory_follower_node::supervision::SourceWatch;
 using autoware::motion::control::trajectory_follower_node::supervision::envelopeViolation;
 using autoware::motion::control::trajectory_follower_node::supervision::SupervisionState;
@@ -46,6 +47,31 @@ int main()
   s.latch("odometry");
   assert(s.fault_id == 2 && s.reason == "odometry");
   assert(s.stopThisTick(request, true));  // no request: stays latched
+
+  // ReenableRequest: pending until it is older than the window, then dropped;
+  // a fresh press restarts the window; a press nobody acted on cannot resume
+  // driving later (the latch only sees a pending request).
+  ReenableRequest rq;
+  assert(!rq.pending && !rq.expireIfOld(100.0, 5.0));
+  rq.request(100.0);
+  assert(rq.pending);
+  assert(!rq.expireIfOld(104.9, 5.0) && rq.pending);   // inside the window
+  assert(!rq.expireIfOld(105.0, 5.0) && rq.pending);   // boundary is inclusive
+  assert(rq.expireIfOld(105.1, 5.0) && !rq.pending);   // expired on this call
+  assert(!rq.expireIfOld(200.0, 5.0));                 // already gone: no second expiry
+  rq.request(300.0);
+  rq.request(303.0);                                   // a new press restarts the window
+  assert(!rq.expireIfOld(307.0, 5.0) && rq.pending);
+  rq.clear();
+  assert(!rq.pending);
+  // Through the latch: an expired press leaves the stop in place even when
+  // every source is fresh later.
+  SupervisionState late;
+  late.latch("odometry");
+  ReenableRequest stale_press;
+  stale_press.request(10.0);
+  (void)stale_press.expireIfOld(10.0 + 60.0, 5.0);
+  assert(late.stopThisTick(stale_press.pending, true) && late.latched);
 
   // Envelope: inside passes; each bound fails on its own; NaN and inf fail.
   const Envelope lim{0.6, 60.0, 6.0};

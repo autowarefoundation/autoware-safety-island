@@ -58,6 +58,37 @@ struct SupervisionState
   }
 };
 
+/// Operator re-enable request with a validity window.
+///
+/// A request that meets a stale source stays pending so one explicit press is
+/// enough once every source is fresh, but only for `window_s`: a press nobody
+/// acts on must not resume driving minutes later when a source happens to
+/// recover. Pure logic (the caller passes the time), so it is host-tested.
+struct ReenableRequest
+{
+  bool pending = false;
+  double requested_at = 0.0;
+
+  void request(double now)
+  {
+    pending = true;
+    requested_at = now;
+  }
+
+  void clear() {pending = false;}
+
+  /// Drops a pending request older than `window_s`. True when it expired on
+  /// this call.
+  bool expireIfOld(double now, double window_s)
+  {
+    if (pending && (now - requested_at) > window_s) {
+      pending = false;
+      return true;
+    }
+    return false;
+  }
+};
+
 /// Arrival-age freshness of one selected source.
 ///
 /// Ages are measured against Clock::now() at callback time, never against
