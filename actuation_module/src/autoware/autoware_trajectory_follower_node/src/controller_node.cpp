@@ -70,6 +70,10 @@ Controller::Controller(const StartupConfig & config)
   stop_decel_mps2_ = static_cast<float>(declare_parameter<double>(
     "stop_decel_mps2", stop_decel_mps2_));
   reenable_window_s_ = declare_parameter<double>("reenable_window_s", reenable_window_s_);
+  // Same node parameters the MPC reads (declare_parameter returns an existing
+  // value), so this is the steering limit the follower saturates at.
+  follower_max_steer_rad_ =
+    autoware::vehicle_info_utils::VehicleInfoUtils(*this).getVehicleInfo().max_steer_angle_rad;
   log_info(
     "Supervision mode: %s; trajectory source: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %.2fs)",
     supervision_mode_ == supervision::Mode::VP_CONTROL ? "vp" : "si",
@@ -790,13 +794,15 @@ void Controller::publishControlCommand(
   out.longitudinal = lon_out.control_cmd;
 
   // The follower only proposes: a non-finite or out-of-envelope command is a
-  // bad normal output and latches SI_STOP instead of being approved (the same
-  // envelope VP_CONTROL applies to VisionPilot's command). This is the one
+  // bad normal output and latches SI_STOP instead of being approved (speed and
+  // acceleration use the same limits VP_CONTROL applies to VisionPilot's command;
+  // steering uses the vehicle's own limit, see follower_max_steer_rad_). This is the one
   // place a candidate from the follower becomes NORMAL, so a bad trajectory
   // source, MPC output or speed horizon cannot reach the actuator unchecked.
   if (const char * why = supervision::envelopeViolation(
       out.lateral.steering_tire_angle, out.longitudinal.velocity, out.longitudinal.acceleration,
-      {max_steering_rad_, max_abs_velocity_mps_, max_abs_accel_mps2_}))
+      // + 1e-3 rad: the MPC clamps in float, exactly at its limit.
+      {follower_max_steer_rad_ + 1e-3, max_abs_velocity_mps_, max_abs_accel_mps2_}))
   {
     latchFault(std::string("follower ") + why);
     log_warn(

@@ -149,6 +149,11 @@ private:
   double max_steering_rad_ = 0.6;
   double max_abs_accel_mps2_ = 6.0;
   double max_abs_velocity_mps_ = 60.0;
+  // Steering bound for the follower's output: the vehicle's own steering limit,
+  // the value the MPC saturates at (vehicle_info max_steer_angle). It is
+  // deliberately not max_steering_rad_: a healthy MPC reaches its saturation,
+  // which is above the tighter bound used for VisionPilot's request.
+  double follower_max_steer_rad_ = 0.70;
 
   // SI_STOP acceleration demand (m/s^2, signed negative requested via
   // StopControl): the actuator realizes the explicit stop without deciding.

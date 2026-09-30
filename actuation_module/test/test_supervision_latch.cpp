@@ -80,6 +80,14 @@ int main()
   assert(envelopeViolation(0.6, 60.0, 6.0, lim) == nullptr);      // bounds are inclusive
   assert(envelopeViolation(-0.6, -60.0, -6.0, lim) == nullptr);   // and symmetric
   assert(envelopeViolation(0.0, 0.0, 0.0, lim) == nullptr);
+  // A healthy MPC saturates at the vehicle's steering limit (0.70 rad, float):
+  // that must stay inside an envelope built from that limit, which the VP
+  // request bound (0.6) would have rejected.
+  const Envelope follower{0.70 + 1e-3, 60.0, 6.0};
+  assert(envelopeViolation(static_cast<double>(0.70f), 5.0, -3.0, follower) == nullptr);
+  assert(envelopeViolation(-static_cast<double>(0.70f), 5.0, -3.0, follower) == nullptr);
+  assert(envelopeViolation(0.71, 5.0, -3.0, follower) != nullptr);
+  assert(envelopeViolation(0.70, 5.0, -3.0, lim) != nullptr);  // the tighter VP bound
   assert(envelopeViolation(0.61, 10.0, 1.0, lim) != nullptr);
   assert(envelopeViolation(0.0, 61.0, 1.0, lim) != nullptr);
   assert(envelopeViolation(0.0, 1.0e6, 1.0, lim) != nullptr);      // a runaway speed horizon
