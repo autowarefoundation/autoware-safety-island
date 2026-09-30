@@ -4,9 +4,12 @@
 #include "autoware/trajectory_follower_node/supervision_latch.hpp"
 
 #include <cassert>
-#include <thread>
+#include <cmath>
+#include <limits>
 
+using autoware::motion::control::trajectory_follower_node::supervision::Envelope;
 using autoware::motion::control::trajectory_follower_node::supervision::SourceWatch;
+using autoware::motion::control::trajectory_follower_node::supervision::envelopeViolation;
 using autoware::motion::control::trajectory_follower_node::supervision::SupervisionState;
 
 int main()
@@ -43,6 +46,23 @@ int main()
   s.latch("odometry");
   assert(s.fault_id == 2 && s.reason == "odometry");
   assert(s.stopThisTick(request, true));  // no request: stays latched
+
+  // Envelope: inside passes; each bound fails on its own; NaN and inf fail.
+  const Envelope lim{0.6, 60.0, 6.0};
+  const double nan = std::nan("");
+  const double inf = std::numeric_limits<double>::infinity();
+  assert(envelopeViolation(0.6, 60.0, 6.0, lim) == nullptr);      // bounds are inclusive
+  assert(envelopeViolation(-0.6, -60.0, -6.0, lim) == nullptr);   // and symmetric
+  assert(envelopeViolation(0.0, 0.0, 0.0, lim) == nullptr);
+  assert(envelopeViolation(0.61, 10.0, 1.0, lim) != nullptr);
+  assert(envelopeViolation(0.0, 61.0, 1.0, lim) != nullptr);
+  assert(envelopeViolation(0.0, 1.0e6, 1.0, lim) != nullptr);      // a runaway speed horizon
+  assert(envelopeViolation(0.0, 10.0, 6.5, lim) != nullptr);
+  assert(envelopeViolation(0.0, 10.0, -6.5, lim) != nullptr);
+  assert(envelopeViolation(nan, 10.0, 1.0, lim) != nullptr);
+  assert(envelopeViolation(0.0, nan, 1.0, lim) != nullptr);
+  assert(envelopeViolation(0.0, 10.0, nan, lim) != nullptr);
+  assert(envelopeViolation(0.0, inf, 1.0, lim) != nullptr);
 
   // SourceWatch: a never-seen source is not stale and has no age.
   SourceWatch w;

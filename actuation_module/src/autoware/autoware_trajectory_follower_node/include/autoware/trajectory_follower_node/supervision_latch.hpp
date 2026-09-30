@@ -5,6 +5,7 @@
 #define AUTOWARE__TRAJECTORY_FOLLOWER_NODE__SUPERVISION_LATCH_HPP_
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -107,6 +108,32 @@ private:
     "fallback would drag a mutex into DDS callback context on the FreeRTOS "
     "target");
 };
+
+/// Actuation envelope an approved command must stay inside.
+struct Envelope
+{
+  double max_steering_rad;
+  double max_abs_velocity_mps;
+  double max_abs_accel_mps2;
+};
+
+/// Why a command is outside the envelope, or nullptr when it is inside. The
+/// comparisons are written "not within" so a NaN fails every one of them; a
+/// plain "x > max" is false for NaN and would wave it through.
+inline const char * envelopeViolation(
+  double steering_rad, double velocity_mps, double accel_mps2, const Envelope & limits)
+{
+  if (!(std::fabs(steering_rad) <= limits.max_steering_rad)) {
+    return "steering out of range";
+  }
+  if (!(std::fabs(velocity_mps) <= limits.max_abs_velocity_mps)) {
+    return "speed out of range";
+  }
+  if (!(std::fabs(accel_mps2) <= limits.max_abs_accel_mps2)) {
+    return "accel out of range";
+  }
+  return nullptr;
+}
 
 }  // namespace supervision
 }  // namespace autoware::motion::control::trajectory_follower_node

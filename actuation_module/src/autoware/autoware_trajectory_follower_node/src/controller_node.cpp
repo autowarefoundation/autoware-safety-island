@@ -773,6 +773,25 @@ void Controller::publishControlCommand(
   out.lateral.stamp = out.stamp;
   out.longitudinal = lon_out.control_cmd;
 
+  // The follower only proposes: a non-finite or out-of-envelope command is a
+  // bad normal output and latches SI_STOP instead of being approved (the same
+  // envelope VP_CONTROL applies to VisionPilot's command). This is the one
+  // place a candidate from the follower becomes NORMAL, so a bad trajectory
+  // source, MPC output or speed horizon cannot reach the actuator unchecked.
+  if (const char * why = supervision::envelopeViolation(
+      out.lateral.steering_tire_angle, out.longitudinal.velocity, out.longitudinal.acceleration,
+      {max_steering_rad_, max_abs_velocity_mps_, max_abs_accel_mps2_}))
+  {
+    latchFault(std::string("follower ") + why);
+    log_warn(
+      "Follower output rejected (%s): steer %.3f rad, speed %.2f m/s, accel %.2f m/s^2",
+      why, static_cast<double>(out.lateral.steering_tire_angle),
+      static_cast<double>(out.longitudinal.velocity),
+      static_cast<double>(out.longitudinal.acceleration));
+    publishSiStop(Clock::now());
+    return;
+  }
+
   // The follower output becomes the approved payload of this cycle; every
   // actuator-facing surface (DDS and CAN, supervised topic and legacy
   // topic) is written only by publishApprovedRequest() below.
