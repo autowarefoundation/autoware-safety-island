@@ -22,6 +22,15 @@
 #ifndef SI_DEFAULT_LEGACY_CONTROL_CMD
 #define SI_DEFAULT_LEGACY_CONTROL_CMD "always"
 #endif
+// Operation-mode reader durability when SI_OPERATION_MODE_DURABILITY is
+// unset. "transient_local" matches the in-repo demo bridge: the state is
+// published only when it changes and the bridge retains it for late-joining
+// safety islands. A deployment whose bridge publishes volatile must select
+// "volatile": a transient_local reader does not match a volatile writer at
+// all (observed on the E2E rig 2026-09-25).
+#ifndef SI_DEFAULT_OPERATION_MODE_DURABILITY
+#define SI_DEFAULT_OPERATION_MODE_DURABILITY "transient_local"
+#endif
 
 namespace autoware::motion::control::trajectory_follower_node
 {
@@ -41,10 +50,18 @@ struct StartupConfig
   // CAN output is not affected by this policy.
   enum class LegacyControlCmd { ALWAYS, STOP_ONLY };
 
+  // Durability requested on /system/operation_mode/state. It must match what
+  // the deployment's bridge offers (offered >= requested): the classic demo
+  // bridge retains the on-change state with TRANSIENT_LOCAL so a late-joining
+  // SI still receives it; the E2E rig's bridge publishes VOLATILE, where a
+  // TRANSIENT_LOCAL request would not match and no state would ever arrive.
+  enum class OpModeDurability { TRANSIENT_LOCAL, VOLATILE };
+
   Mode mode;
   TrajectorySource trajectory_source;
   bool build_default = false;
   LegacyControlCmd legacy_control_cmd = LegacyControlCmd::ALWAYS;
+  OpModeDurability operation_mode_durability = OpModeDurability::TRANSIENT_LOCAL;
 
   // nullptr selects the build default; an invalid value is fatal.
   static LegacyControlCmd parseLegacyControlCmd(const char * value)
@@ -57,6 +74,20 @@ struct StartupConfig
       return LegacyControlCmd::STOP_ONLY;
     }
     throw std::invalid_argument("SI_LEGACY_CONTROL_CMD must be 'always' or 'stop_only'");
+  }
+
+  // nullptr selects the build default; an invalid value is fatal.
+  static OpModeDurability parseOperationModeDurability(const char * value)
+  {
+    const std::string v = value ? value : SI_DEFAULT_OPERATION_MODE_DURABILITY;
+    if (v == "transient_local") {
+      return OpModeDurability::TRANSIENT_LOCAL;
+    }
+    if (v == "volatile") {
+      return OpModeDurability::VOLATILE;
+    }
+    throw std::invalid_argument(
+      "SI_OPERATION_MODE_DURABILITY must be 'transient_local' or 'volatile'");
   }
 
   static StartupConfig parse(const std::string & mode, const std::string & source)
@@ -79,14 +110,18 @@ struct StartupConfig
   // Both unset: the build default. Exactly one set is ambiguous and fatal;
   // an invalid value or combination is fatal as in parse().
   static StartupConfig fromValues(
-    const char * mode, const char * source, const char * legacy_control_cmd = nullptr)
+    const char * mode, const char * source, const char * legacy_control_cmd = nullptr,
+    const char * operation_mode_durability = nullptr)
   {
     // Validated first so a bad value is fatal whichever mode/source path runs.
     const LegacyControlCmd legacy = parseLegacyControlCmd(legacy_control_cmd);
+    const OpModeDurability op_mode_durability =
+      parseOperationModeDurability(operation_mode_durability);
     if (!mode && !source) {
       StartupConfig config = parse(SI_DEFAULT_SUPERVISION_MODE, SI_DEFAULT_TRAJECTORY_SOURCE);
       config.build_default = true;
       config.legacy_control_cmd = legacy;
+      config.operation_mode_durability = op_mode_durability;
       return config;
     }
     if (!mode || !source) {
@@ -95,6 +130,7 @@ struct StartupConfig
     }
     StartupConfig config = parse(mode, source);
     config.legacy_control_cmd = legacy;
+    config.operation_mode_durability = op_mode_durability;
     return config;
   }
 
@@ -102,7 +138,7 @@ struct StartupConfig
   {
     return fromValues(
       std::getenv("SI_SUPERVISION_MODE"), std::getenv("SI_TRAJECTORY_SOURCE"),
-      std::getenv("SI_LEGACY_CONTROL_CMD"));
+      std::getenv("SI_LEGACY_CONTROL_CMD"), std::getenv("SI_OPERATION_MODE_DURABILITY"));
   }
 };
 

@@ -97,6 +97,16 @@ transitional compatibility switch, not a second control path:
 filtered, and CAN output is not affected. An invalid value is fatal at
 startup.
 
+``SI_OPERATION_MODE_DURABILITY`` (``transient_local`` | ``volatile``, build
+default ``SI_DEFAULT_OPERATION_MODE_DURABILITY`` = ``transient_local``)
+selects the durability the SI requests on ``/system/operation_mode/state``.
+The operation mode is published only when it changes, so a reader that does
+not request ``transient_local`` sees nothing if it joins after the last
+change. The default matches the classic demo bridge, which retains the state
+for late-joining SIs; a deployment whose bridge publishes ``volatile`` (the
+E2E rig) selects ``volatile``, because a ``transient_local`` request does not
+match a ``volatile`` writer at all. An invalid value is fatal at startup.
+
 The VP command must be **one compound message**, not independently
 arriving steering, acceleration and speed samples. It must carry steering
 in tire radians, VP's target speed in m/s, acceleration/deceleration in

@@ -76,6 +76,14 @@ does, for example::
 
   ros2 topic pub --once /control/safety_island/reenable std_msgs/msg/Bool "{data: true}"
 
+``SI_OPERATION_MODE_DURABILITY`` (``transient_local`` | ``volatile``, build
+default ``transient_local``) selects the durability the SI requests on
+``/system/operation_mode/state``. It must match the deployment's bridge: the
+demo bridge retains the on-change state with ``transient_local`` so a
+late-joining SI still sees it, while a bridge that publishes ``volatile``
+needs this set to ``volatile`` (a ``transient_local`` request does not match a
+``volatile`` writer at all, so no state would ever arrive).
+
 **********************
 Publications (outputs)
 **********************

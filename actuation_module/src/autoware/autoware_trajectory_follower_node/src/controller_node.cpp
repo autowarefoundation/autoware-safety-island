@@ -84,6 +84,10 @@ Controller::Controller(const StartupConfig & config)
     "Legacy control_cmd policy: %s",
     config.legacy_control_cmd == StartupConfig::LegacyControlCmd::STOP_ONLY ?
     "stop_only" : "always");
+  log_info(
+    "Operation-mode reader durability: %s",
+    config.operation_mode_durability == StartupConfig::OpModeDurability::VOLATILE ?
+    "volatile" : "transient_local");
 
   // Output identity: a nonzero SI session for this process boot, written
   // into every ApprovedRequest so the observer can tell SI restarts apart.
@@ -154,17 +158,21 @@ Controller::Controller(const StartupConfig & config)
   auto subscriber_acceleration = create_subscription<AccelWithCovarianceStampedMsg>("/localization/acceleration",
                                                               &geometry_msgs_msg_AccelWithCovarianceStamped_desc,
                                                               callbackAcceleration, this);
-  // Durability must stay VOLATILE on this topic: the ros2 domain bridge
-  // (0.5.0) publishes with VOLATILE, and a TRANSIENT_LOCAL reader request is
-  // incompatible — the bridge logs "requesting incompatible QoS ... 
-  // DURABILITY_QOS_POLICY" and silently never delivers operation mode, so the
-  // follower never becomes ready (observed on the E2E rig 2026-09-25). The
-  // publisher republishes at 10 Hz, so a late-joining SI still gets a state
-  // within one period; a direct (unbridged) deployment that wants the last
-  // known state on join would need both ends changed together.
+  // Durability must match the deployment's bridge. The operation mode is
+  // published only when it changes: the classic demo bridge retains it with
+  // TRANSIENT_LOCAL so a late-joining SI still receives it (the reader
+  // default), while the E2E rig's bridge publishes VOLATILE, where a
+  // TRANSIENT_LOCAL request does not match at all — the bridge logs
+  // "requesting incompatible QoS ... DURABILITY_QOS_POLICY" and never
+  // delivers a state, so the follower never becomes ready (observed on the
+  // E2E rig 2026-09-25, SI_OPERATION_MODE_DURABILITY=volatile).
+  const auto op_mode_durability =
+    config.operation_mode_durability == StartupConfig::OpModeDurability::VOLATILE ?
+    DDS_DURABILITY_VOLATILE : DDS_DURABILITY_TRANSIENT_LOCAL;
   auto subscriber_operation_mode_state = create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
                                                               &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
-                                                              callbackOperationModeState, this);
+                                                              callbackOperationModeState, this,
+                                                              op_mode_durability);
     
   output_mode_ = common::can::configured_control_command_output_mode();
   log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));

@@ -82,6 +82,35 @@ int main()
   }
   unsetenv("SI_LEGACY_CONTROL_CMD");
 
+  // Operation-mode durability: the build default is transient_local (the
+  // in-repo demo bridge retains the on-change state for late-joining SIs),
+  // volatile is selectable for bridges that publish volatile, and an invalid
+  // value is fatal on both the mode/source and the build-default paths.
+  unsetenv("SI_OPERATION_MODE_DURABILITY");
+  assert(StartupConfig::fromEnvironment().operation_mode_durability ==
+    StartupConfig::OpModeDurability::TRANSIENT_LOCAL);
+  setenv("SI_OPERATION_MODE_DURABILITY", "volatile", 1);
+  assert(StartupConfig::fromEnvironment().operation_mode_durability ==
+    StartupConfig::OpModeDurability::VOLATILE);
+  setenv("SI_OPERATION_MODE_DURABILITY", "transient_local", 1);
+  assert(StartupConfig::fromEnvironment().operation_mode_durability ==
+    StartupConfig::OpModeDurability::TRANSIENT_LOCAL);
+  assert(StartupConfig::fromValues("si", "autoware", nullptr, "volatile")
+           .operation_mode_durability == StartupConfig::OpModeDurability::VOLATILE);
+  assert(StartupConfig::fromValues(nullptr, nullptr, nullptr, "volatile")
+           .operation_mode_durability == StartupConfig::OpModeDurability::VOLATILE);
+  for (const auto & bad : {"", "TRANSIENT_LOCAL", "both"}) {
+    for (const auto & modes : {std::pair<const char *, const char *>{nullptr, nullptr},
+        std::pair<const char *, const char *>{"si", "vp"}})
+    {
+      try {
+        StartupConfig::fromValues(modes.first, modes.second, nullptr, bad);
+        assert(false && "invalid operation-mode durability accepted");
+      } catch (const std::invalid_argument &) {}
+    }
+  }
+  unsetenv("SI_OPERATION_MODE_DURABILITY");
+
   VpCandidateIdentity state;
   SourceStamp first{42, 100};
   assert(state.check(7, 1, first) == CandidateCheck::ACCEPT);
