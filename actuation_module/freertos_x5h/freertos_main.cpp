@@ -17,12 +17,6 @@
 // Either way, rpmsg_transport_init() (Task 7) runs first, inside
 // configure_network()'s own lwip_bring_up_blocking() (see lwip_bringup.c) --
 // nothing here calls it directly.
-//
-// The ELF's frozen memory layout (.text at 0x11600000, .resource_table at
-// 0x96650000 with the exact vdev/vring contents check-elf-contract.sh
-// checks) comes entirely from linking the BSP sample's rsc_table.c (see
-// CMakeLists.txt's X5H_BSP_RPMSG_SOURCES) and the BSP's own linker scripts.
-// No runtime code below needs to execute for the contract check to pass.
 
 #include <cstdio>
 

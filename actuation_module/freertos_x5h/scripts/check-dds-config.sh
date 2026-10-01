@@ -336,6 +336,15 @@ else
         'RPMSG_ETH_MTU[[:space:]]+1500'
     require_match "${RPMSG_NETIF_CORE_H}" "RPMsg side: max frame is not (RPMSG_ETH_MTU + 14)" \
         'RPMSG_ETH_MAX_FRAME[[:space:]]+\(RPMSG_ETH_MTU \+ 14\)'
+fi
+# This asserts against CMakeLists.txt, not rpmsg_netif_core.h, so it gets its
+# own guard on CMakeLists.txt's existence (review finding, MUST FIX): it used
+# to sit inside the RPMSG_NETIF_CORE_H guard above, which meant an unrelated
+# header going missing would silently stop enforcing this branch's central
+# wire constant instead of failing loudly.
+if [ ! -f "${X5H_CMAKE}" ]; then
+    record_fail "missing FreeRTOS-side config: ${X5H_CMAKE#${REPO_ROOT}/}"
+else
     require_match "${X5H_CMAKE}" "FreeRTOS side: RPMSG_BUFFER_SIZE is not 2048 (must equal the kernel's MAX_RPMSG_BUF_SIZE)" \
         'RPMSG_BUFFER_SIZE=2048'
 fi
