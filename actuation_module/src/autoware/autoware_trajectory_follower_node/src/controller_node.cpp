@@ -26,6 +26,7 @@ using namespace common::logger;
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -74,12 +75,18 @@ Controller::Controller(const StartupConfig & config)
   // value), so this is the steering limit the follower saturates at.
   follower_max_steer_rad_ =
     autoware::vehicle_info_utils::VehicleInfoUtils(*this).getVehicleInfo().max_steer_angle_rad;
+  char opmode_limit[24];
+  if (std::isinf(source_timeout_opmode_)) {
+    std::snprintf(opmode_limit, sizeof(opmode_limit), "no limit");
+  } else {
+    std::snprintf(opmode_limit, sizeof(opmode_limit), "%.2fs", source_timeout_opmode_);
+  }
   log_info(
-    "Supervision mode: %s; trajectory source: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %.2fs)",
+    "Supervision mode: %s; trajectory source: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %s)",
     supervision_mode_ == supervision::Mode::VP_CONTROL ? "vp" : "si",
     config.trajectory_source == StartupConfig::TrajectorySource::VP ? "vp" : "autoware",
     source_timeout_candidate_, source_timeout_ego_,
-    source_timeout_steering_, source_timeout_opmode_);
+    source_timeout_steering_, opmode_limit);
   log_info(
     "Legacy control_cmd policy: %s",
     config.legacy_control_cmd == StartupConfig::LegacyControlCmd::STOP_ONLY ?

@@ -122,6 +122,14 @@ int main()
   assert(w.stale(t0 + 0.5001, 0.5));
   assert(w.ageSec(t0 + 0.25) > 0.2499 && w.ageSec(t0 + 0.25) < 0.2501);
 
+  // No age limit (the operation mode): never stale however old, but a source
+  // that was never seen is still reported as unseen, so "seen once" applies.
+  const double never = std::numeric_limits<double>::infinity();
+  SourceWatch opmode;
+  assert(!opmode.ever() && !opmode.stale(t0, never));
+  opmode.note(t0);
+  assert(opmode.ever() && !opmode.stale(t0 + 1.0e9, never));
+
   // A newer arrival refreshes it.
   w.note(t0 + 10.0);
   assert(!w.stale(t0 + 10.4, 0.5));

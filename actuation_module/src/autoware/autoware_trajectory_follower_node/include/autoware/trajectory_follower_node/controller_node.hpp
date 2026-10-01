@@ -31,6 +31,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -136,11 +137,16 @@ private:
   //    rig, so 0.5 s would false-trip;
   //  - ego feedback (odometry + acceleration at 20 Hz): 0.4 s default,
   //    within the agreed 0.3–0.5 s band (measured max gap 116 ms);
-  //  - steering report and operation mode at 10 Hz: 0.5 s.
+  //  - steering report at 10 Hz: 0.5 s;
+  //  - operation mode: no age limit. It is published only when the mode
+  //    changes and the deployment retains it (transient_local), so its age
+  //    says nothing about liveness: after the last change it would go stale
+  //    while everything is healthy. Only "seen at least once" applies; a dead
+  //    Autoware is caught by the trajectory watchdog.
   double source_timeout_candidate_ = 1.0;
   double source_timeout_ego_ = 0.4;
   double source_timeout_steering_ = 0.5;
-  double source_timeout_opmode_ = 0.5;
+  double source_timeout_opmode_ = std::numeric_limits<double>::infinity();
 
   // Actuation sanity bounds applied to the VP command in VP_CONTROL: the
   // supervisor never recomputes VP's decision, but it must reject a request

@@ -259,8 +259,10 @@ closing #62**):
   measured maximum gap is 627 ms (682 ms in the re-run below). Values:
   **1.0 s** for the selected candidate, **0.4 s** default for the 20 Hz
   ego/speed feedback (within the agreed 0.3-0.5 s band), **0.5 s** for
-  the 10 Hz steering report and operation mode. These are per-source
-  watchdogs, not the fault-to-brake gate.
+  the 10 Hz steering report; the operation mode has no age limit (the rig
+  republishes it at 10 Hz, but Autoware and the classic demo publish it only
+  on change, so an age limit would latch a healthy system). These are
+  per-source watchdogs, not the fault-to-brake gate.
 * The 500 ms gate stays as agreed: it starts at SI fault **detection**,
   the control tick that first observes the stale/invalid source, after
   the source has already been declared stale.
@@ -406,7 +408,8 @@ Decision status
        ``TrajectoryCandidate`` adapter path is retired.
    * - Source-age watchdogs
      - **Implemented** in the SI supervisor with the proposed defaults
-       (candidate 1.0 s, ego 0.4 s, steering/opmode 0.5 s), per-source by
+       (candidate 1.0 s, ego 0.4 s, steering 0.5 s; no age limit for the
+       operation mode, which is published on change only), per-source by
        design. Final-ingress rig runs report SI-stated selected-source ages
        of 1.01–1.10 s at detection; the injection→latch figure is reported
        separately because a multi-node source container adds its own
