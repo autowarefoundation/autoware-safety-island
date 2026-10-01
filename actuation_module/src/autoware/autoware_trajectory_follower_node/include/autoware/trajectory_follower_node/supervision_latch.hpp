@@ -73,6 +73,18 @@ struct SupervisionState
   }
 };
 
+/// Speed target of an SI_STOP: v0 - decel * t from the ego speed at the
+/// latch, floored at 0. CARLA's Ackermann controller follows the speed
+/// target, so a step to 0 would brake as hard as that controller allows
+/// rather than at decel. A negative or NaN v0 gives 0, never a negative
+/// target. The acceleration demand stays -decel for the whole stop
+/// (StopControl), so the ramp reaching 0 is never a brake release.
+inline double stopRampVelocity(double v0_mps, double decel_mps2, double elapsed_s)
+{
+  const double v = v0_mps - decel_mps2 * elapsed_s;
+  return v > 0.0 ? v : 0.0;
+}
+
 /// Operator re-enable request with a validity window.
 ///
 /// A request that meets a stale source stays pending so one explicit press is

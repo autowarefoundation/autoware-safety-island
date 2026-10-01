@@ -62,6 +62,8 @@ Controller::Controller(const StartupConfig & config)
     "source_timeout_steering_s", source_timeout_steering_);
   source_timeout_opmode_ = declare_parameter<double>(
     "source_timeout_opmode_s", source_timeout_opmode_);
+  source_timeout_heartbeat_ = declare_parameter<double>(
+    "source_timeout_heartbeat_s", source_timeout_heartbeat_);
   max_steering_rad_ = declare_parameter<double>(
     "max_steering_rad", max_steering_rad_);
   max_abs_accel_mps2_ = declare_parameter<double>(
@@ -82,11 +84,12 @@ Controller::Controller(const StartupConfig & config)
     std::snprintf(opmode_limit, sizeof(opmode_limit), "%.2fs", source_timeout_opmode_);
   }
   log_info(
-    "Supervision mode: %s; trajectory source: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %s)",
+    "Supervision mode: %s; trajectory source: %s (candidate %.2fs ego %.2fs steering %.2fs opmode %s heartbeat %.2fs; stop %.2f m/s^2)",
     supervision_mode_ == supervision::Mode::VP_CONTROL ? "vp" : "si",
     config.trajectory_source == StartupConfig::TrajectorySource::VP ? "vp" : "autoware",
     source_timeout_candidate_, source_timeout_ego_,
-    source_timeout_steering_, opmode_limit);
+    source_timeout_steering_, opmode_limit, source_timeout_heartbeat_,
+    static_cast<double>(stop_decel_mps2_));
   log_info(
     "Legacy control_cmd policy: %s",
     config.legacy_control_cmd == StartupConfig::LegacyControlCmd::STOP_ONLY ?
@@ -199,6 +202,9 @@ Controller::Controller(const StartupConfig & config)
   create_subscription<BoolMsg>(
     "/control/safety_island/reenable", &std_msgs_msg_Bool_desc,
     callbackReenable, this);
+  create_subscription<Float64StampedMsg>(
+    "/safety_island/vp_heartbeat", &tier4_debug_msgs_msg_Float64Stamped_desc,
+    callbackHeartbeat, this);
   approved_request_pub_ = create_publisher<ApprovedRequestMsg>(
     "/control/safety_island/approved_request", &safety_island_msgs_msg_ApprovedRequest_desc);
 
@@ -550,6 +556,12 @@ void Controller::callbackReenable(const BoolMsg* msg, void* arg)
   }
 }
 
+void Controller::callbackHeartbeat(const Float64StampedMsg* msg, void* arg)
+{
+  (void)msg;  // only the arrival counts; the value is VisionPilot's own command
+  static_cast<Controller*>(arg)->watch_heartbeat_.note(Clock::now());
+}
+
 Controller::LateralControllerMode Controller::getLateralControllerMode(
   const std::string & controller_mode) const
 {
@@ -855,6 +867,10 @@ void Controller::latchFault(const std::string & why)
 {
   if (!supervision_.latched) {
     supervision_.latch(why);
+    // Origin of the speed ramp in stoppedPayload(). current_odometry_ is
+    // uninitialized until its first sample, and a heartbeat can latch first.
+    stop_v0_mps_ = has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0;
+    stop_t0_ = Clock::now();
     log_warn("SI_STOP latched: %s (fault_id %u)", why.c_str(), supervision_.fault_id);
     reenable_.clear();  // a fault invalidates an earlier re-enable request
   } else if (supervision_.reason != why) {
@@ -878,6 +894,7 @@ bool Controller::supervisorStaleReason(double now, const char ** reason_out, dou
     {&watch_accel_, source_timeout_ego_, "acceleration"},
     {&watch_steering_, source_timeout_steering_, "steering report"},
     {&watch_opmode_, source_timeout_opmode_, "operation mode"},
+    {&watch_heartbeat_, source_timeout_heartbeat_, "vp heartbeat"},
   };
   for (const auto & check : feedback) {
     if (check.watch->stale(now, check.timeout)) {
@@ -919,6 +936,10 @@ bool Controller::allSourcesFresh(double now) const
     if (!check.watch->ever() || check.watch->stale(now, check.timeout)) {
       return false;
     }
+  }
+  // Optional: a deployment without VisionPilot never sends a heartbeat.
+  if (watch_heartbeat_.stale(now, source_timeout_heartbeat_)) {
+    return false;
   }
   const supervision::SourceWatch * selected =
     supervision_mode_ == supervision::Mode::VP_CONTROL ? &watch_vp_cmd_ : &watch_candidate_;
@@ -1026,6 +1047,10 @@ ControlMsg Controller::stoppedPayload(double now) const
     known = &seed;
   }
   ControlMsg out = supervision::StopControl{}(known, stop_decel_mps2_);
+  if (supervision_.latched) {
+    out.longitudinal.velocity = static_cast<float>(
+      supervision::stopRampVelocity(stop_v0_mps_, stop_decel_mps2_, now - stop_t0_));
+  }
   out.stamp = Clock::toRosTime(now);
   out.lateral.stamp = out.stamp;
   out.longitudinal.stamp = out.stamp;

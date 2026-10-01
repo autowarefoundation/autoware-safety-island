@@ -459,6 +459,14 @@ if(CONFIG_DDS_PEER)
     target_compile_definitions(actuation_x5h PRIVATE CONFIG_NET_CONFIG_PEER_IPV4_ADDR="${CONFIG_DDS_PEER}")
 endif()
 target_compile_definitions(actuation_x5h PRIVATE CONFIG_DDS_DISABLE_MULTICAST=1)
+# The X5H has no environment and loads no node parameters, so these two
+# defaults are compiled in. stop_only keeps the SI silent on control_cmd until
+# it stops the car: the demo's command arbiter prefers any fresh CR52 command.
+# 3.0 m/s^2 is the SI_STOP deceleration that the demo's stop gate (D6) was
+# validated with.
+target_compile_definitions(actuation_x5h PRIVATE
+    SI_DEFAULT_LEGACY_CONTROL_CMD="stop_only"
+    SI_DEFAULT_STOP_DECEL_MPS2=3.0f)
 # Controller node thread stack. autoware_mpc_lateral_controller's Eigen-heavy
 # control cycle overflowed a 256 KiB stack by a few hundred bytes on S32Z2
 # (same component, same Cortex-R52 + NEON ABI); 512 KiB gives ~2x margin.
