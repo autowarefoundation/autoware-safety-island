@@ -40,6 +40,12 @@
 #include "common/node/node.hpp"
 #include "autoware/autoware_msgs/messages.hpp"
 
+// SI_STOP deceleration when the stop_decel_mps2 parameter is unset. A target
+// that loads no node parameters (the X5H) selects its value at build time.
+#ifndef SI_DEFAULT_STOP_DECEL_MPS2
+#define SI_DEFAULT_STOP_DECEL_MPS2 1.5f
+#endif
+
 namespace autoware::motion::control
 {
 using trajectory_follower::LateralOutput;
@@ -87,6 +93,7 @@ private:
   static void callbackDrivingReference(const DrivingReferenceMsg* msg, void* arg);
   static void callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg);
   static void callbackReenable(const BoolMsg* msg, void* arg);
+  static void callbackHeartbeat(const Float64StampedMsg* msg, void* arg);
 
   // Current Data
   TrajectoryMsg current_trajectory_;
@@ -147,6 +154,10 @@ private:
   double source_timeout_ego_ = 0.4;
   double source_timeout_steering_ = 0.5;
   double source_timeout_opmode_ = std::numeric_limits<double>::infinity();
+  //  - VisionPilot heartbeat (/safety_island/vp_heartbeat, one sample per
+  //    VP command): 0.5 s. Not stale before its first sample, so a board
+  //    that boots without VisionPilot never stops a car nobody drives.
+  double source_timeout_heartbeat_ = 0.5;
 
   // Actuation sanity bounds applied to the VP command in VP_CONTROL: the
   // supervisor never recomputes VP's decision, but it must reject a request
@@ -163,8 +174,13 @@ private:
 
   // SI_STOP acceleration demand (m/s^2, signed negative requested via
   // StopControl): the actuator realizes the explicit stop without deciding.
-  float stop_decel_mps2_ = 1.5f;
+  float stop_decel_mps2_ = SI_DEFAULT_STOP_DECEL_MPS2;
+  // Ego speed and time at the latch: the origin of the SI_STOP speed ramp
+  // in stoppedPayload().
+  double stop_v0_mps_ = 0.0;
+  double stop_t0_ = 0.0;
 
+  supervision::SourceWatch watch_heartbeat_;
   supervision::SourceWatch watch_steering_;
   supervision::SourceWatch watch_odom_;
   supervision::SourceWatch watch_accel_;
@@ -213,9 +229,10 @@ private:
     const ControlMsg & control);
   void publishSiStop(double now);
   void publishHold();
-  // The conservative stopped payload shared by SI_STOP and HOLD: velocity 0,
-  // the stop deceleration, and the last known steering (from the last approved
-  // command, else the vehicle's steering report, else 0).
+  // The conservative stopped payload shared by SI_STOP and HOLD: the stop
+  // deceleration, the last known steering (from the last approved command,
+  // else the vehicle's steering report, else 0), and velocity 0, or under
+  // SI_STOP the speed ramp from the ego speed at the latch.
   ControlMsg stoppedPayload(double now) const;
   // True once odometry, acceleration, steering and operation mode have each
   // arrived at least once.
