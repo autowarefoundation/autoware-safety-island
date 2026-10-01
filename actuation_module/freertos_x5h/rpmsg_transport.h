@@ -54,6 +54,11 @@ extern "C" {
 // rpmsg_transport.c's own comments at each return site).
 int rpmsg_transport_init(void);
 
+// Creates the second endpoint "rpmsg-si" on the vdev rpmsg_transport_init()
+// made, and starts the 1 Hz heartbeat. Call once, after
+// rpmsg_transport_init() returned 0.
+int rpmsg_transport_si_init(void);
+
 // Sends one already-framed Ethernet frame (buf/len, at most
 // RPMSG_ETH_MAX_FRAME bytes -- enforced by rpmsg_netif_core_tx() before this
 // is ever called) over the RPMsg endpoint. Returns 0 on success, non-zero
