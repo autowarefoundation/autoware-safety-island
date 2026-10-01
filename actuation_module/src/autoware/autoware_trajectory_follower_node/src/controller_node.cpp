@@ -24,6 +24,10 @@ using namespace common::logger;
 
 #include "platform/platform_threading.h"
 
+#if defined(PLATFORM_FREERTOS_X5H)
+#include "si_channel.h"
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -674,6 +678,15 @@ void Controller::callbackTimerControl()
         stale_reason, stale_age, supervision_.fault_id);
     }
   }
+#if defined(PLATFORM_FREERTOS_X5H)
+  // rpmsg-si fault input from Linux. Only the rising edge latches: fault=0
+  // does not release a stop, only an operator re-enable does.
+  const bool si_fault = si_channel_fault() != 0;
+  if (si_fault && !si_fault_was_) {
+    latchFault("si fault input");
+  }
+  si_fault_was_ = si_fault;
+#endif
 
   // 2. Re-enable: an explicit operator request clears the latch only once
   // every checked source is fresh again — a still-dead source cannot resume
@@ -941,6 +954,12 @@ bool Controller::allSourcesFresh(double now) const
   if (watch_heartbeat_.stale(now, source_timeout_heartbeat_)) {
     return false;
   }
+#if defined(PLATFORM_FREERTOS_X5H)
+  // A fault input still held at 1 has not recovered.
+  if (si_channel_fault() != 0) {
+    return false;
+  }
+#endif
   const supervision::SourceWatch * selected =
     supervision_mode_ == supervision::Mode::VP_CONTROL ? &watch_vp_cmd_ : &watch_candidate_;
   if (!selected->ever() ||
