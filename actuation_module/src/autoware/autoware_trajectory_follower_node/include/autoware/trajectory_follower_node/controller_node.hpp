@@ -199,9 +199,6 @@ private:
   // VP command supervision state (VP_CONTROL).
   DrivingCommandMsg current_vp_cmd_{};
   bool has_vp_cmd_ = false;
-  uint32_t vp_session_ = 0;
-  bool vp_session_valid_ = false;
-  uint64_t vp_cycle_ = 0;
   uint32_t accepted_source_session_ = 0;
   uint64_t accepted_source_cycle_ = 0;
 

@@ -465,27 +465,6 @@ void Controller::callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg)
   const double now = Clock::now();
   const DrivingCommandMsg in = *msg;  // scalar fields only: safe plain copy
 
-  if (controller->vp_session_valid_ && in.session != controller->vp_session_) {
-    log_info(
-      "VP session %u -> %u (VP restart); cycle tracking reset",
-      controller->vp_session_, in.session);
-    controller->vp_cycle_ = 0;
-  }
-  controller->vp_session_ = in.session;
-  controller->vp_session_valid_ = true;
-
-  // Old, duplicate or reordered data must never become fresh again just
-  // because something republished it (vp_si_control_contract). A cycle
-  // regression is a genuine stream fault, so it latches SI_STOP.
-  if (in.cycle <= controller->vp_cycle_) {
-    controller->latchFault("vp cycle regression");
-    log_warn(
-      "VP cycle regression: %llu <= %llu (session %u)",
-      (unsigned long long)in.cycle, (unsigned long long)controller->vp_cycle_, in.session);
-    return;
-  }
-  controller->vp_cycle_ = in.cycle;
-
   // 'valid=false' means VP produced no usable plan this cycle. That is a
   // legitimate miss, not itself a fault: persistent loss is covered by the
   // per-source freshness check on the control timer.
@@ -499,6 +478,24 @@ void Controller::callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg)
     log_warn_throttle(
       "VP cycle %llu has no source stamp: driving decision cannot be traced",
       (unsigned long long)in.cycle);
+    return;
+  }
+  // In VP_CONTROL the command reaches the actuator unchanged, so this is the
+  // only identity gate between VisionPilot and the vehicle. It is the same
+  // gate the DrivingReference path uses: a repeated camera frame is not
+  // fresh (a new cycle on an old frame must not keep the watchdog alive), a
+  // retired or regressing session/cycle/stamp is a stream fault, and the first
+  // sample is accepted whatever its cycle number.
+  const SourceStamp stamp{in.source_stamp.sec, in.source_stamp.nanosec};
+  const auto check = controller->vp_candidate_identity_.check(in.session, in.cycle, stamp);
+  if (check == CandidateCheck::DUPLICATE) {
+    return;  // same cycle or camera frame: do not refresh the watchdog
+  }
+  if (check != CandidateCheck::ACCEPT) {
+    controller->latchFault("vp command regression or invalid stamp");
+    log_warn(
+      "VP command regression or invalid stamp: session %u cycle %llu",
+      in.session, (unsigned long long)in.cycle);
     return;
   }
   if (!std::isfinite(in.steering_tire_angle_rad) ||
@@ -532,6 +529,7 @@ void Controller::callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg)
 
   // The supervised request is accepted as-is: in VP_CONTROL SI must not
   // recompute VP's driving decision, only check and pass it (or stop).
+  controller->vp_candidate_identity_.note(in.session, in.cycle, stamp);
   controller->current_vp_cmd_ = in;
   controller->has_vp_cmd_ = true;
   controller->watch_vp_cmd_.note(now);
