@@ -42,10 +42,17 @@ list is fixed in ``demo/bridge/bridge-config.yaml``.
 
        Autoware -- trajectory, odometry,<br/>steering, accel,<br/>operation_mode --> Bridge
        Bridge -- forwarded topics --> Firmware
-       Firmware -- control_cmd --> Bridge
+       Firmware -- legacy control_cmd<br/>(SI_LEGACY_CONTROL_CMD) --> Bridge
        Bridge -- control_cmd --> Autoware
 
 Full topic list with message types: :doc:`topics`.
+
+The SI's authoritative supervised output,
+``/control/safety_island/approved_request``, and the re-enable input,
+``/control/safety_island/reenable``, stay on domain 2; the E2E rig's single
+CARLA actuator consumes the former and the rig tools publish the latter
+there. The demo bridge above carries the legacy ``control_cmd`` topic only.
+See :doc:`topics` and :doc:`vp_si_control_contract`.
 
 The default AVH / Zephyr FVP TAP demo domains are configured through
 ``demo/cyclonedds.xml``. S32Z hardware (Zephyr or FreeRTOS) uses
@@ -82,11 +89,15 @@ At construction the controller:
    dominant cost on a Cortex-R class core.
 2. Declares a stale-output timeout of **0.5 s**. The ``isTimeOut`` helper still
    exists in ``controller_node.cpp``, but the call is currently disabled in the
-   timer callback. Missing inputs are handled by ``processData``, which skips
-   the tick and logs a throttled "Waiting for ..." message.
+   timer callback. Input readiness is handled by ``processData`` and the
+   supervisor: before an input has ever arrived the tick publishes ``HOLD``;
+   once a source has been seen, its own arrival watchdog governs, and a stale
+   selected candidate or vehicle feedback latches ``SI_STOP`` until the explicit
+   re-enable (see :doc:`vp_si_control_contract`).
 3. Instantiates the lateral controller (``mpc`` — only mode currently
    supported) and the longitudinal controller (``pid``).
-4. Creates five subscriptions and three publishers. See :doc:`topics`.
+4. Creates the subscriptions and publishers listed in :doc:`topics`; the set
+   depends on the startup mode/source.
 5. Starts a periodic timer that runs ``callbackTimerControl`` every
    ``ctrl_period``.
 

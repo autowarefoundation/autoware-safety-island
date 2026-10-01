@@ -334,4 +334,59 @@ if(BUILD_TEST STREQUAL "1")
         COMMENT "Running trajectory_buffer_policy host unit test"
         VERBATIM
     )
+
+    # Startup selection and source-identity checks are pure host logic; keep
+    # them in the existing --unit-test build rather than relying on a manual
+    # compiler command during rig verification.
+    set(CANDIDATE_SELECTION_TEST_MAIN
+        ${ACTUATION_DIR}/test/test_candidate_selection.cpp)
+    add_executable(candidate_selection_test ${CANDIDATE_SELECTION_TEST_MAIN})
+    set_source_files_properties(${CANDIDATE_SELECTION_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+    target_include_directories(candidate_selection_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+    target_compile_options(candidate_selection_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET candidate_selection_test POST_BUILD
+        COMMAND candidate_selection_test
+        COMMENT "Running candidate selection host unit test"
+        VERBATIM
+    )
+
+    # The SI fault latch and its re-enable step are pure host logic, same
+    # pattern as the tests above.
+    set(SUPERVISION_LATCH_TEST_MAIN
+        ${ACTUATION_DIR}/test/test_supervision_latch.cpp)
+    add_executable(supervision_latch_test ${SUPERVISION_LATCH_TEST_MAIN})
+    set_source_files_properties(${SUPERVISION_LATCH_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+    target_include_directories(supervision_latch_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+    target_compile_options(supervision_latch_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET supervision_latch_test POST_BUILD
+        COMMAND supervision_latch_test
+        COMMENT "Running supervision latch host unit test"
+        VERBATIM
+    )
+
+    # VP DrivingReference -> follower trajectory (SI_CONTROL + VP ingress) is
+    # pure host logic too.
+    set(VP_REFERENCE_TEST_MAIN
+        ${ACTUATION_DIR}/test/test_vp_reference.cpp)
+    add_executable(vp_reference_test ${VP_REFERENCE_TEST_MAIN})
+    set_source_files_properties(${VP_REFERENCE_TEST_MAIN} PROPERTIES
+        COMPILE_DEFINITIONS "main=main"
+    )
+    target_include_directories(vp_reference_test PRIVATE
+        ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
+    )
+    target_compile_options(vp_reference_test PRIVATE -Wall -Wextra)
+    add_custom_command(TARGET vp_reference_test POST_BUILD
+        COMMAND vp_reference_test
+        COMMENT "Running VP reference host unit test"
+        VERBATIM
+    )
 endif()

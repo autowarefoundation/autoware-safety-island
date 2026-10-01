@@ -1,3 +1,10 @@
+# Legacy demo bridge: forwards the classic domain-1 inputs and the legacy
+# control_cmd output only. The supervised interfaces
+# (/control/safety_island/approved_request, /control/safety_island/reenable
+# and the visionpilot_msgs candidate inputs) are not bridged here; the E2E rig
+# wires them on domain 2 / with its own bridge configuration. See
+# documentation/design/topics.rst.
+
 # Name of the domain bridge, used for node naming and logging
 name: safety_island_bridge
 topics:

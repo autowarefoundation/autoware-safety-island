@@ -1,0 +1,48 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from visionpilot_msgs/msg/DrivingCommand.msg
+// generated code does not contain a copyright notice
+
+#include "Time.idl"
+
+module visionpilot_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "One VisionPilot driving command produced from a single camera cycle." "\n"
+      "" "\n"
+      "VP_CONTROL: the Safety Island checks this request and may replace it with" "\n"
+      "its own stop/hold response, but must not recompute VP's normal decision.")
+    struct DrivingCommand {
+      @verbatim (language="comment", text=
+        "When VP produced this command (VP host clock).")
+      builtin_interfaces::msg::Time stamp;
+
+      @verbatim (language="comment", text=
+        "Capture time of the camera frame this cycle's decision came from." "\n"
+        "Carried through from the image header so consumers can match the same" "\n"
+        "camera cycle instead of using arrival/publication time.")
+      builtin_interfaces::msg::Time source_stamp;
+
+      boolean has_source_stamp;
+
+      @verbatim (language="comment", text=
+        "VP process session (changes on restart) and strictly increasing cycle" "\n"
+        "counter for duplicate/order detection.")
+      uint32 session;
+
+      uint64 cycle;
+
+      @verbatim (language="comment", text=
+        "False when the upstream pipeline produced no usable plan this cycle.")
+      boolean valid;
+
+      @verbatim (language="comment", text=
+        "Steering tyre angle (rad, positive left) and longitudinal intent:" "\n"
+        "signed acceleration plus the speed VP intends after the planning horizon.")
+      double steering_tire_angle_rad;
+
+      double target_speed_mps;
+
+      double acceleration_mps2;
+    };
+  };
+};

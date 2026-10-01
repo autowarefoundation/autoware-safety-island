@@ -13,6 +13,26 @@ using namespace common::logger;
 int main(void)
 {
     autoware::motion::control::trajectory_follower_node::Controller* controller;
+    using autoware::motion::control::trajectory_follower_node::StartupConfig;
+
+    // Fail before creating any DDS endpoint or actuator-facing publisher if
+    // the requested startup mode/source is invalid or half-set; with neither
+    // variable set the build default applies. The selection is copied into
+    // Controller and cannot change during a run.
+    std::optional<StartupConfig> startup;
+    try {
+        startup = StartupConfig::fromEnvironment();
+    } catch (const std::exception& e) {
+        log_error("Safety Island startup configuration rejected: %s", e.what());
+        // FreeRTOS POSIX runs this main inside a task. Returning would delete
+        // the task but leave the scheduler/process alive without an SI.
+        std::exit(1);
+    }
+
+    if (startup->build_default) {
+        log_info("SI_SUPERVISION_MODE/SI_TRAJECTORY_SOURCE unset: build default %s/%s",
+                 SI_DEFAULT_SUPERVISION_MODE, SI_DEFAULT_TRAJECTORY_SOURCE);
+    }
 
     log_success("-----------------------------------------");
     log_success("ARM - Autoware: Actuation Safety Island");
@@ -45,7 +65,7 @@ int main(void)
     log_info("Starting Controller Node...");
     try
     {
-        controller = new autoware::motion::control::trajectory_follower_node::Controller();
+        controller = new autoware::motion::control::trajectory_follower_node::Controller(*startup);
         int ret = controller->spin();
         if (ret != 0) {
             log_error("Failed to start Controller Node");
