@@ -50,6 +50,8 @@
 // one image that cannot say why it stopped.
 #include "x5h_diag.h"
 
+#include "common/actuation_param_profile.h"
+
 // ---- task priorities ----
 //
 // CORRECTED (this replaces a stated invariant an earlier whole-branch review
@@ -364,9 +366,11 @@ int main(void) {
     x5h_diag_gic_capture_boot();
 #endif
 #ifdef X5H_NETIF_ONLY
-    printf("FreeRTOS X5H (netif-only) starting...\n");
+    printf("FreeRTOS X5H (netif-only) starting"
+           " (actuation_param_profile=" ACTUATION_PARAM_PROFILE_NAME ")...\n");
 #else
-    printf("FreeRTOS X5H actuation starting...\n");
+    printf("FreeRTOS X5H actuation starting"
+           " (actuation_param_profile=" ACTUATION_PARAM_PROFILE_NAME ")...\n");
 #endif
 
     TaskHandle_t task_handle = nullptr;
