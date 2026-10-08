@@ -13,6 +13,7 @@ using autoware::motion::control::trajectory_follower_node::supervision::SourceWa
 using autoware::motion::control::trajectory_follower_node::supervision::envelopeViolation;
 using autoware::motion::control::trajectory_follower_node::supervision::SupervisionState;
 using autoware::motion::control::trajectory_follower_node::supervision::siSessionFromClock;
+using autoware::motion::control::trajectory_follower_node::supervision::stopRampVelocity;
 
 int main()
 {
@@ -133,5 +134,19 @@ int main()
   // A newer arrival refreshes it.
   w.note(t0 + 10.0);
   assert(!w.stale(t0 + 10.4, 0.5));
+
+  // SI_STOP speed ramp: v0 - decel * t from the ego speed at the latch,
+  // floored at 0; a negative or NaN ego speed never gives a negative target,
+  // and an infinite or out-of-range one stops from 0.
+  assert(stopRampVelocity(5.0, 3.0, 0.0, 60.0) == 5.0);
+  assert(stopRampVelocity(5.0, 3.0, 1.0, 60.0) == 2.0);
+  assert(stopRampVelocity(5.0, 3.0, 2.0, 60.0) == 0.0);
+  assert(stopRampVelocity(5.0, 3.0, 60.0, 60.0) == 0.0);
+  assert(stopRampVelocity(60.0, 3.0, 0.0, 60.0) == 60.0);
+  assert(stopRampVelocity(-2.0, 3.0, 0.0, 60.0) == 0.0);
+  assert(stopRampVelocity(nan, 3.0, 0.0, 60.0) == 0.0);
+  assert(stopRampVelocity(inf, 3.0, 60.0, 60.0) == 0.0);
+  assert(stopRampVelocity(-inf, 3.0, 0.0, 60.0) == 0.0);
+  assert(stopRampVelocity(60.5, 3.0, 0.0, 60.0) == 0.0);
   return 0;
 }
