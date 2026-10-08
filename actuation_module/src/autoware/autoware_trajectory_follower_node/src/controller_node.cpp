@@ -1049,7 +1049,8 @@ ControlMsg Controller::stoppedPayload(double now) const
   ControlMsg out = supervision::StopControl{}(known, stop_decel_mps2_);
   if (supervision_.latched) {
     out.longitudinal.velocity = static_cast<float>(
-      supervision::stopRampVelocity(stop_v0_mps_, stop_decel_mps2_, now - stop_t0_));
+      supervision::stopRampVelocity(
+        stop_v0_mps_, stop_decel_mps2_, now - stop_t0_, max_abs_velocity_mps_));
   }
   out.stamp = Clock::toRosTime(now);
   out.lateral.stamp = out.stamp;

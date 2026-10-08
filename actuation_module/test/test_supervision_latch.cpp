@@ -136,12 +136,17 @@ int main()
   assert(!w.stale(t0 + 10.4, 0.5));
 
   // SI_STOP speed ramp: v0 - decel * t from the ego speed at the latch,
-  // floored at 0; a negative or NaN ego speed never gives a negative target.
-  assert(stopRampVelocity(5.0, 3.0, 0.0) == 5.0);
-  assert(stopRampVelocity(5.0, 3.0, 1.0) == 2.0);
-  assert(stopRampVelocity(5.0, 3.0, 2.0) == 0.0);
-  assert(stopRampVelocity(5.0, 3.0, 60.0) == 0.0);
-  assert(stopRampVelocity(-2.0, 3.0, 0.0) == 0.0);
-  assert(stopRampVelocity(nan, 3.0, 0.0) == 0.0);
+  // floored at 0; a negative or NaN ego speed never gives a negative target,
+  // and an infinite or out-of-range one stops from 0.
+  assert(stopRampVelocity(5.0, 3.0, 0.0, 60.0) == 5.0);
+  assert(stopRampVelocity(5.0, 3.0, 1.0, 60.0) == 2.0);
+  assert(stopRampVelocity(5.0, 3.0, 2.0, 60.0) == 0.0);
+  assert(stopRampVelocity(5.0, 3.0, 60.0, 60.0) == 0.0);
+  assert(stopRampVelocity(60.0, 3.0, 0.0, 60.0) == 60.0);
+  assert(stopRampVelocity(-2.0, 3.0, 0.0, 60.0) == 0.0);
+  assert(stopRampVelocity(nan, 3.0, 0.0, 60.0) == 0.0);
+  assert(stopRampVelocity(inf, 3.0, 60.0, 60.0) == 0.0);
+  assert(stopRampVelocity(-inf, 3.0, 0.0, 60.0) == 0.0);
+  assert(stopRampVelocity(60.5, 3.0, 0.0, 60.0) == 0.0);
   return 0;
 }
