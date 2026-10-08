@@ -3,16 +3,19 @@
 #include <stdio.h>
 #include <string.h>
 
-// Concurrency invariant: s_fault and s_rx_count are written ONLY from
-// si_channel_rx() (rpmsg_transport.c's si_ept_cb, poll-task context) and
-// read from other tasks (the heartbeat task today; the control task in the
-// next task). That single-writer/multiple-reader split, combined with this
+// Concurrency invariant: s_fault, s_fault_events and s_rx_count are written
+// ONLY from si_channel_rx() (rpmsg_transport.c's si_ept_cb, poll-task
+// context) and read from other tasks (the heartbeat task and the control
+// task). That single-writer/multiple-reader split, combined with this
 // being a single-core target, is what makes a plain read/write of an
 // aligned int/unsigned safe without a lock -- NOT the `volatile` qualifier,
 // which only tells the compiler not to cache the value in a register across
 // calls and gives no atomicity guarantee by itself. If a second writer is
 // ever added, this reasoning no longer holds and a real lock is needed.
+// It is also why a missed fault is a counter the reader compares, not a
+// pending flag the reader clears: clearing would be that second writer.
 static volatile int s_fault;
+static volatile unsigned s_fault_events;
 static volatile unsigned s_rx_count;
 
 static int eq(const char *s, unsigned len, const char *lit)
@@ -54,11 +57,15 @@ void si_channel_rx(const void *data, unsigned len)
 {
     s_rx_count++;
     switch (si_channel_parse(data, len)) {
-    case SI_MSG_FAULT_SET:   s_fault = 1; break;
+    case SI_MSG_FAULT_SET:
+        if (!s_fault) s_fault_events++;
+        s_fault = 1;
+        break;
     case SI_MSG_FAULT_CLEAR: s_fault = 0; break;
     default: break;
     }
 }
 
 int si_channel_fault(void) { return s_fault; }
+unsigned si_channel_fault_events(void) { return s_fault_events; }
 unsigned si_channel_rx_count(void) { return s_rx_count; }

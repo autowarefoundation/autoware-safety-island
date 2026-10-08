@@ -679,13 +679,15 @@ void Controller::callbackTimerControl()
     }
   }
 #if defined(PLATFORM_FREERTOS_X5H)
-  // rpmsg-si fault input from Linux. Only the rising edge latches: fault=0
-  // does not release a stop, only an operator re-enable does.
-  const bool si_fault = si_channel_fault() != 0;
-  if (si_fault && !si_fault_was_) {
+  // rpmsg-si fault input from Linux. A fault rising edge latches even when
+  // fault=0 follows before this tick: the event count keeps the edge after
+  // the level is back at 0. fault=0 does not release a stop, only an
+  // operator re-enable does.
+  const unsigned si_fault_events = si_channel_fault_events();
+  if (si_fault_events != si_fault_events_seen_) {
+    si_fault_events_seen_ = si_fault_events;
     latchFault("si fault input");
   }
-  si_fault_was_ = si_fault;
 #endif
 
   // 2. Re-enable: an explicit operator request clears the latch only once

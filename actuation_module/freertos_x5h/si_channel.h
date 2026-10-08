@@ -38,6 +38,10 @@ int si_channel_format_hb(char *buf, unsigned cap, unsigned seq, unsigned uptime_
 /* Receive path: applies the parsed message to the fault latch. */
 void si_channel_rx(const void *data, unsigned len);
 int si_channel_fault(void);
+/* Count of fault 0->1 edges since boot. The level alone loses a fault=1 then
+ * fault=0 pair that lands between two reads, so a reader latches when this
+ * count changes. Unsigned wrap is harmless: compare with !=. */
+unsigned si_channel_fault_events(void);
 unsigned si_channel_rx_count(void);
 
 #ifdef __cplusplus
