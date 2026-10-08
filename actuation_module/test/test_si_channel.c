@@ -32,6 +32,17 @@ int main(void)
     si_channel_rx("fault=0", 7);
     assert(si_channel_fault() == 0);
     assert(si_channel_rx_count() == 3);
+    assert(si_channel_fault_events() == 1);
+
+    /* fault=1 then fault=0 between two reads: the level is back at 0, but the
+     * event count still moves, so the controller latches. */
+    si_channel_rx("fault=1", 7);
+    si_channel_rx("fault=0", 7);
+    assert(si_channel_fault() == 0);
+    assert(si_channel_fault_events() == 2);
+    si_channel_rx("fault=1", 7);
+    si_channel_rx("fault=1", 7);        /* a repeat while held is not an edge */
+    assert(si_channel_fault_events() == 3);
 
     int n = si_channel_format_hb(buf, sizeof buf, 7, 12345, 1);
     assert(n > 0);

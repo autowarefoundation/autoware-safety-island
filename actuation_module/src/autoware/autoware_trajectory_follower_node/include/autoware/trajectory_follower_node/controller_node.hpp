@@ -179,8 +179,8 @@ private:
   // in stoppedPayload().
   double stop_v0_mps_ = 0.0;
   double stop_t0_ = 0.0;
-  // X5H rpmsg-si fault input at the last control tick, for its rising edge.
-  bool si_fault_was_ = false;
+  // X5H rpmsg-si fault event count already latched (si_channel_fault_events()).
+  unsigned si_fault_events_seen_ = 0;
 
   supervision::SourceWatch watch_heartbeat_;
   supervision::SourceWatch watch_steering_;
