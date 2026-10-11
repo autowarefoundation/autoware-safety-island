@@ -175,10 +175,8 @@ private:
   // SI_STOP acceleration demand (m/s^2, signed negative requested via
   // StopControl): the actuator realizes the explicit stop without deciding.
   float stop_decel_mps2_ = SI_DEFAULT_STOP_DECEL_MPS2;
-  // Ego speed and time at the latch: the origin of the SI_STOP speed ramp
-  // in stoppedPayload().
-  double stop_v0_mps_ = 0.0;
-  double stop_t0_ = 0.0;
+  // Fresh ego speed and monotonic time at the latch: the SI_STOP ramp origin.
+  supervision::StopRamp stop_ramp_;
   // X5H rpmsg-si fault event count already latched (si_channel_fault_events()).
   unsigned si_fault_events_seen_ = 0;
 

@@ -14,6 +14,9 @@ using autoware::motion::control::trajectory_follower_node::supervision::envelope
 using autoware::motion::control::trajectory_follower_node::supervision::SupervisionState;
 using autoware::motion::control::trajectory_follower_node::supervision::siSessionFromClock;
 using autoware::motion::control::trajectory_follower_node::supervision::stopRampVelocity;
+using autoware::motion::control::trajectory_follower_node::supervision::StopRamp;
+
+static_assert(StopRamp::Clock::is_steady, "SI_STOP ramp duration must use a monotonic clock");
 
 int main()
 {
@@ -148,5 +151,32 @@ int main()
   assert(stopRampVelocity(inf, 3.0, 60.0, 60.0) == 0.0);
   assert(stopRampVelocity(-inf, 3.0, 0.0, 60.0) == 0.0);
   assert(stopRampVelocity(60.5, 3.0, 0.0, 60.0) == 0.0);
+
+  // Unseen or stale odometry must not seed a positive SI_STOP speed target.
+  const auto mono_t0 = StopRamp::Clock::time_point{} + std::chrono::seconds(100);
+  SourceWatch odometry;
+  StopRamp ramp;
+  ramp.start(10.0, odometry, t0, 0.4, mono_t0);
+  assert(ramp.velocity(3.0, 60.0, mono_t0) == 0.0);
+  odometry.note(t0);
+  ramp.start(10.0, odometry, t0 + 0.5, 0.4, mono_t0);
+  assert(ramp.velocity(3.0, 60.0, mono_t0) == 0.0);
+  assert(ramp.velocity(3.0, 60.0, mono_t0 + std::chrono::seconds(1)) == 0.0);
+  // Recovery does not change the origin of an already latched stop.
+  odometry.note(t0 + 0.6);
+  assert(ramp.velocity(3.0, 60.0, mono_t0 + std::chrono::seconds(1)) == 0.0);
+
+  // Fresh feedback preserves the normal ramp, including the timeout boundary.
+  odometry.note(t0);
+  ramp.start(5.0, odometry, t0 + 0.5, 0.5, mono_t0);
+  assert(ramp.velocity(3.0, 60.0, mono_t0) == 5.0);
+  assert(ramp.velocity(3.0, 60.0, mono_t0 + std::chrono::seconds(1)) == 2.0);
+  // A wall-clock rollback changes arrival ages, but cannot rewind this ramp.
+  assert(!odometry.stale(t0 - 10.0, 0.5));
+  assert(ramp.velocity(3.0, 60.0, mono_t0 + std::chrono::milliseconds(1500)) == 0.5);
+  assert(ramp.velocity(3.0, 60.0, mono_t0 + std::chrono::seconds(2)) == 0.0);
+  assert(ramp.velocity(3.0, 60.0, mono_t0 + std::chrono::seconds(3)) == 0.0);
+  ramp.start(inf, odometry, t0, 0.4, mono_t0);
+  assert(ramp.velocity(3.0, 60.0, mono_t0) == 0.0);
   return 0;
 }

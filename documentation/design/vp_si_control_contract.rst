@@ -143,6 +143,13 @@ legacy raw follower output must not be routed to CARLA around this gate.
 The selected DDS/CAN output mode is configured per run; the CAN demo is
 not enabled simultaneously with the first DDS rig.
 
+``SI_STOP`` holds the last known steering and requests ``-stop_decel_mps2``
+throughout the stop. Its speed target ramps down from the ego speed captured
+at the latch only when odometry is fresh; unseen, stale or invalid ego speed
+uses a zero-speed stop instead. Ramp duration uses a monotonic clock, so a
+wall-clock correction cannot restart a completed ramp. Output stamps and
+source-arrival watchdogs still use the SI system clock.
+
 Implementations and wire layout
 -------------------------------
 

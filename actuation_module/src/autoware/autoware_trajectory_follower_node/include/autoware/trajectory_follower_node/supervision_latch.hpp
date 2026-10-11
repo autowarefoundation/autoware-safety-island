@@ -5,6 +5,7 @@
 #define AUTOWARE__TRAJECTORY_FOLLOWER_NODE__SUPERVISION_LATCH_HPP_
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -172,6 +173,36 @@ private:
     "SourceWatch::last_arrival_ must be a lock-free atomic: a locking "
     "fallback would drag a mutex into DDS callback context on the FreeRTOS "
     "target");
+};
+
+/// Captured SI_STOP origin. Only fresh odometry may supply a positive speed;
+/// otherwise a speed-tracking actuator could accelerate toward an old sample.
+/// Ramp duration uses a steady clock, independently of arrival ages and ROS
+/// stamps, so a wall-clock adjustment cannot raise a stop target again.
+class StopRamp
+{
+public:
+  using Clock = std::chrono::steady_clock;
+
+  void start(
+    double ego_velocity_mps, const SourceWatch & odometry, double arrival_now,
+    double odometry_timeout_s, Clock::time_point monotonic_now)
+  {
+    v0_mps_ = odometry.ever() && !odometry.stale(arrival_now, odometry_timeout_s) ?
+      ego_velocity_mps : 0.0;
+    started_at_ = monotonic_now;
+  }
+
+  double velocity(double decel_mps2, double max_v0_mps, Clock::time_point now) const
+  {
+    return stopRampVelocity(
+      v0_mps_, decel_mps2, std::chrono::duration<double>(now - started_at_).count(),
+      max_v0_mps);
+  }
+
+private:
+  double v0_mps_ = 0.0;
+  Clock::time_point started_at_{};
 };
 
 /// Actuation envelope an approved command must stay inside.

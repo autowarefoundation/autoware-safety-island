@@ -882,10 +882,11 @@ void Controller::latchFault(const std::string & why)
 {
   if (!supervision_.latched) {
     supervision_.latch(why);
-    // Origin of the speed ramp in stoppedPayload(). current_odometry_ is
-    // uninitialized until its first sample, and a heartbeat can latch first.
-    stop_v0_mps_ = has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0;
-    stop_t0_ = Clock::now();
+    // Do not restart a speed target from stale feedback. Keep the first-sample
+    // guard: a heartbeat fault can latch before odometry is initialized.
+    stop_ramp_.start(
+      has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0,
+      watch_odom_, Clock::now(), source_timeout_ego_, supervision::StopRamp::Clock::now());
     log_warn("SI_STOP latched: %s (fault_id %u)", why.c_str(), supervision_.fault_id);
     reenable_.clear();  // a fault invalidates an earlier re-enable request
   } else if (supervision_.reason != why) {
@@ -1070,8 +1071,8 @@ ControlMsg Controller::stoppedPayload(double now) const
   ControlMsg out = supervision::StopControl{}(known, stop_decel_mps2_);
   if (supervision_.latched) {
     out.longitudinal.velocity = static_cast<float>(
-      supervision::stopRampVelocity(
-        stop_v0_mps_, stop_decel_mps2_, now - stop_t0_, max_abs_velocity_mps_));
+      stop_ramp_.velocity(
+        stop_decel_mps2_, max_abs_velocity_mps_, supervision::StopRamp::Clock::now()));
   }
   out.stamp = Clock::toRosTime(now);
   out.lateral.stamp = out.stamp;
