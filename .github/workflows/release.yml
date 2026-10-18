@@ -11,7 +11,7 @@ permissions:
 jobs:
   verify-tag:
     name: Verify tag is on main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -159,7 +159,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build-zephyr, build-freertos]
     permissions:
       contents: write

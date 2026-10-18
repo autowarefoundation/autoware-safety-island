@@ -28,7 +28,7 @@ concurrency:
 jobs:
   # Build job
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -65,7 +65,7 @@ jobs:
   # Deployment job (only runs on push to main/master, not on PRs)
   deploy:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
     steps:
       - name: Deploy to GitHub Pages

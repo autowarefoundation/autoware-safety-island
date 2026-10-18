@@ -115,7 +115,7 @@ jobs:
 
   build-freertos-vcan:
     name: FreeRTOS POSIX vcan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Load vcan on the runner
@@ -177,7 +177,7 @@ jobs:
 
   build-zephyr-fvp-tap:
     name: Zephyr FVP TAP
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       # vcan must exist in the kernel the container shares; loading it inside
