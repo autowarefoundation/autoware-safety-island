@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Safety Island domain-2 DDS setting: part of the release contract, next to
+  bridge-config.yaml.
+
+  The Safety Island receives UDP datagrams of at most 2048 bytes
+  (cfg.rmsg_chunk_size in actuation_module/include/common/dds/config.hpp), and
+  the sender decides the datagram size. Without a cap, CycloneDDS sends a whole
+  Trajectory (~15 KB) in one datagram on loopback; the Safety Island truncates
+  it ("truncated to 2048") and drops the datagram; the sample arrives late, if
+  at all, and the Safety Island latches SI_STOP on the trajectory timeout. 1400 B also keeps every datagram inside a 1500-byte MTU.
+
+  Every participant that writes to domain 2 (the domain bridge, and any tool
+  that publishes to the Safety Island) must use this file. It sets no network
+  interface, so it merges with your own configuration:
+
+    CYCLONEDDS_URI="file:///path/to/your.xml,file:///path/to/cyclonedds-domain2.xml"
+
+  .github/scripts/check-bridge-contract.py keeps this file to Domain 2 and
+  General/MaxMessageSize only, within the Safety Island's receive limit.
+-->
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="2">
+    <General>
+      <MaxMessageSize>1400B</MaxMessageSize>
+    </General>
+  </Domain>
+</CycloneDDS>

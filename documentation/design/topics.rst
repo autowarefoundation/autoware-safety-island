@@ -71,6 +71,12 @@ inputs below; the E2E rig additionally bridges the VisionPilot topics with
 Every bridged topic keeps its name on both domains; ``bridge-config.yaml``
 has no ``remap`` entries.
 
+The bridge, and every other writer on domain 2, must load
+``demo/bridge/cyclonedds-domain2.xml`` (released as ``cyclonedds-domain2.xml``),
+which caps domain-2 datagrams at 1400 B. The Safety Island receives at most
+2048 bytes per datagram, and a ``Trajectory`` sent unfragmented is truncated and
+dropped, which ends in ``SI_STOP`` on the trajectory timeout. See :doc:`../user_guide/open_ad_kit`.
+
 ``/control/trajectory`` is the trajectory Autoware's own trajectory follower
 reads: Autoware's planning output (``/planning/trajectory``) after the
 trajectory gate in ``autoware_control_launch``. The Safety Island replaces the

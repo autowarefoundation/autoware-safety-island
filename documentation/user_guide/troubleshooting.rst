@@ -47,9 +47,12 @@ Check, in order:
 1. Both sides use the correct domain IDs. Main compute uses domain 1,
    safety island uses domain 2. The bridge is configured in
    ``demo/bridge/bridge-config.yaml``.
-2. ``CYCLONEDDS_URI`` points at the expected file inside the containers.
-   The default compose file mounts ``demo/cyclonedds.xml``; the FreeRTOS POSIX
-   override mounts ``demo/cyclonedds.posix.xml``.
+2. ``CYCLONEDDS_URI`` points at the expected files inside the containers:
+   the interface file first, ``cyclonedds-domain2.xml`` second. The default
+   compose file mounts ``demo/cyclonedds.xml``; the FreeRTOS POSIX override
+   mounts ``demo/cyclonedds.posix.xml``. If the Safety Island logs
+   ``truncated to 2048``, the domain-2 writer is missing
+   ``cyclonedds-domain2.xml`` (:doc:`open_ad_kit`).
 3. SPDP multicast actually reaches the peer. OpenVPN in ``tap`` mode forwards
    multicast by default, but middle hops may not. To confirm, watch for SPDP
    traffic on the selected domain-2 interface. For AVH/TAP flows this is

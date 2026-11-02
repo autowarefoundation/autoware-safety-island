@@ -6,6 +6,7 @@ services:
     volumes:
       - ./map/sample-map-planning:/autoware_map:ro
       - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
+      - ./bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro
       # Control module preset with trajectory_follower_mode: none, so the
       # Safety Island is the only trajectory follower.
       - ./launch/safety_island_preset.yaml:/opt/autoware/autoware_control_config/share/autoware_control_config/config/preset/safety_island_preset.yaml:ro
@@ -25,6 +26,7 @@ services:
       context: bridge
     volumes:
       - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
+      - ./bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro
       # The released topic contract, plus the demo-only overlay the entrypoint
       # merges into it (see bridge/bridge-overlay.yaml).
       - ./bridge/bridge-config.yaml:/autoware/bridge-config.yaml:ro
@@ -37,7 +39,8 @@ services:
     build:
       context: visualizer
     volumes:
-      - ./cyclonedds.xml:/autoware/cyclonedds.xml
+      - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
+      - ./bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro
     env_file:
       - common.env
     ports:

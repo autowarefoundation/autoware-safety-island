@@ -34,6 +34,10 @@ Every release from v0.2.0 on carries these assets, each listed in
      - The Safety Island's domain-bridge topic contract
        (``demo/bridge/bridge-config.yaml``). Release CI checks it against
        :doc:`../design/topics`.
+   * - ``cyclonedds-domain2.xml``
+     - The DDS setting every domain-2 writer must use
+       (``demo/bridge/cyclonedds-domain2.xml``): ``MaxMessageSize`` 1400 B on
+       domain 2 only, no interface. See `Domain-2 message size`_.
    * - ``zephyr-fvp.elf``, ``zephyr-s32z.elf``
      - Zephyr images (not used by the Open AD Kit cell).
    * - ``sha256sums.txt``
@@ -45,7 +49,8 @@ Pin by release and checksum rather than copying the files:
 
   $ TAG=v0.2.0
   $ BASE=https://github.com/autowarefoundation/autoware-safety-island/releases/download/${TAG}
-  $ curl -fsSL -O "${BASE}/actuation_freertos" -O "${BASE}/bridge-config.yaml" -O "${BASE}/sha256sums.txt"
+  $ curl -fsSL -O "${BASE}/actuation_freertos" -O "${BASE}/bridge-config.yaml" \
+      -O "${BASE}/cyclonedds-domain2.xml" -O "${BASE}/sha256sums.txt"
   $ sha256sum --check --ignore-missing sha256sums.txt
   $ chmod +x actuation_freertos
 
@@ -90,6 +95,36 @@ that does not exist makes DDS domain creation fail and the process exit.
 it and discovers peers by unicast. Pin the bridge's domain 2 to the same
 interface, for example with ``demo/cyclonedds.posix.xml`` and
 ``SAFETY_ISLAND_DDS_INTERFACE=lo``.
+
+*********************
+Domain-2 message size
+*********************
+
+The bridge, and anything else that writes to domain 2, **must** load
+``cyclonedds-domain2.xml``.
+
+The Safety Island receives UDP datagrams of at most 2048 bytes
+(``cfg.rmsg_chunk_size`` in ``actuation_module/include/common/dds/config.hpp``),
+and the sender decides the datagram size. CycloneDDS's default
+``MaxMessageSize`` is 14720 B, so on loopback a whole ``Trajectory`` (about
+15 KB) leaves in one datagram. The Safety Island logs
+``recvUC: ... truncated to 2048`` and drops the datagram. The sample arrives
+late, if at all, and the Safety Island latches ``SI_STOP`` on the trajectory
+timeout. Capping domain 2 at 1400 B makes CycloneDDS fragment
+large samples and also keeps each datagram inside a 1500-byte MTU.
+
+The file sets nothing but domain 2's ``MaxMessageSize``, so it merges with your
+own configuration. List it after your file in ``CYCLONEDDS_URI``:
+
+.. code-block:: console
+
+  $ export CYCLONEDDS_URI="file:///path/to/your-cyclonedds.xml,file:///path/to/cyclonedds-domain2.xml"
+
+Your file keeps the interface and discovery settings. The demo does the same:
+``demo/common.env`` lists ``demo/cyclonedds*.xml`` first and
+``demo/bridge/cyclonedds-domain2.xml`` second. CI rejects any change that adds
+other settings to the file or raises the size above the Safety Island's receive
+limit.
 
 The other runtime switches (``SI_SUPERVISION_MODE``, ``SI_TRAJECTORY_SOURCE``,
 ``SI_LEGACY_CONTROL_CMD``, ``SI_OPERATION_MODE_DURABILITY``) are described in

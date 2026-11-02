@@ -42,6 +42,12 @@ Added
 - Release asset ``bridge-config.yaml`` (the domain-bridge topic contract,
   ``demo/bridge/bridge-config.yaml``), listed in ``sha256sums.txt``. CI and
   the release workflow check it against ``documentation/design/topics.rst``.
+- Release asset ``cyclonedds-domain2.xml``: ``MaxMessageSize`` 1400 B on
+  domain 2, which every domain-2 writer must load through ``CYCLONEDDS_URI``.
+  Without it, the Safety Island truncates an unfragmented ``Trajectory`` at
+  2048 bytes, drops it, and latches ``SI_STOP`` on the trajectory timeout. The demo's ``cyclonedds*.xml`` take
+  the value from this file, and CI checks the file against the Safety
+  Island's receive limit.
 - FreeRTOS POSIX: ``SI_DDS_INTERFACE`` overrides the compile-time
   ``CONFIG_DDS_NETWORK_INTERFACE`` at runtime (name, IPv4 address or
   ``auto``), so one binary runs on loopback and on a LAN. The startup log

@@ -97,7 +97,7 @@ python3 "${ROOT_DIR}/demo/can_carla_bridge/test_decoder.py"
 python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
 echo "CAN bridge checks OK"
 
-echo "Phase 6 - Bridge contract (bridge-config.yaml vs topics.rst)"
+echo "Phase 6 - Bridge contract (bridge-config.yaml vs topics.rst, cyclonedds-domain2.xml)"
 python3 "${ROOT_DIR}/.github/scripts/check-bridge-contract.py"
 
 echo "Phase 7 - CAN UDP tunnel pack/unpack"

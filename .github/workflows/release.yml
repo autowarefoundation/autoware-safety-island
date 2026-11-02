@@ -225,18 +225,21 @@ jobs:
           merge-multiple: true
           path: release/
 
-      # bridge-config.yaml is the Safety Island's domain-bridge topic contract.
-      # Downstream integrations (Open AD Kit) pin it by release + sha256
-      # instead of copying it.
+      # The Safety Island's bridge contract: bridge-config.yaml (topics) and
+      # cyclonedds-domain2.xml (the MaxMessageSize every domain-2 writer must
+      # use). Downstream integrations (Open AD Kit) pin both by release +
+      # sha256 instead of copying them.
       - name: Collect bridge contract
         shell: bash
-        run: cp demo/bridge/bridge-config.yaml release/bridge-config.yaml
+        run: |
+          cp demo/bridge/bridge-config.yaml release/bridge-config.yaml
+          cp demo/bridge/cyclonedds-domain2.xml release/cyclonedds-domain2.xml
 
       - name: Generate checksums
         shell: bash
         run: |
           cd release
-          sha256sum zephyr-fvp.elf zephyr-s32z.elf actuation_freertos bridge-config.yaml > sha256sums.txt
+          sha256sum zephyr-fvp.elf zephyr-s32z.elf actuation_freertos bridge-config.yaml cyclonedds-domain2.xml > sha256sums.txt
           cat sha256sums.txt
 
       - name: Create GitHub Release
@@ -249,6 +252,7 @@ jobs:
             release/zephyr-s32z.elf \
             release/actuation_freertos \
             release/bridge-config.yaml \
+            release/cyclonedds-domain2.xml \
             release/sha256sums.txt \
             --repo "${{ github.repository }}" \
             --title "Release ${{ github.ref_name }}" \

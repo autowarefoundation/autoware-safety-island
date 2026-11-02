@@ -62,6 +62,12 @@ visualizer Dockerfiles use the same image; keep the three in step.
   remaps `/planning/trajectory` to `/control/trajectory` on domain 2. Remove it
   once the demo image publishes `/control/trajectory`.
 
+`common.env` loads two CycloneDDS files: the `cyclonedds*.xml` mounted as
+`/autoware/cyclonedds.xml` (interfaces, discovery), then
+`bridge/cyclonedds-domain2.xml` (the released domain-2 `MaxMessageSize`, which
+every domain-2 writer must use). Do not set `MaxMessageSize` for domain 2 in
+the `cyclonedds*.xml` files.
+
 See `documentation/user_guide/open_ad_kit.rst`.
 
 ## FreeRTOS POSIX CAN to CARLA (open-loop)
