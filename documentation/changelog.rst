@@ -48,9 +48,8 @@ Added
   names the interface and its source.
 - Release workflow runs the published ``actuation_freertos`` in plain
   ``ubuntu:22.04`` and ``ubuntu:24.04`` containers before publishing.
-- Open AD Kit integration guide. It documents ``trajectory_follower_mode:
-  none`` for Autoware with control module presets and limits the stub
-  ``demo/launch/control.launch.xml`` to older Autoware images.
+- Open AD Kit integration guide: release pins, ``SI_DDS_INTERFACE`` and
+  ``trajectory_follower_mode: none``.
 - Open AD Kit closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and
   host CAN-CARLA bridge. Autoware, sensors-only overlay, and loopback
   domain-bridge live in Open AD Kit PR #146
@@ -61,6 +60,19 @@ Added
 Changed
 -------
 
+- The Safety Island reads the Autoware trajectory from ``/control/trajectory``
+  (the trajectory gate output that Autoware's own follower reads) instead of
+  ``/planning/scenario_planning/trajectory``. ``bridge-config.yaml`` bridges
+  it 1:1, and the contract check rejects any ``remap``. Autoware without the
+  trajectory gate needs a remap in its own bridge; see
+  ``documentation/design/topics.rst``.
+- The demo runs Autoware ``universe-humble-20261029`` and disables
+  Autoware's follower with the ``safety_island`` control module preset
+  (``trajectory_follower_mode: none``). The stub
+  ``demo/launch/control.launch.xml`` is removed. Until the demo image
+  publishes ``/control/trajectory``, the demo bridge merges
+  ``demo/bridge/bridge-overlay.yaml`` into the contract to remap
+  ``/planning/trajectory`` to ``/control/trajectory``.
 - ``build.sh`` and the documentation now present the supported runtime target
   matrix: ``zephyr-fvp``, ``zephyr-s32z``, ``freertos-posix``, and
   ``freertos-s32z2``.

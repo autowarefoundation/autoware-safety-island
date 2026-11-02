@@ -46,11 +46,23 @@ Replace `wlp2s0` with the multicast-capable interface on your host, for example 
 A prebuilt or released binary can switch interface at runtime instead:
 `SI_DDS_INTERFACE=wlp2s0 ./build/freertos-posix/actuation_freertos`.
 
-`docker-compose.yaml` mounts the stub `launch/control.launch.xml` because its
-pinned Autoware image (`universe-20250207`) predates the control module presets.
-With newer Autoware, set `trajectory_follower_mode: none` in
-`autoware_control_config/config/preset/default_preset.yaml` instead of mounting
-the stub. See `documentation/user_guide/open_ad_kit.rst`.
+## Autoware image, controller preset and bridge overlay
+
+`docker-compose.yaml` runs Autoware `universe-humble-20261029`. The bridge and
+visualizer Dockerfiles use the same image; keep the three in step.
+
+- Autoware's own trajectory follower is disabled by the control module preset
+  `launch/safety_island_preset.yaml` (`trajectory_follower_mode: none`),
+  launched with `control_module_preset:=safety_island`. No launch file is
+  replaced.
+- The bridge runs the released topic contract `bridge/bridge-config.yaml`,
+  which maps every topic 1:1. Its entrypoint merges `bridge/bridge-overlay.yaml`
+  into it first. The overlay is temporary: this image predates Autoware's
+  trajectory gate, so nothing publishes `/control/trajectory` and the overlay
+  remaps `/planning/trajectory` to `/control/trajectory` on domain 2. Remove it
+  once the demo image publishes `/control/trajectory`.
+
+See `documentation/user_guide/open_ad_kit.rst`.
 
 ## FreeRTOS POSIX CAN to CARLA (open-loop)
 

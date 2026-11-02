@@ -107,7 +107,7 @@ The Safety Island publishes ``/control/trajectory_follower/control_cmd`` and
 the bridge forwards it to domain 1, so Autoware's own trajectory follower must
 not publish the same topic.
 
-Current Autoware (``autoware_launch`` main)
+Autoware with control module presets
   Set the control module preset's ``trajectory_follower_mode`` to ``none``.
   The option is declared in
   ``autoware_control_config/config/preset/default_preset.yaml``:
@@ -120,18 +120,19 @@ Current Autoware (``autoware_launch`` main)
           default: none
 
   Either mount the edited ``default_preset.yaml`` over the installed one, or
-  install it as a new preset (for example ``safety_island_preset.yaml``) and
-  launch with ``control_module_preset:=safety_island``. No launch file is
-  replaced.
+  install it as a new preset and select it with ``control_module_preset``.
+  The demo does the latter: ``demo/launch/safety_island_preset.yaml`` is
+  mounted as ``safety_island_preset.yaml`` and Autoware is launched with
+  ``control_module_preset:=safety_island``. No launch file is replaced.
 
 Older Autoware images (``tier4_control_launch``)
   Images that predate the control module presets, such as
-  ``ghcr.io/autowarefoundation/autoware:universe-20250207`` used by
-  ``demo/docker-compose.yaml``, have no ``none`` mode. For those only, mount
-  the stub ``demo/launch/control.launch.xml`` over
-  ``tier4_control_launch/launch/control.launch.xml``. The stub keeps the
-  follower node but remaps all its inputs and outputs to ``*_no_publish``
-  topics. It will be removed once the demo moves to a preset-capable image.
+  ``universe-20250207``, have no ``none`` mode. The demo no longer supports
+  them. If you must run one, mount the stub ``demo/launch/control.launch.xml``
+  from release v0.1.0 over ``tier4_control_launch/launch/control.launch.xml``.
+  It keeps the follower node but remaps all its inputs and outputs to
+  ``*_no_publish`` topics. Such images also need the trajectory remap
+  described in :doc:`../design/topics`.
 
 .. note::
 
@@ -140,6 +141,7 @@ Older Autoware images (``tier4_control_launch``)
    main. Published Autoware images up to ``universe-humble-20261102`` do not
    contain the trajectory gate yet: their follower reads
    ``/planning/trajectory`` and nothing publishes ``/control/trajectory``.
-   With such an image, or with Autoware that still publishes
-   ``/planning/scenario_planning/trajectory``, add a remap to
-   ``control/trajectory`` in your bridge (:doc:`../design/topics`).
+   With such an image, add a remap to ``control/trajectory`` in your bridge.
+   The demo does this with ``demo/bridge/bridge-overlay.yaml``, which its
+   bridge entrypoint merges into the released ``bridge-config.yaml``. The
+   released contract itself stays 1:1.
