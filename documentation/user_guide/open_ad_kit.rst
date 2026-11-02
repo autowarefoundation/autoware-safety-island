@@ -135,9 +135,11 @@ Older Autoware images (``tier4_control_launch``)
 
 .. note::
 
-   ``autoware_launch`` main routes the planning output through
-   ``/planning/trajectory`` and ``/control/trajectory``. The Safety Island
-   still subscribes to ``/planning/scenario_planning/trajectory`` (see
-   :doc:`../design/topics`). With a newer Autoware image, check that this
-   topic is still published on domain 1 before you rely on the pinned
-   bridge contract.
+   The Safety Island subscribes to ``/control/trajectory``, the trajectory
+   gate output that Autoware's own follower reads in ``autoware_launch``
+   main. Published Autoware images up to ``universe-humble-20261102`` do not
+   contain the trajectory gate yet: their follower reads
+   ``/planning/trajectory`` and nothing publishes ``/control/trajectory``.
+   With such an image, or with Autoware that still publishes
+   ``/planning/scenario_planning/trajectory``, add a remap to
+   ``control/trajectory`` in your bridge (:doc:`../design/topics`).

@@ -160,7 +160,7 @@ Controller::Controller(const StartupConfig & config)
         throw std::runtime_error("cannot subscribe to selected VP driving reference");
       }
     } else if (!create_subscription<TrajectoryMsg_Raw>(
-      "/planning/scenario_planning/trajectory",
+      "/control/trajectory",
       &autoware_planning_msgs_msg_Trajectory_desc, callbackTrajectory, this))
     {
       throw std::runtime_error("cannot subscribe to selected Autoware trajectory");

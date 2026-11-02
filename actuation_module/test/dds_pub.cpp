@@ -62,7 +62,7 @@ int main(void) {
     
     // Create publishers for all message types
     auto steering_publisher = node.create_publisher<SteeringReportMsg>("/vehicle/status/steering_status", &autoware_vehicle_msgs_msg_SteeringReport_desc);
-    auto trajectory_publisher = node.create_publisher<TrajectoryMsg>("/planning/scenario_planning/trajectory", &autoware_planning_msgs_msg_Trajectory_desc);
+    auto trajectory_publisher = node.create_publisher<TrajectoryMsg>("/control/trajectory", &autoware_planning_msgs_msg_Trajectory_desc);
     auto odometry_publisher = node.create_publisher<OdometryMsg>("/localization/kinematic_state", &nav_msgs_msg_Odometry_desc);
     auto acceleration_publisher = node.create_publisher<AccelerationMsg>("/localization/acceleration", &geometry_msgs_msg_AccelWithCovarianceStamped_desc);
     auto operation_mode_publisher = node.create_publisher<OperationModeStateMsg>("/system/operation_mode/state", &autoware_adapi_v1_msgs_msg_OperationModeState_desc);

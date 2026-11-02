@@ -4,6 +4,10 @@
 # and the visionpilot_msgs candidate inputs) are not bridged here; the E2E rig
 # wires them on domain 2 / with its own bridge configuration. See
 # documentation/design/topics.rst.
+#
+# Every topic keeps its name on both domains (no remap). This file is
+# published as a release asset and pinned as the Safety Island's topic
+# contract; .github/scripts/check-bridge-contract.py enforces both.
 
 # Name of the domain bridge, used for node naming and logging
 name: safety_island_bridge
@@ -17,7 +21,11 @@ topics:
     type: autoware_vehicle_msgs/msg/SteeringReport
     from_domain: 1
     to_domain: 2
-  planning/scenario_planning/trajectory:
+  # Autoware's trajectory gate output, the trajectory the follower consumes.
+  # Autoware that predates /control/trajectory publishes
+  # /planning/scenario_planning/trajectory instead: bridge that topic with
+  # "remap: control/trajectory" (see documentation/design/topics.rst).
+  control/trajectory:
     type: autoware_planning_msgs/msg/Trajectory
     from_domain: 1
     to_domain: 2

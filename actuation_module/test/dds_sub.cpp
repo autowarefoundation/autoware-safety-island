@@ -99,7 +99,7 @@ int main(void) {
     node.create_subscription<SteeringReportMsg>("/vehicle/status/steering_status",
                                                                 &autoware_vehicle_msgs_msg_SteeringReport_desc,
                                                                 handle_steering_report, &node);
-    node.create_subscription<TrajectoryMsg_Raw>("/planning/scenario_planning/trajectory",
+    node.create_subscription<TrajectoryMsg_Raw>("/control/trajectory",
                                                                 &autoware_planning_msgs_msg_Trajectory_desc,
                                                                 handle_trajectory, &node);
     node.create_subscription<OdometryMsg>("/localization/kinematic_state",

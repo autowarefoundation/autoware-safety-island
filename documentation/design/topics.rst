@@ -51,7 +51,7 @@ inputs below; the E2E rig additionally bridges the VisionPilot topics with
      - ``autoware_adapi_v1_msgs/msg/OperationModeState``
      - domain 1 → 2 (demo bridge)
      - always
-   * - ``/planning/scenario_planning/trajectory``
+   * - ``/control/trajectory``
      - ``autoware_planning_msgs/msg/Trajectory``
      - domain 1 → 2 (demo bridge)
      - ``SI_CONTROL`` + ``SI_TRAJECTORY_SOURCE=autoware`` (build default)
@@ -67,6 +67,33 @@ inputs below; the E2E rig additionally bridges the VisionPilot topics with
      - ``std_msgs/msg/Bool``
      - domain 2, published by the operator/rig
      - always
+
+Every bridged topic keeps its name on both domains; ``bridge-config.yaml``
+has no ``remap`` entries.
+
+``/control/trajectory`` is the trajectory Autoware's own trajectory follower
+reads: Autoware's planning output (``/planning/trajectory``) after the
+trajectory gate in ``autoware_control_launch``. The Safety Island replaces the
+follower, so it takes the same input. Run Autoware with
+``trajectory_follower_mode: none`` in its control module preset so the follower
+does not run alongside it (:doc:`../user_guide/open_ad_kit`).
+
+.. note::
+
+   Autoware older than the trajectory gate has no ``/control/trajectory``; it
+   publishes the follower input on ``/planning/scenario_planning/trajectory``.
+   For such a release, map that topic to ``/control/trajectory`` with a remap
+   in your bridge configuration instead of the ``control/trajectory`` entry:
+
+   .. code-block:: yaml
+
+     planning/scenario_planning/trajectory:
+       type: autoware_planning_msgs/msg/Trajectory
+       from_domain: 1
+       to_domain: 2
+       remap: control/trajectory
+
+   That configuration is a local adaptation, not the released contract.
 
 ``/control/safety_island/reenable`` is the explicit re-enable of a latched
 ``SI_STOP``: the SI resumes NORMAL only when every source is fresh within

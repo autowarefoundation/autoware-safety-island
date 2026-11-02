@@ -8,7 +8,7 @@ integrations (Open AD Kit) as the Safety Island's topic contract, so the
 documented contract must not drift from it. For every topic the bridge
 forwards, topics.rst must list the same message type and bridge direction;
 every row topics.rst marks as carried by the demo bridge must be in the
-config.
+config. Every topic must keep its name on both domains: no ``remap``.
 
 Usage: check-bridge-contract.py [bridge-config.yaml] [topics.rst]
 """
@@ -25,13 +25,17 @@ ROOT = Path(__file__).resolve().parents[2]
 def load_bridge(path):
     cfg = yaml.safe_load(path.read_text())
     topics = {}
+    remapped = []
     for name, entry in (cfg.get("topics") or {}).items():
-        topics["/" + name.lstrip("/")] = (
+        topic = "/" + name.lstrip("/")
+        topics[topic] = (
             entry["type"],
             int(entry["from_domain"]),
             int(entry["to_domain"]),
         )
-    return topics
+        if "remap" in entry:
+            remapped.append(f"{topic}: remapped to '{entry['remap']}'; the contract bridges every topic 1:1")
+    return topics, remapped
 
 
 def load_rst_rows(path):
@@ -65,9 +69,8 @@ def main():
     bridge_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "demo/bridge/bridge-config.yaml"
     rst_path = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "documentation/design/topics.rst"
 
-    bridge = load_bridge(bridge_path)
+    bridge, errors = load_bridge(bridge_path)
     rows = load_rst_rows(rst_path)
-    errors = []
 
     for topic, (msg_type, src, dst) in sorted(bridge.items()):
         if topic not in rows:
