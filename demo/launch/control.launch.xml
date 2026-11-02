@@ -126,7 +126,12 @@
       </node_container>
 
       <!-- trajectory_follower_node -->
-      <!-- TODO: Remove once the need to run stub trajectory_follower_node is removed -->
+      <!-- Stub for older Autoware images (tier4_control_launch, e.g. universe-20250207) only:
+           the follower runs with every input and output remapped to *_no_publish so the
+           Safety Island is the only /control/trajectory_follower/control_cmd publisher.
+           Autoware with control module presets (autoware_launch main) needs no stub: set
+           trajectory_follower_mode to none in autoware_control_config/config/preset/default_preset.yaml.
+           See documentation/user_guide/open_ad_kit.rst. Remove once the demo image has presets. -->
       <group if="$(eval &quot;'$(var trajectory_follower_mode)' == 'trajectory_follower_node'&quot;)">
         <load_composable_node target="/control/control_container">
           <composable_node pkg="autoware_trajectory_follower_node" plugin="autoware::motion::control::trajectory_follower_node::Controller" name="controller_node_exe" namespace="trajectory_follower">

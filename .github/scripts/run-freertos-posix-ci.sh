@@ -18,7 +18,20 @@ require_marker "${BUILD_ROOT}/controller.log" "FreeRTOS POSIX simulator starting
 require_marker "${BUILD_ROOT}/controller.log" "Starting Controller Node..."
 require_marker "${BUILD_ROOT}/controller.log" "Controller Node Started"
 require_marker "${BUILD_ROOT}/controller.log" "Actuation Safety Island is Live"
-echo "Controller smoke OK: all 4 markers observed"
+require_marker "${BUILD_ROOT}/controller.log" "Network interface (by name): lo [CONFIG_DDS_NETWORK_INTERFACE]"
+echo "Controller smoke OK: all markers observed"
+
+# SI_DDS_INTERFACE overrides the compile-time interface at runtime, so one
+# released binary serves loopback (CI) and a LAN. Prove each selector form.
+SI_DDS_INTERFACE=127.0.0.1 run_with_timeout "${BUILD_ROOT}/actuation_freertos" \
+  "${BUILD_ROOT}/controller-env-ip.log" 8
+require_marker "${BUILD_ROOT}/controller-env-ip.log" "Network interface (by IP address): 127.0.0.1 [SI_DDS_INTERFACE]"
+require_marker "${BUILD_ROOT}/controller-env-ip.log" "Actuation Safety Island is Live"
+SI_DDS_INTERFACE=auto run_with_timeout "${BUILD_ROOT}/actuation_freertos" \
+  "${BUILD_ROOT}/controller-env-auto.log" 8
+require_marker "${BUILD_ROOT}/controller-env-auto.log" "Network interface: auto [SI_DDS_INTERFACE]"
+require_marker "${BUILD_ROOT}/controller-env-auto.log" "Actuation Safety Island is Live"
+echo "SI_DDS_INTERFACE override OK"
 
 echo "Phase 2 - FreeRTOS POSIX unit_test build + run"
 "${ROOT_DIR}/build.sh" --platform freertos-posix -d "${BUILD_ROOT}-unit" --unit-test
@@ -83,6 +96,9 @@ echo "Phase 5 - Python CAN decoder golden vectors"
 python3 "${ROOT_DIR}/demo/can_carla_bridge/test_decoder.py"
 python3 "${ROOT_DIR}/demo/can_carla_bridge/test_bridge.py"
 echo "CAN bridge checks OK"
+
+echo "Phase 6 - Bridge contract (bridge-config.yaml vs topics.rst)"
+python3 "${ROOT_DIR}/.github/scripts/check-bridge-contract.py"
 
 echo "Phase 7 - CAN UDP tunnel pack/unpack"
 python3 "${ROOT_DIR}/demo/can_tunnel_bridge/test_datagram.py"

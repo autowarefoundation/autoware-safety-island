@@ -157,25 +157,86 @@ jobs:
           path: build/freertos-posix/actuation_freertos
           retention-days: 1
 
+  smoke-freertos:
+    # The released POSIX binary must start on a plain Ubuntu host, not only in
+    # the devcontainer it was built in: pin the glibc floor (22.04) and the
+    # current LTS (24.04), on the default loopback interface and with the
+    # SI_DDS_INTERFACE runtime override.
+    name: FreeRTOS POSIX smoke (${{ matrix.image }})
+    needs: build-freertos
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        image: ['ubuntu:22.04', 'ubuntu:24.04']
+
+    steps:
+      - name: Download FreeRTOS POSIX binary
+        uses: actions/download-artifact@v4
+        with:
+          name: freertos-posix
+          path: bin/
+
+      - name: Run on ${{ matrix.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x bin/actuation_freertos
+          for env in "" "SI_DDS_INTERFACE=lo" "SI_DDS_INTERFACE=auto"; do
+            echo "::group::${{ matrix.image }} ${env:-<default>}"
+            set +e
+            env_args=()
+            [ -n "$env" ] && env_args=(-e "$env")
+            docker run --rm -v "$PWD/bin:/si:ro" "${env_args[@]}" "${{ matrix.image }}" \
+              timeout 15s /si/actuation_freertos > run.log 2>&1
+            rc=$?
+            set -e
+            cat run.log
+            echo "::endgroup::"
+            # 124 = still running when timeout stopped it, which is the pass case.
+            if [ "$rc" -ne 124 ]; then
+              echo "actuation_freertos exited early with status ${rc} on ${{ matrix.image }} (${env:-default})" >&2
+              exit 1
+            fi
+            grep -Fq "Network interface" run.log
+            grep -Fq "Actuation Safety Island is Live" run.log
+            grep -Eq "Waiting for .* data" run.log
+          done
+
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-24.04
-    needs: [build-zephyr, build-freertos]
+    needs: [build-zephyr, build-freertos, smoke-freertos]
     permissions:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check the bridge contract matches topics.rst
+        shell: bash
+        run: python3 .github/scripts/check-bridge-contract.py
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
           path: release/
 
+      # bridge-config.yaml is the Safety Island's domain-bridge topic contract.
+      # Downstream integrations (Open AD Kit) pin it by release + sha256
+      # instead of copying it.
+      - name: Collect bridge contract
+        shell: bash
+        run: cp demo/bridge/bridge-config.yaml release/bridge-config.yaml
+
       - name: Generate checksums
         shell: bash
         run: |
           cd release
-          sha256sum zephyr-fvp.elf zephyr-s32z.elf actuation_freertos > sha256sums.txt
+          sha256sum zephyr-fvp.elf zephyr-s32z.elf actuation_freertos bridge-config.yaml > sha256sums.txt
           cat sha256sums.txt
 
       - name: Create GitHub Release
@@ -187,6 +248,7 @@ jobs:
             release/zephyr-fvp.elf \
             release/zephyr-s32z.elf \
             release/actuation_freertos \
+            release/bridge-config.yaml \
             release/sha256sums.txt \
             --repo "${{ github.repository }}" \
             --title "Release ${{ github.ref_name }}" \

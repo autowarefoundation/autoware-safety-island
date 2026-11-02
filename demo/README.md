@@ -43,6 +43,14 @@ Build and run the FreeRTOS POSIX runtime from the repository root with the same 
 ```
 
 Replace `wlp2s0` with the multicast-capable interface on your host, for example `eth0`.
+A prebuilt or released binary can switch interface at runtime instead:
+`SI_DDS_INTERFACE=wlp2s0 ./build/freertos-posix/actuation_freertos`.
+
+`docker-compose.yaml` mounts the stub `launch/control.launch.xml` because its
+pinned Autoware image (`universe-20250207`) predates the control module presets.
+With newer Autoware, set `trajectory_follower_mode: none` in
+`autoware_control_config/config/preset/default_preset.yaml` instead of mounting
+the stub. See `documentation/user_guide/open_ad_kit.rst`.
 
 ## FreeRTOS POSIX CAN to CARLA (open-loop)
 

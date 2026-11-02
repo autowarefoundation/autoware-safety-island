@@ -27,9 +27,30 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
+No unreleased changes.
+
+******
+v0.2.0
+******
+
+Prepares the FreeRTOS POSIX release binary and the bridge contract for
+pinning by Open AD Kit (:doc:`user_guide/open_ad_kit`).
+
 Added
 -----
 
+- Release asset ``bridge-config.yaml`` (the domain-bridge topic contract,
+  ``demo/bridge/bridge-config.yaml``), listed in ``sha256sums.txt``. CI and
+  the release workflow check it against ``documentation/design/topics.rst``.
+- FreeRTOS POSIX: ``SI_DDS_INTERFACE`` overrides the compile-time
+  ``CONFIG_DDS_NETWORK_INTERFACE`` at runtime (name, IPv4 address or
+  ``auto``), so one binary runs on loopback and on a LAN. The startup log
+  names the interface and its source.
+- Release workflow runs the published ``actuation_freertos`` in plain
+  ``ubuntu:22.04`` and ``ubuntu:24.04`` containers before publishing.
+- Open AD Kit integration guide. It documents ``trajectory_follower_mode:
+  none`` for Autoware with control module presets and limits the stub
+  ``demo/launch/control.launch.xml`` to older Autoware images.
 - Open AD Kit closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and
   host CAN-CARLA bridge. Autoware, sensors-only overlay, and loopback
   domain-bridge live in Open AD Kit PR #146
@@ -51,6 +72,10 @@ Changed
 Fixed
 -----
 
+- The v0.1.0 ``actuation_freertos`` exited on start with "DDS network
+  interface not set" because it was built with an empty interface. An empty
+  interface now means CycloneDDS auto-selects, and the POSIX build defaults
+  to ``lo``.
 - Wait for ``/system/operation_mode/state`` before the first control tick.
 - Ingest the MPC trajectory once per control tick instead of also in
   ``isReady()``.
