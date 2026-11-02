@@ -4,6 +4,7 @@ docker run --rm -it \
     -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml:ro \
     -v $(pwd)/bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro \
     -v $(pwd)/launch/safety_island_preset.yaml:/opt/autoware/autoware_control_config/share/autoware_control_config/config/preset/safety_island_preset.yaml:ro \
+    -v $(pwd)/launch/autoware-main.yaml:/opt/autoware/autoware_launch/share/autoware_launch/config/system/diagnostics/autoware-main.yaml:ro \
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     -e ROS_DOMAIN_ID=1 \
     -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml,file:///autoware/cyclonedds-domain2.xml \

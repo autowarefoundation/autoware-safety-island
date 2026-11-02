@@ -160,6 +160,36 @@ Autoware with control module presets
   mounted as ``safety_island_preset.yaml`` and Autoware is launched with
   ``control_module_preset:=safety_island``. No launch file is replaced.
 
+Remove the follower's diagnostic from the graph
+  With the follower off, ``controller_node_exe`` never publishes its
+  ``control_state`` diagnostic. ``/autoware/control/performance_monitoring/control_state``
+  stays stale, and ``change_to_autonomous`` fails with "The target mode is not
+  available". Whatever the launch method, remove that node from the
+  diagnostic graph.
+
+  With component launches (``autoware.launch.xml``, as Open AD Kit does),
+  pass an e2e-style graph as ``diagnostic_graph_aggregator_graph_path``. It
+  follows the same pattern as ``autoware_launch``'s ``autoware-main-e2e.yaml``.
+  ``demo/launch/autoware-safety-island.yaml`` is that file; install it next to
+  ``autoware-main.yaml`` in ``autoware_launch/config/system/diagnostics/``:
+
+  .. code-block:: yaml
+
+    files:
+      - { path: $(dirname)/autoware-main.yaml }
+
+    edits:
+      - { type: remove, path: /autoware/control/performance_monitoring/control_state }
+
+  ``planning_simulator.launch.xml`` does not yet accept the argument: it
+  hard-codes ``autoware-main.yaml``. An autoware_launch PR, "feat(autoware_launch):
+  expose diagnostic_graph_aggregator_graph_path in planning_simulator", adds it.
+  Until the demo image includes that change, the demo mounts
+  ``demo/launch/autoware-main.yaml`` over the image's ``autoware-main.yaml``.
+  That file is the image's file verbatim plus the same ``remove`` edit.
+  ``.github/workflows/demo-diag-graph.yml`` checks it against the pinned image.
+  Both are marked with a TODO to delete once the argument is available.
+
 Older Autoware images (``tier4_control_launch``)
   Images that predate the control module presets, such as
   ``universe-20250207``, have no ``none`` mode. The demo no longer supports

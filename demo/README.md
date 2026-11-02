@@ -55,6 +55,16 @@ visualizer Dockerfiles use the same image; keep the three in step.
   `launch/safety_island_preset.yaml` (`trajectory_follower_mode: none`),
   launched with `control_module_preset:=safety_island`. No launch file is
   replaced.
+- Autoware's diagnostic graph drops `controller_node_exe`'s `control_state`,
+  which the disabled follower never publishes. Without that,
+  `change_to_autonomous` fails with "The target mode is not available".
+  `launch/autoware-safety-island.yaml` is the graph to pass as
+  `diagnostic_graph_aggregator_graph_path`. `planning_simulator.launch.xml` does
+  not accept that argument yet, so for now the demo mounts
+  `launch/autoware-main.yaml` (the image's file plus the same edit) over the
+  image's `autoware-main.yaml`. CI checks the copy against the pinned image.
+  Delete it once the image's planning simulator accepts the argument (TODO in
+  the file).
 - The bridge runs the released topic contract `bridge/bridge-config.yaml`,
   which maps every topic 1:1. Its entrypoint merges `bridge/bridge-overlay.yaml`
   into it first. The overlay is temporary: this image predates Autoware's

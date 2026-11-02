@@ -10,6 +10,11 @@ services:
       # Control module preset with trajectory_follower_mode: none, so the
       # Safety Island is the only trajectory follower.
       - ./launch/safety_island_preset.yaml:/opt/autoware/autoware_control_config/share/autoware_control_config/config/preset/safety_island_preset.yaml:ro
+      # Diagnostic graph without controller_node_exe's control_state, which the
+      # disabled follower never publishes. Interim: planning_simulator.launch.xml
+      # hard-codes autoware-main.yaml, so this copy replaces it; see the TODO in
+      # launch/autoware-main.yaml.
+      - ./launch/autoware-main.yaml:/opt/autoware/autoware_launch/share/autoware_launch/config/system/diagnostics/autoware-main.yaml:ro
     env_file:
       - common.env
     command: >

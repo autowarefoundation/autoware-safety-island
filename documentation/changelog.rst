@@ -79,6 +79,14 @@ Changed
   publishes ``/control/trajectory``, the demo bridge merges
   ``demo/bridge/bridge-overlay.yaml`` into the contract to remap
   ``/planning/trajectory`` to ``/control/trajectory``.
+- Autoware with ``trajectory_follower_mode: none`` must remove
+  ``/autoware/control/performance_monitoring/control_state`` from its
+  diagnostic graph, or ``change_to_autonomous`` fails.
+  ``demo/launch/autoware-safety-island.yaml`` is the e2e-style graph for
+  ``diagnostic_graph_aggregator_graph_path``. Until
+  ``planning_simulator.launch.xml`` accepts that argument (autoware_launch
+  PR pending), the demo mounts a CI-checked copy of the image's
+  ``autoware-main.yaml`` with the same edit.
 - ``build.sh`` and the documentation now present the supported runtime target
   matrix: ``zephyr-fvp``, ``zephyr-s32z``, ``freertos-posix``, and
   ``freertos-s32z2``.
