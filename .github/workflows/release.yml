@@ -257,4 +257,5 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "Release ${{ github.ref_name }}" \
             --verify-tag \
+            --prerelease="${{ contains(github.ref_name, '-') }}" \
             --generate-notes

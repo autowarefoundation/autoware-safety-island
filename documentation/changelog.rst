@@ -54,6 +54,9 @@ Added
   names the interface and its source.
 - Release workflow runs the published ``actuation_freertos`` in plain
   ``ubuntu:22.04`` and ``ubuntu:24.04`` containers before publishing.
+- Release workflow publishes a SemVer pre-release tag (``v0.2.0-rc.1``) as a
+  GitHub pre-release, so it does not become the latest release. Tags still
+  have to be on ``main``.
 - Open AD Kit integration guide: release pins, ``SI_DDS_INTERFACE`` and
   ``trajectory_follower_mode: none``.
 - Open AD Kit closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and
