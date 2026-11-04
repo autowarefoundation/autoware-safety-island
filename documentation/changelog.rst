@@ -59,10 +59,9 @@ Added
   have to be on ``main``.
 - Open AD Kit integration guide: release pins, ``SI_DDS_INTERFACE`` and
   ``trajectory_follower_mode: none``.
-- Open AD Kit closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and
-  host CAN-CARLA bridge. Autoware, sensors-only overlay, and loopback
-  domain-bridge live in Open AD Kit PR #146
-  (``deployments/safety-island-carla-simulation/``).
+- Closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and host CAN-CARLA
+  bridge. Open AD Kit does not ship its side of this path: Open AD Kit PR #146
+  was closed without merging.
 - Zephyr FVP TAP UDP CAN tunnel: one 48-byte datagram per command onto the
   same ``vcan0`` decoder as FreeRTOS POSIX. Native FVP CAN stays loopback.
 
