@@ -86,14 +86,25 @@ does not run alongside it (:doc:`../user_guide/open_ad_kit`).
 
 .. note::
 
-   Autoware older than the trajectory gate has no ``/control/trajectory``; it
-   publishes the follower input on ``/planning/scenario_planning/trajectory``.
-   For such a release, map that topic to ``/control/trajectory`` with a remap
-   in your bridge configuration instead of the ``control/trajectory`` entry:
+   Autoware without the trajectory gate has no ``/control/trajectory``. Map the
+   topic its follower reads to ``/control/trajectory`` with a remap in your
+   bridge configuration, instead of the ``control/trajectory`` entry:
+
+   .. list-table::
+      :widths: 55 45
+      :header-rows: 1
+
+      * - Autoware
+        - Follower input
+      * - Releases 1.7.0 to 2.0.0, and images up to
+          ``universe-humble-20261102``
+        - ``/planning/trajectory``
+      * - Older images, such as ``universe-20250207``
+        - ``/planning/scenario_planning/trajectory``
 
    .. code-block:: yaml
 
-     planning/scenario_planning/trajectory:
+     planning/trajectory:
        type: autoware_planning_msgs/msg/Trajectory
        from_domain: 1
        to_domain: 2

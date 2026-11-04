@@ -22,9 +22,9 @@ topics:
     from_domain: 1
     to_domain: 2
   # Autoware's trajectory gate output, the trajectory the follower consumes.
-  # Autoware that predates /control/trajectory publishes
-  # /planning/scenario_planning/trajectory instead: bridge that topic with
-  # "remap: control/trajectory" (see documentation/design/topics.rst).
+  # Autoware without the gate has no /control/trajectory: bridge the topic its
+  # follower reads with "remap: control/trajectory". That topic depends on the
+  # release; see documentation/design/topics.rst.
   control/trajectory:
     type: autoware_planning_msgs/msg/Trajectory
     from_domain: 1

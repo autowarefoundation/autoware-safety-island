@@ -88,9 +88,9 @@ Build the Safety Island with ``--dds-interface lo``. The domain-bridge
 forwards the five controller inputs 1 → 2 and does not forward
 ``control_cmd`` (``CAN_ONLY``). The SI subscribes to ``/control/trajectory``,
 the trajectory gate output that Autoware's own follower reads, so a current
-Autoware needs no remap. Autoware that predates the trajectory gate needs a
-remap from ``/planning/scenario_planning/trajectory`` to
-``/control/trajectory`` in the bridge (:doc:`../design/topics`). ``/system/operation_mode/state`` is bridged with
+Autoware needs no remap. Autoware without the trajectory gate needs a remap
+from the topic its follower reads to ``/control/trajectory`` in the bridge
+(:doc:`../design/topics`). ``/system/operation_mode/state`` is bridged with
 ``transient_local`` durability so a late-joining SI still sees
 ``AUTONOMOUS``.
 
