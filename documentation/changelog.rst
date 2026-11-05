@@ -57,6 +57,9 @@ Added
 - Release workflow publishes a SemVer pre-release tag (``v0.2.0-rc.1``) as a
   GitHub pre-release, so it does not become the latest release. Tags still
   have to be on ``main``.
+- Release workflow builds with a pinned devcontainer and no caches, runs the
+  Zephyr FVP validation, requires a changelog section for the tag, and attests
+  the build provenance of its assets.
 - Open AD Kit integration guide: release pins, ``SI_DDS_INTERFACE`` and
   ``trajectory_follower_mode: none``.
 - Closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and host CAN-CARLA
