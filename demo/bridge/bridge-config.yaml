@@ -21,11 +21,9 @@ topics:
     type: autoware_vehicle_msgs/msg/SteeringReport
     from_domain: 1
     to_domain: 2
-  # Autoware's trajectory gate output, the trajectory the follower consumes.
-  # Autoware without the gate has no /control/trajectory: bridge the topic its
-  # follower reads with "remap: control/trajectory". That topic depends on the
-  # release; see documentation/design/topics.rst.
-  control/trajectory:
+  # The trajectory Autoware 2.0's own follower reads, Autoware's planning
+  # output. See documentation/design/topics.rst.
+  planning/trajectory:
     type: autoware_planning_msgs/msg/Trajectory
     from_domain: 1
     to_domain: 2

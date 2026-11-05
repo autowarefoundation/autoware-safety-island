@@ -8,7 +8,7 @@ docker run --rm -it \
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     -e ROS_DOMAIN_ID=1 \
     -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml,file:///autoware/cyclonedds-domain2.xml \
-    ghcr.io/autowarefoundation/autoware:universe-humble-20261029 \
+    ghcr.io/autowarefoundation/autoware:universe-humble-2.0.0 \
     ros2 launch autoware_launch planning_simulator.launch.xml \
     map_path:=/autoware_map \
     vehicle_model:=sample_vehicle \
@@ -22,7 +22,6 @@ docker run --rm -it \
     -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml:ro \
     -v $(pwd)/bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro \
     -v $(pwd)/bridge/bridge-config.yaml:/autoware/bridge-config.yaml:ro \
-    -v $(pwd)/bridge/bridge-overlay.yaml:/autoware/bridge-overlay.yaml:ro \
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     -e ROS_DOMAIN_ID=1 \
     -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml,file:///autoware/cyclonedds-domain2.xml \

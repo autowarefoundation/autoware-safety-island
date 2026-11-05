@@ -69,8 +69,8 @@ Wire and source-identity decisions
 
 The existing Autoware ``autoware_planning_msgs/msg/Trajectory`` input
 and follower algorithm remain supported without an Autoware-side adapter.
-Its topic is ``/control/trajectory`` (domain 1 to 2), the trajectory gate
-output Autoware's own follower reads.
+Its topic is ``/planning/trajectory`` (domain 1 to 2), the trajectory
+Autoware 2.0's own follower reads.
 VP needs no adapter either: SI subscribes to VP's own
 ``visionpilot_msgs/msg/DrivingReference`` on ``/vehicle/driving_reference``
 and converts it to a follower trajectory itself (``vp_reference.hpp``). The
@@ -174,7 +174,7 @@ and cross-DDS wire check are recorded in the E2E evidence separately.
      - ``visionpilot_msgs/msg/DrivingReference``
      - Implemented: lane polynomial (a, b, c, x_max), speed horizon
        (20 × 0.05 s), same identity fields; SI's SI_CONTROL + VP input
-   * - ``/control/trajectory`` (1 → 2)
+   * - ``/planning/trajectory`` (1 → 2)
      - ``autoware_planning_msgs/msg/Trajectory``
      - Existing Autoware-only input
    * - ``/control/safety_island/approved_request`` (2 → 1)

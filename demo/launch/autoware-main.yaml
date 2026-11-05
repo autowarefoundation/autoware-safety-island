@@ -9,7 +9,7 @@
 #
 # Interim replacement for autoware_launch's
 # config/system/diagnostics/autoware-main.yaml in the demo image
-# (universe-humble-20261029, see ../docker-compose.yaml).
+# (universe-humble-2.0.0, see ../docker-compose.yaml).
 # planning_simulator.launch.xml hard-codes that file as the diagnostic graph, so
 # the demo mounts this copy over it. The copy is the image's file verbatim plus
 # the edits of autoware-safety-island.yaml; CI

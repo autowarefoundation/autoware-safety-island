@@ -30,6 +30,29 @@ Unreleased
 No unreleased changes.
 
 ******
+v0.3.0
+******
+
+Targets the Autoware 2.0.0 release, as Open AD Kit 2.0 does.
+
+Changed
+-------
+
+- The Safety Island reads the Autoware trajectory from ``/planning/trajectory``,
+  the trajectory Autoware 2.0's own follower reads, instead of
+  ``/control/trajectory``, which only Autoware's ``main`` publishes (after its
+  trajectory gate). ``bridge-config.yaml`` bridges it 1:1. An integration on
+  Autoware ``main`` needs a remap in its own bridge; see
+  ``documentation/design/topics.rst``.
+- The demo runs Autoware ``universe-humble-2.0.0``.
+
+Removed
+-------
+
+- ``demo/bridge/bridge-overlay.yaml`` and its merge in the bridge entrypoint:
+  Autoware 2.0.0 publishes the topic the contract bridges.
+
+******
 v0.2.0
 ******
 

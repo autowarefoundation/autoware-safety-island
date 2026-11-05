@@ -46,10 +46,11 @@ Replace `wlp2s0` with the multicast-capable interface on your host, for example 
 A prebuilt or released binary can switch interface at runtime instead:
 `SI_DDS_INTERFACE=wlp2s0 ./build/freertos-posix/actuation_freertos`.
 
-## Autoware image, controller preset and bridge overlay
+## Autoware image, controller preset and bridge
 
-`docker-compose.yaml` runs Autoware `universe-humble-20261029`. The bridge and
-visualizer Dockerfiles use the same image; keep the three in step.
+`docker-compose.yaml` runs Autoware `universe-humble-2.0.0`, the Autoware 2.0.0
+release the Safety Island targets. The bridge and visualizer Dockerfiles use the
+same image; keep the three in step.
 
 - Autoware's own trajectory follower is disabled by the control module preset
   `launch/safety_island_preset.yaml` (`trajectory_follower_mode: none`),
@@ -66,11 +67,7 @@ visualizer Dockerfiles use the same image; keep the three in step.
   Delete it once the image's planning simulator accepts the argument (TODO in
   the file).
 - The bridge runs the released topic contract `bridge/bridge-config.yaml`,
-  which maps every topic 1:1. Its entrypoint merges `bridge/bridge-overlay.yaml`
-  into it first. The overlay is temporary: this image predates Autoware's
-  trajectory gate, so nothing publishes `/control/trajectory` and the overlay
-  remaps `/planning/trajectory` to `/control/trajectory` on domain 2. Remove it
-  once the demo image publishes `/control/trajectory`.
+  which maps every topic 1:1.
 
 `common.env` loads two CycloneDDS files: the `cyclonedds*.xml` mounted as
 `/autoware/cyclonedds.xml` (interfaces, discovery), then

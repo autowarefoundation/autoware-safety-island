@@ -2,7 +2,7 @@ services:
   safety-island-autoware:
     network_mode: host
     # Keep in step with the FROM lines in bridge/Dockerfile and visualizer/Dockerfile.
-    image: ghcr.io/autowarefoundation/autoware:universe-humble-20261029
+    image: ghcr.io/autowarefoundation/autoware:universe-humble-2.0.0
     volumes:
       - ./map/sample-map-planning:/autoware_map:ro
       - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
@@ -32,10 +32,8 @@ services:
     volumes:
       - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
       - ./bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro
-      # The released topic contract, plus the demo-only overlay the entrypoint
-      # merges into it (see bridge/bridge-overlay.yaml).
+      # The released topic contract.
       - ./bridge/bridge-config.yaml:/autoware/bridge-config.yaml:ro
-      - ./bridge/bridge-overlay.yaml:/autoware/bridge-overlay.yaml:ro
     env_file:
       - common.env
 

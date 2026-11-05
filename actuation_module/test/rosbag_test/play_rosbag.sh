@@ -4,9 +4,9 @@
 source "/opt/ros/humble/setup.bash"
 source "/opt/autoware/setup.bash"
 
-# The bag predates Autoware's trajectory gate and carries the follower input
-# as /planning/scenario_planning/trajectory. The Safety Island reads
-# /control/trajectory, so replay it under that name.
+# The bag carries the follower input under its older name,
+# /planning/scenario_planning/trajectory. The Safety Island reads
+# /planning/trajectory, so replay it under that name.
 ros2 bag play --start-paused /autoware-safety-island/actuation_module/test/rosbag_test/rosbag \
     --topics \
     /vehicle/status/steering_status \
@@ -14,5 +14,5 @@ ros2 bag play --start-paused /autoware-safety-island/actuation_module/test/rosba
     /localization/kinematic_state \
     /localization/acceleration \
     /system/operation_mode/state \
-    --remap /planning/scenario_planning/trajectory:=/control/trajectory
+    --remap /planning/scenario_planning/trajectory:=/planning/trajectory
     # /control/trajectory_follower/control_cmd
