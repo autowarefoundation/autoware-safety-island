@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify-tag:
-    name: Verify tag is on main
+    name: Verify the tag
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -27,21 +27,39 @@ jobs:
             exit 1
           fi
 
+      - name: Check the changelog has this version
+        shell: bash
+        run: |
+          # A pre-release (v0.2.0-rc.1) is checked against its version (v0.2.0).
+          version="${GITHUB_REF_NAME%%-*}"
+          if ! grep -qxF "${version}" documentation/changelog.rst; then
+            echo "Error: documentation/changelog.rst has no ${version} section"
+            exit 1
+          fi
+
+      - name: Check the bridge contract matches topics.rst
+        shell: bash
+        run: python3 .github/scripts/check-bridge-contract.py
+
   build-zephyr:
     name: Zephyr Build (${{ matrix.name }})
     needs: verify-tag
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
+      # Pinned, so a tag always builds with the same toolchain. Move it to the
+      # devcontainer-<sha> tag docker-build-push.yml published when .devcontainer changes.
+      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer-c92271b605bb3af960fdaffdedbe96e11efb4543
     strategy:
       matrix:
         include:
           - platform: zephyr-fvp
             name: FVP
             artifact: zephyr-fvp.elf
+            elf: build/zephyr-fvp/full/zephyr/zephyr.elf
           - platform: zephyr-s32z
             name: S32Z
             artifact: zephyr-s32z.elf
+            elf: build/zephyr-s32z/zephyr/zephyr.elf
 
     steps:
       - name: Checkout repository
@@ -53,11 +71,6 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      - name: Resolve CycloneDDS pin
-        id: cdds
-        shell: bash
-        run: echo "sha=$(git rev-parse HEAD:cyclonedds)" >> "$GITHUB_OUTPUT"
-
       # Initialise only the public submodules. s32ct_config is a PRIVATE
       # submodule (NXP Confidential generated configs) that the repo-scoped CI
       # token cannot clone, and the Zephyr/FreeRTOS-POSIX builds do not need it.
@@ -65,42 +78,30 @@ jobs:
         shell: bash
         run: git submodule update --init --recursive cyclonedds zephyr freertos-kernel
 
-      - name: Restore Zephyr workspace cache
-        id: zephyr-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            .west
-            zephyr
-            actuation_module/zephyr_modules
-          key: zephyr-workspace-${{ hashFiles('actuation_module/west.yml') }}
-          restore-keys: zephyr-workspace-
-
-      - name: Restore CycloneDDS host tools cache
-        uses: actions/cache@v4
-        with:
-          path: build/cyclonedds_host
-          key: zephyr-cdds-host-${{ steps.cdds.outputs.sha }}
-
       - name: Initialize Zephyr workspace
         shell: bash
         run: |
           set -euo pipefail
           pip3 install -q -r zephyr/scripts/requirements-base.txt
           pip3 install -q -r zephyr/scripts/requirements-build-test.txt
-          if [ "${{ steps.zephyr-cache.outputs.cache-hit }}" != "true" ]; then
-            [ -d .west ] || west init -l actuation_module
-            west update
-          fi
+          west init -l actuation_module
+          west update
           west zephyr-export
 
-      - name: Build (${{ matrix.name }} target)
+      # Builds the ELF it publishes and runs it; S32Z needs hardware to run.
+      - name: Build and validate on FVP
+        if: matrix.platform == 'zephyr-fvp'
         shell: bash
-        run: ./build.sh --platform "${{ matrix.platform }}"
+        run: .github/scripts/run-zephyr-fvp-ci.sh
+
+      - name: Build for S32Z
+        if: matrix.platform == 'zephyr-s32z'
+        shell: bash
+        run: ./build.sh --platform zephyr-s32z
 
       - name: Collect artifact
         shell: bash
-        run: cp build/${{ matrix.platform }}/zephyr/zephyr.elf "${{ matrix.artifact }}"
+        run: cp "${{ matrix.elf }}" "${{ matrix.artifact }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -114,7 +115,9 @@ jobs:
     needs: verify-tag
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer
+      # Pinned, so a tag always builds with the same toolchain. Move it to the
+      # devcontainer-<sha> tag docker-build-push.yml published when .devcontainer changes.
+      image: ghcr.io/autowarefoundation/autoware-safety-island:devcontainer-c92271b605bb3af960fdaffdedbe96e11efb4543
 
     steps:
       - name: Checkout repository
@@ -126,25 +129,12 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      - name: Resolve CycloneDDS pin
-        id: cdds
-        shell: bash
-        run: echo "sha=$(git rev-parse HEAD:cyclonedds)" >> "$GITHUB_OUTPUT"
-
       # Initialise only the public submodules. s32ct_config is a PRIVATE
       # submodule (NXP Confidential generated configs) that the repo-scoped CI
       # token cannot clone, and the Zephyr/FreeRTOS-POSIX builds do not need it.
       - name: Initialize build submodules (private s32ct_config excluded)
         shell: bash
         run: git submodule update --init --recursive cyclonedds zephyr freertos-kernel
-
-      - name: Restore CycloneDDS build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/cyclonedds_host
-            build/cyclonedds_target_out
-          key: cdds-${{ steps.cdds.outputs.sha }}
 
       - name: Run FreeRTOS POSIX validation
         shell: bash
@@ -157,38 +147,102 @@ jobs:
           path: build/freertos-posix/actuation_freertos
           retention-days: 1
 
+  smoke-freertos:
+    # The released POSIX binary must start on a plain Ubuntu host, not only in
+    # the devcontainer it was built in: pin the glibc floor (22.04) and the
+    # current LTS (24.04), on the default loopback interface and with the
+    # SI_DDS_INTERFACE runtime override.
+    name: FreeRTOS POSIX smoke (${{ matrix.image }})
+    needs: build-freertos
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        image: ['ubuntu:22.04', 'ubuntu:24.04']
+
+    steps:
+      - name: Download FreeRTOS POSIX binary
+        uses: actions/download-artifact@v4
+        with:
+          name: freertos-posix
+          path: bin/
+
+      - name: Run on ${{ matrix.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x bin/actuation_freertos
+          for env in "" "SI_DDS_INTERFACE=lo" "SI_DDS_INTERFACE=auto"; do
+            echo "::group::${{ matrix.image }} ${env:-<default>}"
+            set +e
+            env_args=()
+            [ -n "$env" ] && env_args=(-e "$env")
+            docker run --rm -v "$PWD/bin:/si:ro" "${env_args[@]}" "${{ matrix.image }}" \
+              timeout 15s /si/actuation_freertos > run.log 2>&1
+            rc=$?
+            set -e
+            cat run.log
+            echo "::endgroup::"
+            # 124 = still running when timeout stopped it, which is the pass case.
+            if [ "$rc" -ne 124 ]; then
+              echo "actuation_freertos exited early with status ${rc} on ${{ matrix.image }} (${env:-default})" >&2
+              exit 1
+            fi
+            grep -Fq "Network interface" run.log
+            grep -Fq "Actuation Safety Island is Live" run.log
+            grep -Eq "Waiting for .* data" run.log
+          done
+
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-24.04
-    needs: [build-zephyr, build-freertos]
+    needs: [build-zephyr, build-freertos, smoke-freertos]
     permissions:
+      attestations: write
       contents: write
+      id-token: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
           path: release/
 
+      # The Safety Island's bridge contract: bridge-config.yaml (topics) and
+      # cyclonedds-domain2.xml (the MaxMessageSize every domain-2 writer must
+      # use). Downstream integrations (Open AD Kit) pin both by release +
+      # sha256 instead of copying them.
+      - name: Collect bridge contract
+        shell: bash
+        run: |
+          cp demo/bridge/bridge-config.yaml release/bridge-config.yaml
+          cp demo/bridge/cyclonedds-domain2.xml release/cyclonedds-domain2.xml
+
       - name: Generate checksums
         shell: bash
         run: |
           cd release
-          sha256sum zephyr-fvp.elf zephyr-s32z.elf actuation_freertos > sha256sums.txt
+          sha256sum -- * > sha256sums.txt
           cat sha256sums.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release/*
 
       - name: Create GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            release/zephyr-fvp.elf \
-            release/zephyr-s32z.elf \
-            release/actuation_freertos \
-            release/sha256sums.txt \
+          gh release create "${{ github.ref_name }}" release/* \
             --repo "${{ github.repository }}" \
             --title "Release ${{ github.ref_name }}" \
             --verify-tag \
+            --prerelease="${{ contains(github.ref_name, '-') }}" \
             --generate-notes

@@ -27,19 +27,71 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
+No unreleased changes.
+
+******
+v0.2.0
+******
+
+Prepares the FreeRTOS POSIX release binary and the bridge contract for
+pinning by Open AD Kit (:doc:`user_guide/open_ad_kit`).
+
 Added
 -----
 
-- Open AD Kit closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and
-  host CAN-CARLA bridge. Autoware, sensors-only overlay, and loopback
-  domain-bridge live in Open AD Kit PR #146
-  (``deployments/safety-island-carla-simulation/``).
+- Release asset ``bridge-config.yaml`` (the domain-bridge topic contract,
+  ``demo/bridge/bridge-config.yaml``), listed in ``sha256sums.txt``. CI and
+  the release workflow check it against ``documentation/design/topics.rst``.
+- Release asset ``cyclonedds-domain2.xml``: ``MaxMessageSize`` 1400 B on
+  domain 2, which every domain-2 writer must load through ``CYCLONEDDS_URI``.
+  Without it, the Safety Island truncates an unfragmented ``Trajectory`` at
+  2048 bytes, drops it, and latches ``SI_STOP`` on the trajectory timeout. The demo's ``cyclonedds*.xml`` take
+  the value from this file, and CI checks the file against the Safety
+  Island's receive limit.
+- FreeRTOS POSIX: ``SI_DDS_INTERFACE`` overrides the compile-time
+  ``CONFIG_DDS_NETWORK_INTERFACE`` at runtime (name, IPv4 address or
+  ``auto``), so one binary runs on loopback and on a LAN. The startup log
+  names the interface and its source.
+- Release workflow runs the published ``actuation_freertos`` in plain
+  ``ubuntu:22.04`` and ``ubuntu:24.04`` containers before publishing.
+- Release workflow publishes a SemVer pre-release tag (``v0.2.0-rc.1``) as a
+  GitHub pre-release, so it does not become the latest release. Tags still
+  have to be on ``main``.
+- Release workflow builds with a pinned devcontainer and no caches, runs the
+  Zephyr FVP validation, requires a changelog section for the tag, and attests
+  the build provenance of its assets.
+- Open AD Kit integration guide: release pins, ``SI_DDS_INTERFACE`` and
+  ``trajectory_follower_mode: none``.
+- Closed-loop CAN/CARLA path: Safety Island ``CAN_ONLY`` and host CAN-CARLA
+  bridge. Open AD Kit does not ship its side of this path: Open AD Kit PR #146
+  was closed without merging.
 - Zephyr FVP TAP UDP CAN tunnel: one 48-byte datagram per command onto the
   same ``vcan0`` decoder as FreeRTOS POSIX. Native FVP CAN stays loopback.
 
 Changed
 -------
 
+- The Safety Island reads the Autoware trajectory from ``/control/trajectory``
+  (the trajectory gate output that Autoware's own follower reads) instead of
+  ``/planning/scenario_planning/trajectory``. ``bridge-config.yaml`` bridges
+  it 1:1, and the contract check rejects any ``remap``. Autoware without the
+  trajectory gate needs a remap in its own bridge; see
+  ``documentation/design/topics.rst``.
+- The demo runs Autoware ``universe-humble-20261029`` and disables
+  Autoware's follower with the ``safety_island`` control module preset
+  (``trajectory_follower_mode: none``). The stub
+  ``demo/launch/control.launch.xml`` is removed. Until the demo image
+  publishes ``/control/trajectory``, the demo bridge merges
+  ``demo/bridge/bridge-overlay.yaml`` into the contract to remap
+  ``/planning/trajectory`` to ``/control/trajectory``.
+- Autoware with ``trajectory_follower_mode: none`` must remove
+  ``/autoware/control/performance_monitoring/control_state`` from its
+  diagnostic graph, or ``change_to_autonomous`` fails.
+  ``demo/launch/autoware-safety-island.yaml`` is the e2e-style graph for
+  ``diagnostic_graph_aggregator_graph_path``. Until
+  ``planning_simulator.launch.xml`` accepts that argument (autoware_launch
+  PR pending), the demo mounts a CI-checked copy of the image's
+  ``autoware-main.yaml`` with the same edit.
 - ``build.sh`` and the documentation now present the supported runtime target
   matrix: ``zephyr-fvp``, ``zephyr-s32z``, ``freertos-posix``, and
   ``freertos-s32z2``.
@@ -51,6 +103,10 @@ Changed
 Fixed
 -----
 
+- The v0.1.0 ``actuation_freertos`` exited on start with "DDS network
+  interface not set" because it was built with an empty interface. An empty
+  interface now means CycloneDDS auto-selects, and the POSIX build defaults
+  to ``lo``.
 - Wait for ``/system/operation_mode/state`` before the first control tick.
 - Ingest the MPC trajectory once per control tick instead of also in
   ``isReady()``.

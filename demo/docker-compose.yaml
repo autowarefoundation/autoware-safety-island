@@ -1,18 +1,28 @@
 services:
   safety-island-autoware:
     network_mode: host
-    image: ghcr.io/autowarefoundation/autoware:universe-20250207
+    # Keep in step with the FROM lines in bridge/Dockerfile and visualizer/Dockerfile.
+    image: ghcr.io/autowarefoundation/autoware:universe-humble-20261029
     volumes:
-      - ./map/sample-map-planning:/root/autoware_map
-      - ./cyclonedds.xml:/autoware/cyclonedds.xml
-      - ./launch/control.launch.xml:/opt/autoware/share/tier4_control_launch/launch/control.launch.xml
+      - ./map/sample-map-planning:/autoware_map:ro
+      - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
+      - ./bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro
+      # Control module preset with trajectory_follower_mode: none, so the
+      # Safety Island is the only trajectory follower.
+      - ./launch/safety_island_preset.yaml:/opt/autoware/autoware_control_config/share/autoware_control_config/config/preset/safety_island_preset.yaml:ro
+      # Diagnostic graph without controller_node_exe's control_state, which the
+      # disabled follower never publishes. Interim: planning_simulator.launch.xml
+      # hard-codes autoware-main.yaml, so this copy replaces it; see the TODO in
+      # launch/autoware-main.yaml.
+      - ./launch/autoware-main.yaml:/opt/autoware/autoware_launch/share/autoware_launch/config/system/diagnostics/autoware-main.yaml:ro
     env_file:
       - common.env
     command: >
       ros2 launch autoware_launch planning_simulator.launch.xml
-      map_path:=/root/autoware_map
+      map_path:=/autoware_map
       vehicle_model:=sample_vehicle
       sensor_model:=sample_sensor_kit
+      control_module_preset:=safety_island
       rviz:=false
 
   safety-island-bridge:
@@ -20,19 +30,22 @@ services:
     build:
       context: bridge
     volumes:
-      - ./cyclonedds.xml:/autoware/cyclonedds.xml
-      - ./bridge/bridge-config.yaml:/autoware/bridge-config.yaml
+      - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
+      - ./bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro
+      # The released topic contract, plus the demo-only overlay the entrypoint
+      # merges into it (see bridge/bridge-overlay.yaml).
+      - ./bridge/bridge-config.yaml:/autoware/bridge-config.yaml:ro
+      - ./bridge/bridge-overlay.yaml:/autoware/bridge-overlay.yaml:ro
     env_file:
       - common.env
-    command: >
-      ros2 run domain_bridge domain_bridge --wait-for-publisher false /autoware/bridge-config.yaml
-  
+
   safety-island-visualizer:
     network_mode: host
     build:
       context: visualizer
     volumes:
-      - ./cyclonedds.xml:/autoware/cyclonedds.xml
+      - ./cyclonedds.xml:/autoware/cyclonedds.xml:ro
+      - ./bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro
     env_file:
       - common.env
     ports:
