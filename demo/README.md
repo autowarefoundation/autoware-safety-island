@@ -43,6 +43,42 @@ Build and run the FreeRTOS POSIX runtime from the repository root with the same 
 ```
 
 Replace `wlp2s0` with the multicast-capable interface on your host, for example `eth0`.
+A prebuilt or released binary can switch interface at runtime instead:
+`SI_DDS_INTERFACE=wlp2s0 ./build/freertos-posix/actuation_freertos`.
+
+## Autoware image, controller preset and bridge overlay
+
+`docker-compose.yaml` runs Autoware `universe-humble-20261029`. The bridge and
+visualizer Dockerfiles use the same image; keep the three in step.
+
+- Autoware's own trajectory follower is disabled by the control module preset
+  `launch/safety_island_preset.yaml` (`trajectory_follower_mode: none`),
+  launched with `control_module_preset:=safety_island`. No launch file is
+  replaced.
+- Autoware's diagnostic graph drops `controller_node_exe`'s `control_state`,
+  which the disabled follower never publishes. Without that,
+  `change_to_autonomous` fails with "The target mode is not available".
+  `launch/autoware-safety-island.yaml` is the graph to pass as
+  `diagnostic_graph_aggregator_graph_path`. `planning_simulator.launch.xml` does
+  not accept that argument yet, so for now the demo mounts
+  `launch/autoware-main.yaml` (the image's file plus the same edit) over the
+  image's `autoware-main.yaml`. CI checks the copy against the pinned image.
+  Delete it once the image's planning simulator accepts the argument (TODO in
+  the file).
+- The bridge runs the released topic contract `bridge/bridge-config.yaml`,
+  which maps every topic 1:1. Its entrypoint merges `bridge/bridge-overlay.yaml`
+  into it first. The overlay is temporary: this image predates Autoware's
+  trajectory gate, so nothing publishes `/control/trajectory` and the overlay
+  remaps `/planning/trajectory` to `/control/trajectory` on domain 2. Remove it
+  once the demo image publishes `/control/trajectory`.
+
+`common.env` loads two CycloneDDS files: the `cyclonedds*.xml` mounted as
+`/autoware/cyclonedds.xml` (interfaces, discovery), then
+`bridge/cyclonedds-domain2.xml` (the released domain-2 `MaxMessageSize`, which
+every domain-2 writer must use). Do not set `MaxMessageSize` for domain 2 in
+the `cyclonedds*.xml` files.
+
+See `documentation/user_guide/open_ad_kit.rst`.
 
 ## FreeRTOS POSIX CAN to CARLA (open-loop)
 

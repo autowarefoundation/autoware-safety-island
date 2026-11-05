@@ -58,6 +58,17 @@ host interface explicitly:
 
 Replace ``wlp2s0`` with the interface that should carry domain-2 DDS traffic.
 
+The interface can also be chosen at runtime without rebuilding:
+``SI_DDS_INTERFACE`` overrides the compile-time value. It takes an interface
+name, an IPv4 address, or ``auto`` (let CycloneDDS choose):
+
+.. code-block:: console
+
+  $ SI_DDS_INTERFACE=wlp2s0 ./build/freertos-posix/actuation_freertos
+
+The released ``actuation_freertos`` binary is built with ``lo`` and relies on
+this override for LAN use; see :doc:`open_ad_kit`.
+
 *************
 Run Locally
 *************

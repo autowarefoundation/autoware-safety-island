@@ -1,35 +1,40 @@
 docker run --rm -it \
     --network host \
-    -v $(pwd)/map/sample-map-planning:/root/autoware_map \
-    -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml \
-    -v $(pwd)/launch/control.launch.xml:/opt/autoware/share/tier4_control_launch/launch/control.launch.xml \
+    -v $(pwd)/map/sample-map-planning:/autoware_map:ro \
+    -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml:ro \
+    -v $(pwd)/bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro \
+    -v $(pwd)/launch/safety_island_preset.yaml:/opt/autoware/autoware_control_config/share/autoware_control_config/config/preset/safety_island_preset.yaml:ro \
+    -v $(pwd)/launch/autoware-main.yaml:/opt/autoware/autoware_launch/share/autoware_launch/config/system/diagnostics/autoware-main.yaml:ro \
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     -e ROS_DOMAIN_ID=1 \
-    -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml \
-    ghcr.io/autowarefoundation/autoware:universe-20250207 \
+    -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml,file:///autoware/cyclonedds-domain2.xml \
+    ghcr.io/autowarefoundation/autoware:universe-humble-20261029 \
     ros2 launch autoware_launch planning_simulator.launch.xml \
-    map_path:=/root/autoware_map \
+    map_path:=/autoware_map \
     vehicle_model:=sample_vehicle \
     sensor_model:=sample_sensor_kit \
+    control_module_preset:=safety_island \
     rviz:=false
 
 
 docker run --rm -it \
     --network host \
-    -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml \
-    -v $(pwd)/bridge/bridge-config.yaml:/autoware/bridge-config.yaml \
+    -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml:ro \
+    -v $(pwd)/bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro \
+    -v $(pwd)/bridge/bridge-config.yaml:/autoware/bridge-config.yaml:ro \
+    -v $(pwd)/bridge/bridge-overlay.yaml:/autoware/bridge-overlay.yaml:ro \
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     -e ROS_DOMAIN_ID=1 \
-    -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml \
-    safety-island-bridge:latest \
-    ros2 run domain_bridge domain_bridge --wait-for-publisher false /autoware/bridge-config.yaml
+    -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml,file:///autoware/cyclonedds-domain2.xml \
+    safety-island-bridge:latest
 
 
 docker run --rm -it \
   --network host \
-  -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml \
+  -v $(pwd)/cyclonedds.xml:/autoware/cyclonedds.xml:ro \
+  -v $(pwd)/bridge/cyclonedds-domain2.xml:/autoware/cyclonedds-domain2.xml:ro \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
   -e ROS_DOMAIN_ID=1 \
-  -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml \
+  -e CYCLONEDDS_URI=file:///autoware/cyclonedds.xml,file:///autoware/cyclonedds-domain2.xml \
   -p 6080:6080 \
   safety-island-visualizer:latest

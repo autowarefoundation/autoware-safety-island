@@ -1,0 +1,33 @@
+# TODO(autoware_launch PR "feat(autoware_launch): expose
+# diagnostic_graph_aggregator_graph_path in planning_simulator"): delete this
+# workflow with demo/launch/autoware-main.yaml and
+# .github/scripts/check-demo-diag-graph.py once the demo image's
+# planning_simulator.launch.xml declares diagnostic_graph_aggregator_graph_path.
+name: Demo diagnostic graph
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'demo/docker-compose.yaml'
+      - 'demo/launch/**'
+      - '.github/scripts/check-demo-diag-graph.py'
+      - '.github/workflows/demo-diag-graph.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: autoware-main.yaml copy matches the demo image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Compare demo/launch/autoware-main.yaml with the pinned image
+        shell: bash
+        run: python3 .github/scripts/check-demo-diag-graph.py

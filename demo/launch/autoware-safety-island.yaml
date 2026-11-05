@@ -1,0 +1,16 @@
+# Diagnostic graph for Autoware with trajectory_follower_mode: none.
+#
+# With the follower off, controller_node_exe never publishes its control_state
+# diagnostic, /autoware/control/performance_monitoring/control_state stays
+# stale, and change_to_autonomous fails with "The target mode is not
+# available". This graph is autoware-main.yaml minus that node, the same
+# pattern as autoware_launch's autoware-main-e2e.yaml. Install it next to
+# autoware-main.yaml in autoware_launch/config/system/diagnostics/ and pass it
+# as diagnostic_graph_aggregator_graph_path.
+#
+# The demo cannot pass it yet (see autoware-main.yaml in this directory).
+files:
+  - { path: $(dirname)/autoware-main.yaml }
+
+edits:
+  - { type: remove, path: /autoware/control/performance_monitoring/control_state }

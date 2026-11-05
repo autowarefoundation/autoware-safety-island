@@ -8,6 +8,11 @@
 #include <dds/dds.h>
 #include "platform/platform_config.h"
 
+#if defined(PLATFORM_FREERTOS_POSIX)
+#include <cstdlib>
+#include <cstring>
+#endif
+
 #include "common/logger/logger.hpp"
 using namespace common::logger;
 
@@ -68,18 +73,31 @@ inline static void init_config(struct ddsi_config & cfg)
   // edge-ECU peer: leave cfg.network_interfaces at the ddsi_config_init_default()
   // default so CycloneDDS auto-selects a suitable interface, rather than treating
   // it as a fatal misconfiguration.
-  constexpr bool iface_configured = (sizeof(CONFIG_DDS_NETWORK_INTERFACE) > 1);
+  const char * iface = CONFIG_DDS_NETWORK_INTERFACE;
+  const char * iface_source = "CONFIG_DDS_NETWORK_INTERFACE";
+#if defined(PLATFORM_FREERTOS_POSIX)
+  // The POSIX simulator is a Linux process, so one released binary can serve
+  // both loopback (CI, single-host domain bridge) and a LAN: SI_DDS_INTERFACE,
+  // when set, overrides the compile-time value. Same selector forms as the
+  // CMake option (interface name or dotted-quad IPv4); an empty value or
+  // "auto" lets CycloneDDS auto-select.
+  if (const char * env_iface = std::getenv("SI_DDS_INTERFACE")) {
+    iface = (std::strcmp(env_iface, "auto") == 0) ? "" : env_iface;
+    iface_source = "SI_DDS_INTERFACE";
+  }
+#endif
+  const bool iface_configured = (iface[0] != '\0');
 
   if (iface_configured) {
-    if (dds_selector_is_ipv4(CONFIG_DDS_NETWORK_INTERFACE)) {
-      cfg_iface.cfg.address = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
-      log_info("Network interface (by IP address): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+    if (dds_selector_is_ipv4(iface)) {
+      cfg_iface.cfg.address = const_cast<char *>(iface);
+      log_info("Network interface (by IP address): %s [%s]\n", iface, iface_source);
     } else {
-      cfg_iface.cfg.name = const_cast<char *>(CONFIG_DDS_NETWORK_INTERFACE);
-      log_info("Network interface (by name): %s\n", CONFIG_DDS_NETWORK_INTERFACE);
+      cfg_iface.cfg.name = const_cast<char *>(iface);
+      log_info("Network interface (by name): %s [%s]\n", iface, iface_source);
     }
   } else {
-    log_info("Network interface: auto (CONFIG_DDS_NETWORK_INTERFACE empty)\n");
+    log_info("Network interface: auto [%s]\n", iface_source);
   }
 
   ddsi_config_init_default(&cfg);

@@ -1,0 +1,49 @@
+# Safety Island control module preset (autoware_control_config).
+#
+# Copy of the image's default_preset.yaml with trajectory_follower_mode set to
+# none: the Safety Island replaces Autoware's trajectory follower and its
+# /control/trajectory_follower/control_cmd arrives on domain 1 through the
+# domain bridge, so Autoware must not run its own follower. Everything else
+# matches the default preset.
+#
+# docker-compose.yaml mounts this file into autoware_control_config's preset
+# directory and launches with control_module_preset:=safety_island.
+launch:
+  # controller
+  - arg:
+      name: trajectory_follower_mode
+      default: none
+      # option: trajectory_follower_node
+      #         smart_mpc_trajectory_follower
+      #         none
+
+  # external_cmd selector/converter
+  - arg:
+      name: launch_external_cmd_selector
+      default: "true"
+  - arg:
+      name: launch_external_cmd_converter
+      default: "true"
+
+  # optional control checkers
+  - arg:
+      name: launch_lane_departure_checker
+      default: "true"
+  - arg:
+      name: launch_control_validator
+      default: "true"
+  - arg:
+      name: launch_autonomous_emergency_braking
+      default: "true"
+  - arg:
+      name: launch_collision_detector
+      default: "true"
+  - arg:
+      name: launch_obstacle_collision_checker
+      default: "false"
+  - arg:
+      name: launch_predicted_path_checker
+      default: "false"
+  - arg:
+      name: launch_control_evaluator
+      default: "true"
