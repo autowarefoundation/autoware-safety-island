@@ -55,9 +55,11 @@ jobs:
           - platform: zephyr-fvp
             name: FVP
             artifact: zephyr-fvp.elf
+            elf: build/zephyr-fvp/full/zephyr/zephyr.elf
           - platform: zephyr-s32z
             name: S32Z
             artifact: zephyr-s32z.elf
+            elf: build/zephyr-s32z/zephyr/zephyr.elf
 
     steps:
       - name: Checkout repository
@@ -86,18 +88,20 @@ jobs:
           west update
           west zephyr-export
 
-      - name: Build (${{ matrix.name }} target)
-        shell: bash
-        run: ./build.sh --platform "${{ matrix.platform }}"
-
-      - name: Run Zephyr FVP validation
+      # Builds the ELF it publishes and runs it; S32Z needs hardware to run.
+      - name: Build and validate on FVP
         if: matrix.platform == 'zephyr-fvp'
         shell: bash
         run: .github/scripts/run-zephyr-fvp-ci.sh
 
+      - name: Build for S32Z
+        if: matrix.platform == 'zephyr-s32z'
+        shell: bash
+        run: ./build.sh --platform zephyr-s32z
+
       - name: Collect artifact
         shell: bash
-        run: cp build/${{ matrix.platform }}/zephyr/zephyr.elf "${{ matrix.artifact }}"
+        run: cp "${{ matrix.elf }}" "${{ matrix.artifact }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
