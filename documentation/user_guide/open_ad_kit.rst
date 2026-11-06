@@ -201,12 +201,8 @@ Older Autoware images (``tier4_control_launch``)
 
 .. note::
 
-   The Safety Island subscribes to ``/control/trajectory``, the trajectory
-   gate output that Autoware's own follower reads in ``autoware_launch``
-   main. Published Autoware images up to ``universe-humble-20261102`` do not
-   contain the trajectory gate yet: their follower reads
-   ``/planning/trajectory`` and nothing publishes ``/control/trajectory``.
-   With such an image, add a remap to ``control/trajectory`` in your bridge.
-   The demo does this with ``demo/bridge/bridge-overlay.yaml``, which its
-   bridge entrypoint merges into the released ``bridge-config.yaml``. The
-   released contract itself stays 1:1.
+   The Safety Island targets Autoware 2.0.0 and subscribes to
+   ``/planning/trajectory``, the trajectory Autoware 2.0's own follower reads.
+   Autoware's ``main`` reads ``/control/trajectory`` after its trajectory
+   gate; with it, add a remap to ``planning/trajectory`` in your bridge
+   (:doc:`../design/topics`). The released contract stays 1:1.

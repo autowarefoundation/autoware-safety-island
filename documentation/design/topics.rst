@@ -51,7 +51,7 @@ inputs below; the E2E rig additionally bridges the VisionPilot topics with
      - ``autoware_adapi_v1_msgs/msg/OperationModeState``
      - domain 1 → 2 (demo bridge)
      - always
-   * - ``/control/trajectory``
+   * - ``/planning/trajectory``
      - ``autoware_planning_msgs/msg/Trajectory``
      - domain 1 → 2 (demo bridge)
      - ``SI_CONTROL`` + ``SI_TRAJECTORY_SOURCE=autoware`` (build default)
@@ -77,40 +77,20 @@ which caps domain-2 datagrams at 1400 B. The Safety Island receives at most
 2048 bytes per datagram, and a ``Trajectory`` sent unfragmented is truncated and
 dropped, which ends in ``SI_STOP`` on the trajectory timeout. See :doc:`../user_guide/open_ad_kit`.
 
-``/control/trajectory`` is the trajectory Autoware's own trajectory follower
-reads: Autoware's planning output (``/planning/trajectory``) after the
-trajectory gate in ``autoware_control_launch``. The Safety Island replaces the
-follower, so it takes the same input. Run Autoware with
+``/planning/trajectory`` is the trajectory Autoware 2.0's own trajectory
+follower reads, Autoware's planning output. The Safety Island targets Autoware
+2.0.0 and replaces the follower, so it takes the same input. Run Autoware with
 ``trajectory_follower_mode: none`` in its control module preset so the follower
 does not run alongside it (:doc:`../user_guide/open_ad_kit`).
 
 .. note::
 
-   Autoware without the trajectory gate has no ``/control/trajectory``. Map the
-   topic its follower reads to ``/control/trajectory`` with a remap in your
-   bridge configuration, instead of the ``control/trajectory`` entry:
-
-   .. list-table::
-      :widths: 55 45
-      :header-rows: 1
-
-      * - Autoware
-        - Follower input
-      * - Releases 1.7.0 to 2.0.0, and images up to
-          ``universe-humble-20261102``
-        - ``/planning/trajectory``
-      * - Older images, such as ``universe-20250207``
-        - ``/planning/scenario_planning/trajectory``
-
-   .. code-block:: yaml
-
-     planning/trajectory:
-       type: autoware_planning_msgs/msg/Trajectory
-       from_domain: 1
-       to_domain: 2
-       remap: control/trajectory
-
-   That configuration is a local adaptation, not the released contract.
+   Autoware's ``main`` adds a trajectory gate between planning and the
+   follower, which then reads ``/control/trajectory``. Older images, such as
+   ``universe-20250207``, carry the follower input as
+   ``/planning/scenario_planning/trajectory``. With either, map that topic to
+   ``/planning/trajectory`` with a ``remap`` in your own bridge configuration;
+   that is a local adaptation, not the released contract.
 
 ``/control/safety_island/reenable`` is the explicit re-enable of a latched
 ``SI_STOP``: the SI resumes NORMAL only when every source is fresh within
