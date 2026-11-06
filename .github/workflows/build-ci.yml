@@ -122,9 +122,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
-          sudo modprobe vcan
+          # Ubuntu 7.0 kernels ship vcan in linux-modules and have no
+          # linux-modules-extra package; older kernels need the extra package.
+          if ! sudo modprobe vcan; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+          fi
           if ! ip link show vcan0 >/dev/null 2>&1; then
             sudo ip link add vcan0 type vcan
           fi
@@ -188,9 +192,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
-          sudo modprobe vcan
+          # Ubuntu 7.0 kernels ship vcan in linux-modules and have no
+          # linux-modules-extra package; older kernels need the extra package.
+          if ! sudo modprobe vcan; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+            sudo modprobe vcan
+          fi
           if ! ip link show vcan0 >/dev/null 2>&1; then
             sudo ip link add vcan0 type vcan
           fi
