@@ -333,7 +333,7 @@ bool MpcLateralController::isSteerConverged(const LateralMsg & cmd) const
   // wait for a while to propagate the trajectory shape to the output command when the trajectory
   // shape is changed.
   if (!m_has_received_first_trajectory || isTrajectoryShapeChanged()) {
-    log_info("MPC: trajectory shaped is changed");
+    log_info_throttle("MPC: trajectory shaped is changed");
     return false;
   }
 
