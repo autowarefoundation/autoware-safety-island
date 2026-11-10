@@ -167,10 +167,6 @@ else()
     set(APP_INCLUDE_DIRS "")
 endif()
 
-# ---- Rename main() in actuation src to actuation_main() ----
-# The FreeRTOS wrapper provides main() and calls actuation_main() as a task.
-add_compile_definitions(main=actuation_main)
-
 # ---- Build target selection ----
 if(BUILD_TEST STREQUAL "1")
     set(ACTUATION_MAIN_SRC ${ACTUATION_DIR}/test/unit_test.cpp)
@@ -184,16 +180,19 @@ else()
     set(ACTUATION_MAIN_SRC ${ACTUATION_DIR}/src/main.cpp)
 endif()
 
+# ---- Rename main() in the selected entry source to actuation_main() ----
+# The FreeRTOS wrapper provides main() and runs actuation_main() as a task.
+# The rename is scoped to that one source: a directory-wide -Dmain= would
+# also rename main() in the wrapper and in every host test program below.
+set_source_files_properties(${ACTUATION_MAIN_SRC} PROPERTIES
+    COMPILE_DEFINITIONS "main=actuation_main"
+)
+
 # ---- Executable ----
 add_executable(actuation_freertos
     ${CMAKE_CURRENT_SOURCE_DIR}/freertos_main.cpp
     ${ACTUATION_MAIN_SRC}
     ${APP_SOURCES}
-)
-
-# Undo the main rename for the FreeRTOS wrapper itself
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/freertos_main.cpp PROPERTIES
-    COMPILE_DEFINITIONS "main=main"
 )
 
 target_include_directories(actuation_freertos PRIVATE
@@ -221,9 +220,6 @@ if(BUILD_TEST STREQUAL "4")
 endif()
 
 add_executable(can_vcan_sender ${ACTUATION_DIR}/test/can_vcan_sender.cpp)
-set_source_files_properties(${ACTUATION_DIR}/test/can_vcan_sender.cpp PROPERTIES
-    COMPILE_DEFINITIONS "main=main"
-)
 target_include_directories(can_vcan_sender PRIVATE
     ${ACTUATION_DIR}/include
     ${CMAKE_CURRENT_BINARY_DIR}/generated
@@ -247,15 +243,6 @@ if(BUILD_TEST STREQUAL "1")
     add_executable(rpmsg_netif_core_test
         ${ACTUATION_DIR}/freertos_x5h/rpmsg_netif_core.c
         ${RPMSG_NETIF_CORE_TEST_MAIN}
-    )
-
-    # This directory redefines main -> actuation_main (above) so the
-    # C++ test programs' main() can run as a FreeRTOS task inside
-    # actuation_freertos. This test is a separate, plain-C host executable
-    # with its own real main(), so undo that redefinition here -- the same
-    # way freertos_main.cpp undoes it for the FreeRTOS wrapper's own main().
-    set_source_files_properties(${RPMSG_NETIF_CORE_TEST_MAIN} PROPERTIES
-        COMPILE_DEFINITIONS "main=main"
     )
 
     target_include_directories(rpmsg_netif_core_test PRIVATE
@@ -287,12 +274,6 @@ if(BUILD_TEST STREQUAL "1")
         ${TRAJECTORY_BUFFER_POLICY_TEST_MAIN}
     )
 
-    # Undo this directory's main -> actuation_main rename for this
-    # standalone host executable (see rpmsg_netif_core_test above).
-    set_source_files_properties(${TRAJECTORY_BUFFER_POLICY_TEST_MAIN} PROPERTIES
-        COMPILE_DEFINITIONS "main=main"
-    )
-
     target_include_directories(trajectory_buffer_policy_test PRIVATE
         ${ACTUATION_DIR}/src/autoware/autoware_mpc_lateral_controller/include
     )
@@ -311,9 +292,6 @@ if(BUILD_TEST STREQUAL "1")
     set(CANDIDATE_SELECTION_TEST_MAIN
         ${ACTUATION_DIR}/test/test_candidate_selection.cpp)
     add_executable(candidate_selection_test ${CANDIDATE_SELECTION_TEST_MAIN})
-    set_source_files_properties(${CANDIDATE_SELECTION_TEST_MAIN} PROPERTIES
-        COMPILE_DEFINITIONS "main=main"
-    )
     target_include_directories(candidate_selection_test PRIVATE
         ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
     )
@@ -329,9 +307,6 @@ if(BUILD_TEST STREQUAL "1")
     set(SUPERVISION_LATCH_TEST_MAIN
         ${ACTUATION_DIR}/test/test_supervision_latch.cpp)
     add_executable(supervision_latch_test ${SUPERVISION_LATCH_TEST_MAIN})
-    set_source_files_properties(${SUPERVISION_LATCH_TEST_MAIN} PROPERTIES
-        COMPILE_DEFINITIONS "main=main"
-    )
     target_include_directories(supervision_latch_test PRIVATE
         ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
     )
@@ -347,9 +322,6 @@ if(BUILD_TEST STREQUAL "1")
     set(VP_REFERENCE_TEST_MAIN
         ${ACTUATION_DIR}/test/test_vp_reference.cpp)
     add_executable(vp_reference_test ${VP_REFERENCE_TEST_MAIN})
-    set_source_files_properties(${VP_REFERENCE_TEST_MAIN} PROPERTIES
-        COMPILE_DEFINITIONS "main=main"
-    )
     target_include_directories(vp_reference_test PRIVATE
         ${ACTUATION_DIR}/src/autoware/autoware_trajectory_follower_node/include
     )
@@ -370,7 +342,6 @@ if(BUILD_TEST STREQUAL "1")
         ${ACTUATION_DIR}/freertos_x5h/si_channel.c
         ${SI_CHANNEL_TEST_MAIN}
     )
-    set_source_files_properties(${SI_CHANNEL_TEST_MAIN} PROPERTIES COMPILE_DEFINITIONS "main=main")
     target_include_directories(si_channel_test PRIVATE ${ACTUATION_DIR}/freertos_x5h)
     target_compile_options(si_channel_test PRIVATE -Wall -Wextra)
     add_custom_command(TARGET si_channel_test POST_BUILD COMMAND si_channel_test)

@@ -97,7 +97,7 @@ private:
     is_local_mode_available: true,
     is_remote_mode_available: true
   */
-  OperationModeStateMsg current_operation_mode_ = {.mode = 1, .is_autoware_control_enabled = true, .is_in_transition = false, .is_stop_mode_available = true, .is_autonomous_mode_available = true, .is_local_mode_available = true, .is_remote_mode_available = true};
+  OperationModeStateMsg current_operation_mode_ = {.stamp = {}, .mode = 1, .is_autoware_control_enabled = true, .is_in_transition = false, .is_stop_mode_available = true, .is_autonomous_mode_available = true, .is_local_mode_available = true, .is_remote_mode_available = true};
 
   bool has_trajectory_ = false;
   bool has_odometry_ = false;

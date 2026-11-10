@@ -39,10 +39,6 @@ namespace autoware::motion::control::mpc_lateral_controller
 
 MpcLateralController::MpcLateralController(Node & node)
 {
-  const auto dp_int = [&](const std::string & s) { return node.declare_parameter<int>(s); };
-  const auto dp_bool = [&](const std::string & s) { return node.declare_parameter<bool>(s); };
-  const auto dp_double = [&](const std::string & s) { return node.declare_parameter<double>(s); };
-
   m_mpc = std::make_unique<MPC>(node);
 
   m_mpc->m_ctrl_period = node.get_parameter<double>("ctrl_period");
@@ -234,7 +230,6 @@ trajectory_follower::LateralOutput MpcLateralController::run(
   // carries stack garbage and CycloneDDS rejects the Control sample at dds_write.
   LateralMsg ctrl_cmd{};
   TrajectoryMsg predicted_traj;
-  Float32MultiArrayStampedMsg debug_values;
 
   const bool is_under_control = input_data.current_operation_mode.is_autoware_control_enabled &&
                                 input_data.current_operation_mode.mode == OPERATION_MODE_STATE_AUTONOMOUS;
@@ -285,7 +280,6 @@ trajectory_follower::LateralOutput MpcLateralController::run(
   log_debug("MPC: Steering Offset Added");
 
   // publishPredictedTraj(predicted_traj);  // TODO: REMOVED FOR SIMPLIFICATION
-  // publishDebugValues(debug_values);  //TODO: removed sake of simplicity
 
   const auto createLateralOutput =
     [this](
