@@ -34,6 +34,7 @@ using namespace common::logger;
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -145,9 +146,20 @@ Controller::Controller(const StartupConfig & config)
   }
 
   // Subscribers
-  auto subscriber_steering_status = create_subscription<SteeringReportMsg>("/vehicle/status/steering_status",
-                                                              &autoware_vehicle_msgs_msg_SteeringReport_desc,
-                                                              callbackSteeringStatus, this);
+  // Every subscription below is required: the vehicle feedback gates NORMAL
+  // output, and without the re-enable topic a latched stop could never be
+  // cleared. A reader that cannot be created is fatal at startup rather than
+  // a node that waits forever for a sample that cannot arrive.
+  const auto require = [](bool created, const char * what) {
+      if (!created) {
+        throw std::runtime_error(std::string("cannot subscribe to ") + what);
+      }
+    };
+  require(
+    create_subscription<SteeringReportMsg>(
+      "/vehicle/status/steering_status", &autoware_vehicle_msgs_msg_SteeringReport_desc,
+      callbackSteeringStatus, this),
+    "steering status");
   if (supervision_mode_ == supervision::Mode::SI_CONTROL) {
     if (startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP) {
       // VP's own path + speed schedule; the SI places it with the same-frame
@@ -167,12 +179,15 @@ Controller::Controller(const StartupConfig & config)
       throw std::runtime_error("cannot subscribe to selected Autoware trajectory");
     }
   }
-  auto subscriber_odometry = create_subscription<OdometryMsg>("/localization/kinematic_state",
-                                                              &nav_msgs_msg_Odometry_desc,
-                                                              callbackOdometry, this);
-  auto subscriber_acceleration = create_subscription<AccelWithCovarianceStampedMsg>("/localization/acceleration",
-                                                              &geometry_msgs_msg_AccelWithCovarianceStamped_desc,
-                                                              callbackAcceleration, this);
+  require(
+    create_subscription<OdometryMsg>(
+      "/localization/kinematic_state", &nav_msgs_msg_Odometry_desc, callbackOdometry, this),
+    "odometry");
+  require(
+    create_subscription<AccelWithCovarianceStampedMsg>(
+      "/localization/acceleration", &geometry_msgs_msg_AccelWithCovarianceStamped_desc,
+      callbackAcceleration, this),
+    "acceleration");
   // Durability must match the deployment's bridge. The operation mode is
   // published only when it changes: the classic demo bridge retains it with
   // TRANSIENT_LOCAL so a late-joining SI still receives it (the reader
@@ -184,10 +199,11 @@ Controller::Controller(const StartupConfig & config)
   const auto op_mode_durability =
     config.operation_mode_durability == StartupConfig::OpModeDurability::VOLATILE ?
     DDS_DURABILITY_VOLATILE : DDS_DURABILITY_TRANSIENT_LOCAL;
-  auto subscriber_operation_mode_state = create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
-                                                              &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
-                                                              callbackOperationModeState, this,
-                                                              op_mode_durability);
+  require(
+    create_subscription<OperationModeStateMsg>(
+      "/system/operation_mode/state", &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
+      callbackOperationModeState, this, op_mode_durability),
+    "operation mode state");
     
   output_mode_ = common::can::configured_control_command_output_mode();
   log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));
@@ -204,12 +220,15 @@ Controller::Controller(const StartupConfig & config)
   {
     throw std::runtime_error("cannot subscribe to selected VP driving command");
   }
-  create_subscription<BoolMsg>(
-    "/control/safety_island/reenable", &std_msgs_msg_Bool_desc,
-    callbackReenable, this);
-  create_subscription<Float64StampedMsg>(
-    "/safety_island/vp_heartbeat", &tier4_debug_msgs_msg_Float64Stamped_desc,
-    callbackHeartbeat, this);
+  require(
+    create_subscription<BoolMsg>(
+      "/control/safety_island/reenable", &std_msgs_msg_Bool_desc, callbackReenable, this),
+    "re-enable request");
+  require(
+    create_subscription<Float64StampedMsg>(
+      "/safety_island/vp_heartbeat", &tier4_debug_msgs_msg_Float64Stamped_desc,
+      callbackHeartbeat, this),
+    "VisionPilot heartbeat");
   approved_request_pub_ = create_publisher<ApprovedRequestMsg>(
     "/control/safety_island/approved_request", &safety_island_msgs_msg_ApprovedRequest_desc);
 

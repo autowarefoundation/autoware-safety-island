@@ -2,6 +2,7 @@
 #define COMMON__SUBSCRIBER_HPP_
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "common/dds/helper.hpp"
@@ -40,7 +41,10 @@ public:
         if (topic < 0) {
             log_error("%s -> dds_create_topic (%s): %s\n", 
                    node_name_.c_str(), topic_name_ros2.c_str(), dds_strretcode(-topic));
-            return;
+            // A subscriber without a reader never delivers a sample. Fail the
+            // construction so the caller sees it, instead of handing back an
+            // object that looks subscribed.
+            throw std::runtime_error("dds_create_topic failed for " + topic_name_ros2);
         }
 
         // Create a DDS reader
@@ -49,14 +53,15 @@ public:
             log_error("%s -> dds_create_reader (%s): %s\n", 
                    node_name_.c_str(), topic_name_ros2.c_str(), dds_strretcode(-m_reader_entity));
             dds_delete(topic);
-            return;
+            m_reader_entity = 0;
+            throw std::runtime_error("dds_create_reader failed for " + topic_name_ros2);
         }
 
         log_info("%s -> Subscriber created for topic %s\n", node_name_.c_str(), topic_name_ros2.c_str());
     }
 
     ~Subscriber() {
-        if (m_reader_entity != 0) {
+        if (m_reader_entity > 0) {
             dds_delete(m_reader_entity);
         }
     }
