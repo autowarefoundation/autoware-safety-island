@@ -67,19 +67,7 @@ public:
   virtual ~Controller() {}
 
 private:
-  void reset_data_flags()
-  {
-    has_accel_ = false;
-    has_steering_ = false;
-    has_odometry_ = false;
-    has_trajectory_ = false;
-    has_operation_mode_ = false;
-  }
-
-  double timeout_thr_sec_;
   const StartupConfig startup_config_;
-
-  std::optional<LongitudinalOutput> longitudinal_output_{std::nullopt};
 
   std::shared_ptr<trajectory_follower::LongitudinalControllerBase> longitudinal_controller_;
   std::shared_ptr<trajectory_follower::LateralControllerBase> lateral_controller_;
@@ -243,7 +231,6 @@ private:
   enum class LateralControllerMode {
     INVALID = 0,
     MPC = 1,
-    PURE_PURSUIT = 2,
   };
   enum class LongitudinalControllerMode {
     INVALID = 0,
@@ -260,9 +247,6 @@ private:
 
   //
   bool processData();
-
-  //
-  bool isTimeOut(const LongitudinalOutput & lon_out, const LateralOutput & lat_out);
 
   //
   LateralControllerMode getLateralControllerMode(const std::string & algorithm_name) const;

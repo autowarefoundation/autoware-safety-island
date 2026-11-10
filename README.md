@@ -73,7 +73,6 @@ graph TD
 | Component | Description |
 |-----------|---------|
 | autoware_msgs | Autoware Messages |
-| autoware_osqp_interface | OSQP Interface |
 | autoware_universe_utils | Universe Utils |
 | autoware_motion_utils | Motion Utils |
 | autoware_interpolation | Interpolation Utils |

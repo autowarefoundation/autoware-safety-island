@@ -51,7 +51,6 @@ Controller::Controller(const StartupConfig & config)
   using std::placeholders::_1;
 
   const double ctrl_period = declare_parameter<double>("ctrl_period", 0.15);  // TODO: Orignal autoware period is 0.03 30ms
-  timeout_thr_sec_ = declare_parameter<double>("timeout_thr_sec", 0.5);
 
   // -------------------------------------------------------------------
   // Supervision configuration (vp_si_control_contract): mode, per-source
@@ -634,22 +633,6 @@ bool Controller::processData()
   return is_ready;
 }
 
-bool Controller::isTimeOut(
-  const trajectory_follower::LongitudinalOutput & lon_out,
-  const trajectory_follower::LateralOutput & lat_out)
-{
-  const auto now = Clock::now();
-  if ((now - Clock::toDouble(lat_out.control_cmd.stamp)) > timeout_thr_sec_) {
-    log_warn_throttle("Lateral control command too old, control_cmd will not be published.");
-    return true;
-  }
-  if ((now - Clock::toDouble(lon_out.control_cmd.stamp)) > timeout_thr_sec_) {
-    log_warn_throttle("Longitudinal control command too old, control_cmd will not be published.");
-    return true;
-  }
-  return false;
-}
-
 std::optional<trajectory_follower::InputData> Controller::createInputData()
 {
   if (!processData()) {
@@ -839,9 +822,6 @@ void Controller::callbackTimerControl()
 
   log_debug("Controllers synced");
 
-  // TODO(Horibe): Think specification. This comes from the old implementation.
-  // if (isTimeOut(lon_out, lat_out)) return;
-
   // 8. publish through the gate. The former all-inputs staleness gate is
   // gone: it was refreshed by *any* input and declared "stale" with the
   // freshest sample as its metric, so the loss of one selected source
@@ -854,10 +834,6 @@ void Controller::callbackTimerControl()
     PROFILE_MS(cyc_t0, cyc_t_ready), PROFILE_MS(cyc_t_ready, cyc_t_lat),
     PROFILE_MS(cyc_t_lat, cyc_t_lon), PROFILE_MS(cyc_t_lon, cyc_t_end),
     PROFILE_MS(cyc_t0, cyc_t_end));
-
-  // 9. Reset flags for next cycle
-  // TODO: Check if this is required, autoware version keeps publishing even there is no new data
-  // reset_data_flags();
 }
 
 void Controller::publishControlCommand(

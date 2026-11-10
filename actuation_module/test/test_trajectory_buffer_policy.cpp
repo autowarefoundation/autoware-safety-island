@@ -13,8 +13,7 @@
 //    the unguarded trim exit read as "inside the window" forever.
 //
 // Pure-logic test: the policy takes explicit stamps and durations, so no
-// clock, no DDS, no FreeRTOS, and no controller construction is needed —
-// same convention as test_input_staleness_gate.cpp next to this file. The
+// clock, no DDS, no FreeRTOS, and no controller construction is needed. The
 // scenario sections drive a plain deque of stamps through the SAME policy
 // calls, in the SAME shape (skip-or-push, then pop-while), as the
 // controller's own loop.

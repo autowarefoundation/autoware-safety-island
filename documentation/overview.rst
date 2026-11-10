@@ -113,8 +113,6 @@ and compiled as part of the safety island application.
      - Role
    * - autoware_msgs
      - Message definitions (IDL)
-   * - autoware_osqp_interface
-     - OSQP solver wrapper for MPC
    * - autoware_universe_utils
      - General utilities
    * - autoware_motion_utils
