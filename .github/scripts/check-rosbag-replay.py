@@ -12,7 +12,9 @@ the control_cmd it publishes. This script checks three things:
   2. When the bag ends and the inputs stop, the controller latches SI_STOP on a
      source watchdog (its log says which).
   3. From then on it publishes only the stop command, and the speed target
-     never rises.
+     never rises. The recorded sequence must therefore be stop commands (HOLD),
+     then followed commands, then stop commands: a stop command between two
+     followed ones means the controller resumed following after it stopped.
 
 Usage: check-rosbag-replay.py COMMANDS.csv CONTROLLER.log REFERENCE.yaml
 """
@@ -94,6 +96,18 @@ def main() -> int:
         fail(
             f"only {len(followed_indexes)} followed commands, need {MIN_FOLLOWED_COMMANDS}: "
             "the controller did not follow the replayed trajectory"
+        )
+    # Nothing re-enables the controller in this run, so once it stops it must
+    # stay stopped. Without this the tail below is all stop commands by
+    # construction, and a command followed after the latch would only be
+    # counted as one more followed command.
+    resumed = [
+        i for i in range(followed_indexes[0], followed_indexes[-1]) if is_stop(commands[i])
+    ]
+    if resumed:
+        fail(
+            f"{len(resumed)} stop commands between followed ones (first at command "
+            f"{resumed[0] + 1} of {len(commands)}): the controller resumed following after a stop"
         )
     followed = [commands[i][0] for i in followed_indexes]
     alignment = mean_steering_diff(followed, reference)
