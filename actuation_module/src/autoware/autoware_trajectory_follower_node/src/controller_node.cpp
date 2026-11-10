@@ -268,7 +268,7 @@ void Controller::callbackSteeringStatus(const SteeringReportMsg* msg, void* arg)
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_steering_ = *msg;
   controller->has_steering_ = true;
-  controller->watch_steering_.note(Clock::now());
+  controller->watch_steering_.note(Clock::monotonic());
 }
 
 void Controller::callbackOperationModeState(const OperationModeStateMsg* msg, void* arg) {
@@ -284,7 +284,7 @@ void Controller::callbackOperationModeState(const OperationModeStateMsg* msg, vo
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_operation_mode_ = *msg;
   controller->has_operation_mode_ = true;
-  controller->watch_opmode_.note(Clock::now());
+  controller->watch_opmode_.note(Clock::monotonic());
 }
 
 void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
@@ -306,7 +306,7 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   controller->current_odometry_.header.frame_id = nullptr;
   controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
-  controller->watch_odom_.note(Clock::now());
+  controller->watch_odom_.note(Clock::monotonic());
   if (controller->supervision_mode_ == supervision::Mode::SI_CONTROL &&
     controller->startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP)
   {
@@ -333,7 +333,7 @@ void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, 
   // — see callbackOdometry; only the numeric accel fields are consumed.
   controller->current_accel_.header.frame_id = nullptr;
   controller->has_accel_ = true;
-  controller->watch_accel_.note(Clock::now());
+  controller->watch_accel_.note(Clock::monotonic());
 }
 
 void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
@@ -392,7 +392,7 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   controller->current_trajectory_.header.frame_id = nullptr;
   controller->has_trajectory_ = true;
   controller->autoware_trajectory_identity_.note(stamp);
-  controller->watch_candidate_.note(Clock::now());
+  controller->watch_candidate_.note(Clock::monotonic());
 }
 
 void Controller::callbackDrivingReference(const DrivingReferenceMsg* msg, void* arg)
@@ -486,13 +486,13 @@ void Controller::callbackDrivingReference(const DrivingReferenceMsg* msg, void* 
   controller->vp_candidate_identity_.note(msg->session, msg->cycle, stamp);
   controller->accepted_source_session_ = msg->session;
   controller->accepted_source_cycle_ = msg->cycle;
-  controller->watch_candidate_.note(Clock::now());
+  controller->watch_candidate_.note(Clock::monotonic());
 }
 
 void Controller::callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg)
 {
   Controller* controller = static_cast<Controller*>(arg);
-  const double now = Clock::now();
+  const double now = Clock::monotonic();
   const DrivingCommandMsg in = *msg;  // scalar fields only: safe plain copy
 
   // 'valid=false' means VP produced no usable plan this cycle. That is a
@@ -573,7 +573,7 @@ void Controller::callbackReenable(const BoolMsg* msg, void* arg)
 {
   Controller* controller = static_cast<Controller*>(arg);
   if (msg->data) {
-    controller->reenable_.request(Clock::now());
+    controller->reenable_.request(Clock::monotonic());
     log_info(
       "Operator re-enable requested (takes effect when all sources are fresh, within %.1f s)",
       controller->reenable_window_s_);
@@ -583,7 +583,7 @@ void Controller::callbackReenable(const BoolMsg* msg, void* arg)
 void Controller::callbackHeartbeat(const Float64StampedMsg* msg, void* arg)
 {
   (void)msg;  // only the arrival counts; the value is VisionPilot's own command
-  static_cast<Controller*>(arg)->watch_heartbeat_.note(Clock::now());
+  static_cast<Controller*>(arg)->watch_heartbeat_.note(Clock::monotonic());
 }
 
 Controller::LateralControllerMode Controller::getLateralControllerMode(
@@ -673,7 +673,9 @@ void Controller::callbackTimerControl()
   // out at the default INFO level (see PROFILE_* in logger.hpp).
   PROFILE_POINT(cyc_t0);
 
-  const double now = Clock::now();
+  // Arrival ages, the re-enable window and the control period are measured
+  // on the monotonic clock; the wall clock only stamps outgoing messages.
+  const double now = Clock::monotonic();
 
   // 1. Supervision: selected-source + feedback arrival checks. This runs
   // before anything else and is independent of controller readiness — a
@@ -726,7 +728,7 @@ void Controller::callbackTimerControl()
         log_warn_throttle(
           "Re-enable requested but not all sources are fresh; staying in SI_STOP");
       }
-      publishSiStop(now);
+      publishSiStop(Clock::now());
 
       PROFILE_POINT(cyc_t_end);
       PROFILE_LOG(
@@ -906,7 +908,7 @@ void Controller::latchFault(const std::string & why)
     // guard: a heartbeat fault can latch before odometry is initialized.
     stop_ramp_.start(
       has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0,
-      watch_odom_, Clock::now(), source_timeout_ego_, supervision::StopRamp::Clock::now());
+      watch_odom_, Clock::monotonic(), source_timeout_ego_, supervision::StopRamp::Clock::now());
     log_warn("SI_STOP latched: %s (fault_id %u)", why.c_str(), supervision_.fault_id);
     reenable_.clear();  // a fault invalidates an earlier re-enable request
   } else if (supervision_.reason != why) {
@@ -1076,7 +1078,7 @@ void Controller::publishApprovedRequest(
   }
 }
 
-ControlMsg Controller::stoppedPayload(double now) const
+ControlMsg Controller::stoppedPayload(double wall_now) const
 {
   // Never command a steer reset: hold the last approved steering, and before
   // any command was approved the vehicle's own steering report.
@@ -1094,7 +1096,7 @@ ControlMsg Controller::stoppedPayload(double now) const
       stop_ramp_.velocity(
         stop_decel_mps2_, max_abs_velocity_mps_, supervision::StopRamp::Clock::now()));
   }
-  out.stamp = Clock::toRosTime(now);
+  out.stamp = Clock::toRosTime(wall_now);
   out.lateral.stamp = out.stamp;
   out.longitudinal.stamp = out.stamp;
   return out;
@@ -1106,13 +1108,13 @@ bool Controller::feedbackSeen() const
          watch_opmode_.ever();
 }
 
-void Controller::publishSiStop(double now)
+void Controller::publishSiStop(double wall_now)
 {
   publishApprovedRequest(
     supervision::Decision::SI_STOP,
     supervision_mode_ == supervision::Mode::VP_CONTROL ?
     supervision::SelectedSource::VP_COMMAND : supervision::SelectedSource::FOLLOWER,
-    stoppedPayload(now));
+    stoppedPayload(wall_now));
 }
 
 void Controller::publishHold()

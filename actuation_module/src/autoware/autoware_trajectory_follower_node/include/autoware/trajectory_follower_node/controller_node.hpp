@@ -227,13 +227,14 @@ private:
   void publishApprovedRequest(
     supervision::Decision decision, supervision::SelectedSource source,
     const ControlMsg & control);
-  void publishSiStop(double now);
+  void publishSiStop(double wall_now);
   void publishHold();
   // The conservative stopped payload shared by SI_STOP and HOLD: the stop
   // deceleration, the last known steering (from the last approved command,
   // else the vehicle's steering report, else 0), and velocity 0, or under
   // SI_STOP the speed ramp from the ego speed at the latch.
-  ControlMsg stoppedPayload(double now) const;
+  // `wall_now` is Clock::now() and only stamps the message.
+  ControlMsg stoppedPayload(double wall_now) const;
   // True once odometry, acceleration, steering and operation mode have each
   // arrived at least once.
   bool feedbackSeen() const;
