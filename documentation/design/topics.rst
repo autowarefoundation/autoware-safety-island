@@ -158,7 +158,7 @@ Rates and timing
 - Supervised output: one ``ApprovedRequest`` per control cycle.
 - Per-source arrival watchdogs: selected candidate **1.0 s**, odometry and
   acceleration **0.4 s**, steering report **0.5 s**. They are measured on the
-  SI clock against arrival time, never against message stamps. The operation
+  SI's monotonic clock against arrival time, never against message stamps. The operation
   mode has **no age limit**: it is published only when the mode changes and
   the deployment retains it, so its age says nothing about liveness; only
   "seen at least once" applies.
