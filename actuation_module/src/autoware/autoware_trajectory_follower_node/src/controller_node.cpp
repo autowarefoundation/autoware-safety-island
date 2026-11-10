@@ -45,6 +45,12 @@ static K_THREAD_STACK_DEFINE(node_stack, CONFIG_THREAD_STACK_SIZE);
 
 namespace autoware::motion::control::trajectory_follower_node
 {
+static_assert(
+  static_cast<uint8_t>(supervision::Decision::NORMAL) == common::can::kCanDecisionNormal &&
+  static_cast<uint8_t>(supervision::Decision::SI_STOP) == common::can::kCanDecisionSiStop &&
+  static_cast<uint8_t>(supervision::Decision::HOLD) == common::can::kCanDecisionHold,
+  "the CAN status frame carries supervision::Decision values unchanged");
+
 Controller::Controller(const StartupConfig & config)
 : Node("controller", node_stack, STACK_SIZE), startup_config_(config)
 {
@@ -1022,7 +1028,11 @@ void Controller::publishApprovedRequest(
   }
 
   if (common::can::output_mode_uses_can(output_mode_)) {
-    if (!can_output_ || !can_output_->send(legacy, output_mode_)) {
+    // CAN carries the decision and the fault id with the payload: a receiver
+    // that only sees CAN must be able to tell an SI_STOP from a NORMAL command.
+    const common::can::CommandSupervisionStatus can_supervision{
+      static_cast<uint8_t>(decision), supervision_.latched ? supervision_.fault_id : 0U};
+    if (!can_output_ || !can_output_->send(legacy, output_mode_, can_supervision)) {
       if (output_mode_ == common::can::ControlCommandOutputMode::CAN_ONLY) {
         log_error("Control command not sent over CAN in CAN_ONLY mode");
       } else {
