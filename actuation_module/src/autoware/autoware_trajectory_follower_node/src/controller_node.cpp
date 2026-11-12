@@ -34,6 +34,7 @@ using namespace common::logger;
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,13 +45,18 @@ static K_THREAD_STACK_DEFINE(node_stack, CONFIG_THREAD_STACK_SIZE);
 
 namespace autoware::motion::control::trajectory_follower_node
 {
+static_assert(
+  static_cast<uint8_t>(supervision::Decision::NORMAL) == common::can::kCanDecisionNormal &&
+  static_cast<uint8_t>(supervision::Decision::SI_STOP) == common::can::kCanDecisionSiStop &&
+  static_cast<uint8_t>(supervision::Decision::HOLD) == common::can::kCanDecisionHold,
+  "the CAN status frame carries supervision::Decision values unchanged");
+
 Controller::Controller(const StartupConfig & config)
 : Node("controller", node_stack, STACK_SIZE), startup_config_(config)
 {
   using std::placeholders::_1;
 
   const double ctrl_period = declare_parameter<double>("ctrl_period", 0.15);  // TODO: Orignal autoware period is 0.03 30ms
-  timeout_thr_sec_ = declare_parameter<double>("timeout_thr_sec", 0.5);
 
   // -------------------------------------------------------------------
   // Supervision configuration (vp_si_control_contract): mode, per-source
@@ -145,9 +151,20 @@ Controller::Controller(const StartupConfig & config)
   }
 
   // Subscribers
-  auto subscriber_steering_status = create_subscription<SteeringReportMsg>("/vehicle/status/steering_status",
-                                                              &autoware_vehicle_msgs_msg_SteeringReport_desc,
-                                                              callbackSteeringStatus, this);
+  // Every subscription below is required: the vehicle feedback gates NORMAL
+  // output, and without the re-enable topic a latched stop could never be
+  // cleared. A reader that cannot be created is fatal at startup rather than
+  // a node that waits forever for a sample that cannot arrive.
+  const auto require = [](bool created, const char * what) {
+      if (!created) {
+        throw std::runtime_error(std::string("cannot subscribe to ") + what);
+      }
+    };
+  require(
+    create_subscription<SteeringReportMsg>(
+      "/vehicle/status/steering_status", &autoware_vehicle_msgs_msg_SteeringReport_desc,
+      callbackSteeringStatus, this),
+    "steering status");
   if (supervision_mode_ == supervision::Mode::SI_CONTROL) {
     if (startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP) {
       // VP's own path + speed schedule; the SI places it with the same-frame
@@ -167,12 +184,15 @@ Controller::Controller(const StartupConfig & config)
       throw std::runtime_error("cannot subscribe to selected Autoware trajectory");
     }
   }
-  auto subscriber_odometry = create_subscription<OdometryMsg>("/localization/kinematic_state",
-                                                              &nav_msgs_msg_Odometry_desc,
-                                                              callbackOdometry, this);
-  auto subscriber_acceleration = create_subscription<AccelWithCovarianceStampedMsg>("/localization/acceleration",
-                                                              &geometry_msgs_msg_AccelWithCovarianceStamped_desc,
-                                                              callbackAcceleration, this);
+  require(
+    create_subscription<OdometryMsg>(
+      "/localization/kinematic_state", &nav_msgs_msg_Odometry_desc, callbackOdometry, this),
+    "odometry");
+  require(
+    create_subscription<AccelWithCovarianceStampedMsg>(
+      "/localization/acceleration", &geometry_msgs_msg_AccelWithCovarianceStamped_desc,
+      callbackAcceleration, this),
+    "acceleration");
   // Durability must match the deployment's bridge. The operation mode is
   // published only when it changes: the classic demo bridge retains it with
   // TRANSIENT_LOCAL so a late-joining SI still receives it (the reader
@@ -184,10 +204,11 @@ Controller::Controller(const StartupConfig & config)
   const auto op_mode_durability =
     config.operation_mode_durability == StartupConfig::OpModeDurability::VOLATILE ?
     DDS_DURABILITY_VOLATILE : DDS_DURABILITY_TRANSIENT_LOCAL;
-  auto subscriber_operation_mode_state = create_subscription<OperationModeStateMsg>("/system/operation_mode/state",
-                                                              &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
-                                                              callbackOperationModeState, this,
-                                                              op_mode_durability);
+  require(
+    create_subscription<OperationModeStateMsg>(
+      "/system/operation_mode/state", &autoware_adapi_v1_msgs_msg_OperationModeState_desc,
+      callbackOperationModeState, this, op_mode_durability),
+    "operation mode state");
     
   output_mode_ = common::can::configured_control_command_output_mode();
   log_info("Control command output mode: %s", common::can::output_mode_name(output_mode_));
@@ -204,12 +225,15 @@ Controller::Controller(const StartupConfig & config)
   {
     throw std::runtime_error("cannot subscribe to selected VP driving command");
   }
-  create_subscription<BoolMsg>(
-    "/control/safety_island/reenable", &std_msgs_msg_Bool_desc,
-    callbackReenable, this);
-  create_subscription<Float64StampedMsg>(
-    "/safety_island/vp_heartbeat", &tier4_debug_msgs_msg_Float64Stamped_desc,
-    callbackHeartbeat, this);
+  require(
+    create_subscription<BoolMsg>(
+      "/control/safety_island/reenable", &std_msgs_msg_Bool_desc, callbackReenable, this),
+    "re-enable request");
+  require(
+    create_subscription<Float64StampedMsg>(
+      "/safety_island/vp_heartbeat", &tier4_debug_msgs_msg_Float64Stamped_desc,
+      callbackHeartbeat, this),
+    "VisionPilot heartbeat");
   approved_request_pub_ = create_publisher<ApprovedRequestMsg>(
     "/control/safety_island/approved_request", &safety_island_msgs_msg_ApprovedRequest_desc);
 
@@ -249,7 +273,7 @@ void Controller::callbackSteeringStatus(const SteeringReportMsg* msg, void* arg)
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_steering_ = *msg;
   controller->has_steering_ = true;
-  controller->watch_steering_.note(Clock::now());
+  controller->watch_steering_.note(Clock::monotonic());
 }
 
 void Controller::callbackOperationModeState(const OperationModeStateMsg* msg, void* arg) {
@@ -265,7 +289,7 @@ void Controller::callbackOperationModeState(const OperationModeStateMsg* msg, vo
   Controller* controller = static_cast<Controller*>(arg);
   controller->current_operation_mode_ = *msg;
   controller->has_operation_mode_ = true;
-  controller->watch_opmode_.note(Clock::now());
+  controller->watch_opmode_.note(Clock::monotonic());
 }
 
 void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
@@ -287,7 +311,7 @@ void Controller::callbackOdometry(const OdometryMsg* msg, void* arg) {
   controller->current_odometry_.header.frame_id = nullptr;
   controller->current_odometry_.child_frame_id = nullptr;
   controller->has_odometry_ = true;
-  controller->watch_odom_.note(Clock::now());
+  controller->watch_odom_.note(Clock::monotonic());
   if (controller->supervision_mode_ == supervision::Mode::SI_CONTROL &&
     controller->startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP)
   {
@@ -314,7 +338,7 @@ void Controller::callbackAcceleration(const AccelWithCovarianceStampedMsg* msg, 
   // — see callbackOdometry; only the numeric accel fields are consumed.
   controller->current_accel_.header.frame_id = nullptr;
   controller->has_accel_ = true;
-  controller->watch_accel_.note(Clock::now());
+  controller->watch_accel_.note(Clock::monotonic());
 }
 
 void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
@@ -373,7 +397,7 @@ void Controller::callbackTrajectory(const TrajectoryMsg_Raw* msg, void* arg) {
   controller->current_trajectory_.header.frame_id = nullptr;
   controller->has_trajectory_ = true;
   controller->autoware_trajectory_identity_.note(stamp);
-  controller->watch_candidate_.note(Clock::now());
+  controller->watch_candidate_.note(Clock::monotonic());
 }
 
 void Controller::callbackDrivingReference(const DrivingReferenceMsg* msg, void* arg)
@@ -467,13 +491,13 @@ void Controller::callbackDrivingReference(const DrivingReferenceMsg* msg, void* 
   controller->vp_candidate_identity_.note(msg->session, msg->cycle, stamp);
   controller->accepted_source_session_ = msg->session;
   controller->accepted_source_cycle_ = msg->cycle;
-  controller->watch_candidate_.note(Clock::now());
+  controller->watch_candidate_.note(Clock::monotonic());
 }
 
 void Controller::callbackDrivingCommand(const DrivingCommandMsg* msg, void* arg)
 {
   Controller* controller = static_cast<Controller*>(arg);
-  const double now = Clock::now();
+  const double now = Clock::monotonic();
   const DrivingCommandMsg in = *msg;  // scalar fields only: safe plain copy
 
   // 'valid=false' means VP produced no usable plan this cycle. That is a
@@ -554,7 +578,7 @@ void Controller::callbackReenable(const BoolMsg* msg, void* arg)
 {
   Controller* controller = static_cast<Controller*>(arg);
   if (msg->data) {
-    controller->reenable_.request(Clock::now());
+    controller->reenable_.request(Clock::monotonic());
     log_info(
       "Operator re-enable requested (takes effect when all sources are fresh, within %.1f s)",
       controller->reenable_window_s_);
@@ -564,7 +588,7 @@ void Controller::callbackReenable(const BoolMsg* msg, void* arg)
 void Controller::callbackHeartbeat(const Float64StampedMsg* msg, void* arg)
 {
   (void)msg;  // only the arrival counts; the value is VisionPilot's own command
-  static_cast<Controller*>(arg)->watch_heartbeat_.note(Clock::now());
+  static_cast<Controller*>(arg)->watch_heartbeat_.note(Clock::monotonic());
 }
 
 Controller::LateralControllerMode Controller::getLateralControllerMode(
@@ -615,22 +639,6 @@ bool Controller::processData()
   return is_ready;
 }
 
-bool Controller::isTimeOut(
-  const trajectory_follower::LongitudinalOutput & lon_out,
-  const trajectory_follower::LateralOutput & lat_out)
-{
-  const auto now = Clock::now();
-  if ((now - Clock::toDouble(lat_out.control_cmd.stamp)) > timeout_thr_sec_) {
-    log_warn_throttle("Lateral control command too old, control_cmd will not be published.");
-    return true;
-  }
-  if ((now - Clock::toDouble(lon_out.control_cmd.stamp)) > timeout_thr_sec_) {
-    log_warn_throttle("Longitudinal control command too old, control_cmd will not be published.");
-    return true;
-  }
-  return false;
-}
-
 std::optional<trajectory_follower::InputData> Controller::createInputData()
 {
   if (!processData()) {
@@ -654,7 +662,9 @@ void Controller::callbackTimerControl()
   // out at the default INFO level (see PROFILE_* in logger.hpp).
   PROFILE_POINT(cyc_t0);
 
-  const double now = Clock::now();
+  // Arrival ages, the re-enable window and the control period are measured
+  // on the monotonic clock; the wall clock only stamps outgoing messages.
+  const double now = Clock::monotonic();
 
   // 1. Supervision: selected-source + feedback arrival checks. This runs
   // before anything else and is independent of controller readiness — a
@@ -707,7 +717,7 @@ void Controller::callbackTimerControl()
         log_warn_throttle(
           "Re-enable requested but not all sources are fresh; staying in SI_STOP");
       }
-      publishSiStop(now);
+      publishSiStop(Clock::now());
 
       PROFILE_POINT(cyc_t_end);
       PROFILE_LOG(
@@ -818,9 +828,6 @@ void Controller::callbackTimerControl()
 
   log_debug("Controllers synced");
 
-  // TODO(Horibe): Think specification. This comes from the old implementation.
-  // if (isTimeOut(lon_out, lat_out)) return;
-
   // 8. publish through the gate. The former all-inputs staleness gate is
   // gone: it was refreshed by *any* input and declared "stale" with the
   // freshest sample as its metric, so the loss of one selected source
@@ -833,10 +840,6 @@ void Controller::callbackTimerControl()
     PROFILE_MS(cyc_t0, cyc_t_ready), PROFILE_MS(cyc_t_ready, cyc_t_lat),
     PROFILE_MS(cyc_t_lat, cyc_t_lon), PROFILE_MS(cyc_t_lon, cyc_t_end),
     PROFILE_MS(cyc_t0, cyc_t_end));
-
-  // 9. Reset flags for next cycle
-  // TODO: Check if this is required, autoware version keeps publishing even there is no new data
-  // reset_data_flags();
 }
 
 void Controller::publishControlCommand(
@@ -887,7 +890,7 @@ void Controller::latchFault(const std::string & why)
     // guard: a heartbeat fault can latch before odometry is initialized.
     stop_ramp_.start(
       has_odometry_ ? current_odometry_.twist.twist.linear.x : 0.0,
-      watch_odom_, Clock::now(), source_timeout_ego_, supervision::StopRamp::Clock::now());
+      watch_odom_, Clock::monotonic(), source_timeout_ego_, supervision::StopRamp::Clock::now());
     log_warn("SI_STOP latched: %s (fault_id %u)", why.c_str(), supervision_.fault_id);
     reenable_.clear();  // a fault invalidates an earlier re-enable request
   } else if (supervision_.reason != why) {
@@ -1025,7 +1028,11 @@ void Controller::publishApprovedRequest(
   }
 
   if (common::can::output_mode_uses_can(output_mode_)) {
-    if (!can_output_ || !can_output_->send(legacy, output_mode_)) {
+    // CAN carries the decision and the fault id with the payload: a receiver
+    // that only sees CAN must be able to tell an SI_STOP from a NORMAL command.
+    const common::can::CommandSupervisionStatus can_supervision{
+      static_cast<uint8_t>(decision), supervision_.latched ? supervision_.fault_id : 0U};
+    if (!can_output_ || !can_output_->send(legacy, output_mode_, can_supervision)) {
       if (output_mode_ == common::can::ControlCommandOutputMode::CAN_ONLY) {
         log_error("Control command not sent over CAN in CAN_ONLY mode");
       } else {
@@ -1057,7 +1064,7 @@ void Controller::publishApprovedRequest(
   }
 }
 
-ControlMsg Controller::stoppedPayload(double now) const
+ControlMsg Controller::stoppedPayload(double wall_now) const
 {
   // Never command a steer reset: hold the last approved steering, and before
   // any command was approved the vehicle's own steering report.
@@ -1075,7 +1082,7 @@ ControlMsg Controller::stoppedPayload(double now) const
       stop_ramp_.velocity(
         stop_decel_mps2_, max_abs_velocity_mps_, supervision::StopRamp::Clock::now()));
   }
-  out.stamp = Clock::toRosTime(now);
+  out.stamp = Clock::toRosTime(wall_now);
   out.lateral.stamp = out.stamp;
   out.longitudinal.stamp = out.stamp;
   return out;
@@ -1087,13 +1094,13 @@ bool Controller::feedbackSeen() const
          watch_opmode_.ever();
 }
 
-void Controller::publishSiStop(double now)
+void Controller::publishSiStop(double wall_now)
 {
   publishApprovedRequest(
     supervision::Decision::SI_STOP,
     supervision_mode_ == supervision::Mode::VP_CONTROL ?
     supervision::SelectedSource::VP_COMMAND : supervision::SelectedSource::FOLLOWER,
-    stoppedPayload(now));
+    stoppedPayload(wall_now));
 }
 
 void Controller::publishHold()

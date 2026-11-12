@@ -67,7 +67,6 @@ double calcStopDistance(
 
 double getPitchByPose(const QuaternionMsg & quaternion_msg)
 {
-  double roll, pitch, yaw;
   // tf2::Quaternion quaternion;
   // tf2::fromMsg(quaternion_msg, quaternion);
   // tf2::Matrix3x3{quaternion}.getRPY(roll, pitch, yaw);
@@ -79,14 +78,8 @@ double getPitchByPose(const QuaternionMsg & quaternion_msg)
   // Convert quaternion to rotation matrix
   Eigen::Matrix3d rotation_matrix = eigen_quat.toRotationMatrix();
   
-  // Extract roll, pitch, yaw from rotation matrix
-  // Using Eigen's eulerAngles with the XYZ convention
-  // Note: Eigen uses different order than ROS, so we extract separately
-  roll = atan2(rotation_matrix(2,1), rotation_matrix(2,2));  // roll
-  pitch = asin(-rotation_matrix(2,0));                        // pitch
-  yaw = atan2(rotation_matrix(1,0), rotation_matrix(0,0));  // yaw
-  
-  return pitch;
+  // Pitch of the ROS roll-pitch-yaw (ZYX) decomposition.
+  return asin(-rotation_matrix(2,0));
 }
 
 double getPitchByTraj(

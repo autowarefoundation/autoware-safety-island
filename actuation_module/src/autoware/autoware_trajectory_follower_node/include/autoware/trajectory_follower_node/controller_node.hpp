@@ -67,19 +67,7 @@ public:
   virtual ~Controller() {}
 
 private:
-  void reset_data_flags()
-  {
-    has_accel_ = false;
-    has_steering_ = false;
-    has_odometry_ = false;
-    has_trajectory_ = false;
-    has_operation_mode_ = false;
-  }
-
-  double timeout_thr_sec_;
   const StartupConfig startup_config_;
-
-  std::optional<LongitudinalOutput> longitudinal_output_{std::nullopt};
 
   std::shared_ptr<trajectory_follower::LongitudinalControllerBase> longitudinal_controller_;
   std::shared_ptr<trajectory_follower::LateralControllerBase> lateral_controller_;
@@ -109,7 +97,7 @@ private:
     is_local_mode_available: true,
     is_remote_mode_available: true
   */
-  OperationModeStateMsg current_operation_mode_ = {.mode = 1, .is_autoware_control_enabled = true, .is_in_transition = false, .is_stop_mode_available = true, .is_autonomous_mode_available = true, .is_local_mode_available = true, .is_remote_mode_available = true};
+  OperationModeStateMsg current_operation_mode_ = {.stamp = {}, .mode = 1, .is_autoware_control_enabled = true, .is_in_transition = false, .is_stop_mode_available = true, .is_autonomous_mode_available = true, .is_local_mode_available = true, .is_remote_mode_available = true};
 
   bool has_trajectory_ = false;
   bool has_odometry_ = false;
@@ -227,13 +215,14 @@ private:
   void publishApprovedRequest(
     supervision::Decision decision, supervision::SelectedSource source,
     const ControlMsg & control);
-  void publishSiStop(double now);
+  void publishSiStop(double wall_now);
   void publishHold();
   // The conservative stopped payload shared by SI_STOP and HOLD: the stop
   // deceleration, the last known steering (from the last approved command,
   // else the vehicle's steering report, else 0), and velocity 0, or under
   // SI_STOP the speed ramp from the ego speed at the latch.
-  ControlMsg stoppedPayload(double now) const;
+  // `wall_now` is Clock::now() and only stamps the message.
+  ControlMsg stoppedPayload(double wall_now) const;
   // True once odometry, acceleration, steering and operation mode have each
   // arrived at least once.
   bool feedbackSeen() const;
@@ -242,7 +231,6 @@ private:
   enum class LateralControllerMode {
     INVALID = 0,
     MPC = 1,
-    PURE_PURSUIT = 2,
   };
   enum class LongitudinalControllerMode {
     INVALID = 0,
@@ -259,9 +247,6 @@ private:
 
   //
   bool processData();
-
-  //
-  bool isTimeOut(const LongitudinalOutput & lon_out, const LateralOutput & lat_out);
 
   //
   LateralControllerMode getLateralControllerMode(const std::string & algorithm_name) const;

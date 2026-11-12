@@ -158,14 +158,11 @@ Rates and timing
 - Supervised output: one ``ApprovedRequest`` per control cycle.
 - Per-source arrival watchdogs: selected candidate **1.0 s**, odometry and
   acceleration **0.4 s**, steering report **0.5 s**. They are measured on the
-  SI clock against arrival time, never against message stamps. The operation
+  SI's monotonic clock against arrival time, never against message stamps. The operation
   mode has **no age limit**: it is published only when the mode changes and
   the deployment retains it, so its age says nothing about liveness; only
   "seen at least once" applies.
-- Stale-output timeout parameter: **0.5 s** (``timeout_thr_sec`` default).
 
-``timeout_thr_sec`` is declared by the controller, and the ``isTimeOut`` helper
-still exists, but the timeout guard is currently disabled in the timer callback.
 The supervisor replaced the old all-inputs staleness gate: before an input has
 ever arrived the SI publishes HOLD; once a source has been seen, its own
 watchdog governs, and a stale selected candidate or vehicle feedback latches

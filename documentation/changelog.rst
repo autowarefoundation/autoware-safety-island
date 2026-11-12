@@ -27,7 +27,44 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
-No unreleased changes.
+Added
+-----
+
+- CI replays the recorded follower inputs into the FreeRTOS POSIX controller,
+  compares its steering with Autoware's own follower on the same bag, and
+  checks that it latches ``SI_STOP`` when the inputs stop
+  (``.github/scripts/run-freertos-posix-replay-ci.sh``).
+
+Changed
+-------
+
+- **CAN status frame** ``0x102`` **(breaking for CAN receivers).** Byte 0 now
+  carries the supervisor decision (NORMAL / SI_STOP / HOLD) next to the output
+  mode, byte 6 the fault id, and byte 7 a CRC-8 over all three command
+  payloads; the timestamp shrinks to 16 bits and flag ``0x10`` marks the
+  layout. ``demo/can_carla_bridge/decoder.py`` rejects a command whose CRC
+  does not match and status frames in the earlier layout. The CAN-FD frame
+  ``0x103`` carries the same bytes. See ``documentation/design/can_output.rst``.
+- The control period, the per-source arrival watchdogs and the re-enable
+  window run on a monotonic clock, so a wall-clock step no longer stalls the
+  control tick, hides a dead source or latches a spurious ``SI_STOP``.
+
+Fixed
+-----
+
+- A subscription whose DDS reader could not be created is now a startup
+  failure. It used to be reported as created, and the Safety Island waited in
+  ``HOLD`` for samples that could not arrive.
+- ``Node`` no longer cancels and joins a thread that was never started.
+- The MPC's "trajectory shape is changed" line is throttled.
+- ``build.sh`` no longer leaves an empty component in ``LD_LIBRARY_PATH``.
+
+Removed
+-------
+
+- Code that was no longer built or called: ``input_staleness_gate.hpp`` and its
+  host test, ``autoware_osqp_interface``, ``qp_solver_osqp.cpp``, and the
+  unused ``timeout_thr_sec`` parameter with its ``isTimeOut`` helper.
 
 ******
 v0.3.0

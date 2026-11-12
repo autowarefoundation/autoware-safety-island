@@ -72,7 +72,8 @@ Components
    at runtime; missing or unopenable interface fails ``can_init()``. The
    in-memory mock is compiled only into ``--can-output-test``.
 2. **Python host decoder** in ``demo/can_carla_bridge/``. ``0x102`` is the
-   commit marker: require fresh ``0x100`` and ``0x101``, wrapping sequence
+   commit marker: require fresh ``0x100`` and ``0x101``, a matching CRC over
+   the three payloads (:doc:`can_output`), wrapping sequence
    (forward jumps accepted, replays/stale rejected), and a 0.5 s monotonic
    receive-timeout safe stop. Python state-machine tests and a privileged
    ``vcan`` integration phase validate the decoder against the C++ sender.

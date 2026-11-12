@@ -126,11 +126,13 @@ struct ReenableRequest
 
 /// Arrival-age freshness of one selected source.
 ///
-/// Ages are measured against Clock::now() at callback time, never against
+/// Ages are measured against Clock::monotonic() at callback time, never against
 /// message stamps: the selected sources carry CARLA simulated time (and VP
 /// produced stamps in its own host clock), so a stamp must never be
 /// subtracted from SI's clock (vp_si_control_contract: "A CARLA episode time
 /// in seconds must not be subtracted from SI's Unix/system clock").
+/// The monotonic clock also keeps a wall-clock step from hiding a dead source
+/// (backward) or latching a stop on a live one (forward).
 ///
 /// Threading: today note() and stale()/ageSec() run on the same thread.
 /// Node::main_thread_entry_ polls the DDS subscriptions (callbacks run inside

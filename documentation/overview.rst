@@ -91,9 +91,11 @@ Main Components
      - `3.5.99 <https://github.com/zephyrproject-rtos/zephyr/commit/339cd5a45fd2ebba064ef462b71c657336ca0dfe>`_
    * - CycloneDDS
      - `0.11.0 (AWF fork) <https://github.com/autowarefoundation/cyclonedds/commit/2baf07a217cc7674226778a1659b09e333e863a3>`_
-   * - Autoware
+   * - Autoware (topic contract and demo)
+     - `2.0.0 <https://github.com/autowarefoundation/autoware/tree/2.0.0>`_
+   * - Autoware (ported controller)
      - `2025.02 <https://github.com/autowarefoundation/autoware/tree/2025.02>`_
-   * - Autoware.Universe
+   * - Autoware.Universe (ported controller)
      - `0.40.0 <https://github.com/autowarefoundation/autoware.universe/tree/0.40.0>`_
    * - Autoware.msgs
      - `1.3.0 <https://github.com/autowarefoundation/autoware_msgs/tree/1.3.0>`_
@@ -113,8 +115,6 @@ and compiled as part of the safety island application.
      - Role
    * - autoware_msgs
      - Message definitions (IDL)
-   * - autoware_osqp_interface
-     - OSQP solver wrapper for MPC
    * - autoware_universe_utils
      - General utilities
    * - autoware_motion_utils

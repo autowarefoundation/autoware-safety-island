@@ -1,4 +1,4 @@
-"""Assemble placeholder classic 0x100/0x101/0x102 or one 24-byte CAN-FD 0x103."""
+"""Assemble classic 0x100/0x101/0x102 or one 24-byte CAN-FD 0x103, CRC-checked."""
 
 from __future__ import annotations
 
@@ -12,6 +12,29 @@ LONGITUDINAL_ID = 0x101
 STATUS_ID = 0x102
 FD_COMMAND_ID = 0x103
 FD_PAYLOAD_LENGTH = 24
+
+# Status frame (0x102) layout. Keep in sync with
+# actuation_module/include/common/can/control_command_encoder.hpp.
+#   byte 0    output mode (bits 0-1), supervisor decision (bits 4-5)
+#   byte 1    flags
+#   bytes 2-3 sequence, little-endian
+#   bytes 4-5 producer timestamp in ms modulo 2^16, little-endian
+#   byte 6    fault id (0 = no fault latched)
+#   byte 7    CRC-8 SAE J1850 over the 0x100 payload, the 0x101 payload and
+#             bytes 0-6 of this frame
+STATUS_MODE_MASK = 0x03
+STATUS_DECISION_SHIFT = 4
+STATUS_DECISION_MASK = 0x03
+STATUS_FLAG_STEERING_RATE_DEFINED = 0x01
+STATUS_FLAG_ACCELERATION_DEFINED = 0x02
+STATUS_FLAG_JERK_DEFINED = 0x04
+STATUS_FLAG_COMMAND_VALID = 0x08
+STATUS_FLAG_SUPERVISED = 0x10
+
+DECISION_NORMAL = 0
+DECISION_SI_STOP = 1
+DECISION_HOLD = 2
+DECISION_NAMES = {DECISION_NORMAL: "NORMAL", DECISION_SI_STOP: "SI_STOP", DECISION_HOLD: "HOLD"}
 
 
 class DecoderEvent(Enum):
@@ -33,6 +56,8 @@ class DecodedControlCommand:
     jerk_defined: bool = False
     sequence: int = 0
     output_mode: int = 0
+    decision: int = DECISION_NORMAL
+    fault_id: int = 0
 
 
 def _i32_le(data: bytes, offset: int) -> int:
@@ -44,6 +69,43 @@ def _i32_le(data: bytes, offset: int) -> int:
 
 def _u16_le(data: bytes, offset: int) -> int:
     return int.from_bytes(data[offset : offset + 2], "little", signed=False)
+
+
+def crc8_j1850(data: bytes) -> int:
+    """CRC-8 SAE J1850: polynomial 0x1D, init 0xFF, final XOR 0xFF."""
+    crc = 0xFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1D) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
+    return crc ^ 0xFF
+
+
+def pack_status(
+    lateral: bytes,
+    longitudinal: bytes,
+    sequence: int,
+    *,
+    mode: int = 1,
+    flags: int = 0x1B,
+    timestamp_ms: int = 12345,
+    decision: int = DECISION_NORMAL,
+    fault_id: int = 0,
+) -> bytes:
+    """Build the 0x102 payload for a command, CRC included (tests and tools)."""
+    head = bytes(
+        [
+            (mode & STATUS_MODE_MASK) | ((decision & STATUS_DECISION_MASK) << STATUS_DECISION_SHIFT),
+            flags,
+        ]
+    )
+    body = (
+        head
+        + (sequence & 0xFFFF).to_bytes(2, "little")
+        + (timestamp_ms & 0xFFFF).to_bytes(2, "little")
+        + bytes([fault_id & 0xFF])
+    )
+    return body + bytes([crc8_j1850(lateral[:8] + longitudinal[:8] + body)])
 
 
 def _seq_delta(sequence: int, expected: int) -> int:
@@ -84,22 +146,35 @@ class ControlCommandDecoder:
         if not self._has_lateral or not self._has_longitudinal:
             self._clear_pending()
             return DecoderEvent.REJECTED
+        assert self._lateral is not None
+        assert self._longitudinal is not None
+        # Integrity first: nothing else in the frame is trusted until the CRC
+        # over all three payloads matches. A status frame without the
+        # supervised flag is the earlier layout (no CRC, no decision).
+        decision = (payload[0] >> STATUS_DECISION_SHIFT) & STATUS_DECISION_MASK
+        if (
+            not payload[1] & STATUS_FLAG_SUPERVISED
+            or crc8_j1850(self._lateral + self._longitudinal + payload[:7]) != payload[7]
+            or decision not in DECISION_NAMES
+        ):
+            self._clear_pending()
+            return DecoderEvent.REJECTED
         sequence = _u16_le(payload, 2)
         if self._has_expected and _seq_delta(sequence, self._expected) < 0:
             self._clear_pending()
             return DecoderEvent.REJECTED
-        assert self._lateral is not None
-        assert self._longitudinal is not None
         self._command = DecodedControlCommand(
             steering_tire_angle=_i32_le(self._lateral, 0) / 1_000_000.0,
             steering_tire_rotation_rate=_i32_le(self._lateral, 4) / 1_000_000.0,
             velocity=_i32_le(self._longitudinal, 0) / 1_000.0,
             acceleration=_i32_le(self._longitudinal, 4) / 1_000.0,
-            output_mode=payload[0],
-            steering_rate_defined=bool(payload[1] & 0x01),
-            acceleration_defined=bool(payload[1] & 0x02),
-            jerk_defined=bool(payload[1] & 0x04),
+            output_mode=payload[0] & STATUS_MODE_MASK,
+            steering_rate_defined=bool(payload[1] & STATUS_FLAG_STEERING_RATE_DEFINED),
+            acceleration_defined=bool(payload[1] & STATUS_FLAG_ACCELERATION_DEFINED),
+            jerk_defined=bool(payload[1] & STATUS_FLAG_JERK_DEFINED),
             sequence=sequence,
+            decision=decision,
+            fault_id=payload[6],
         )
         self._has_command = True
         self._in_safe_stop = False

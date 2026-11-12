@@ -37,6 +37,21 @@ public:
     }
 
     /**
+     * @brief Monotonic time in seconds, for intervals, periods and timeouts
+     *
+     * now() is the wall clock: it is what message stamps carry, and it can
+     * step in either direction (NTP, SNTP, an operator setting the date).
+     * Anything that measures elapsed time must use this clock instead, or a
+     * backward step stalls it and a forward step fires it early. The value
+     * has no meaning outside this process and is never written to a message.
+     * @return seconds since an arbitrary fixed point, never decreasing
+     */
+    static double monotonic() {
+        auto time_point = std::chrono::steady_clock::now();
+        return std::chrono::duration<double>(time_point.time_since_epoch()).count();
+    }
+
+    /**
      * @brief Convert time in seconds to ROS2 time
      * @param time: time in seconds
      * @return ROS2 Time Message
