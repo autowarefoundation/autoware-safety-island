@@ -18,6 +18,7 @@ hardware on S32Z and R-Car X5H.
    :caption: Contents
 
    quickstart
+   hardware_requirements
    freertos_posix
    open_ad_kit
    can_carla_closed_loop

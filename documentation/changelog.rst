@@ -27,7 +27,12 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
-No unreleased changes.
+Added
+-----
+
+- :doc:`user_guide/hardware_requirements`: preliminary hardware requirements,
+  with the measured image footprint and an FVP-based CPU estimate. A short
+  table in the README links to it.
 
 ******
 v0.3.0

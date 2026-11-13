@@ -29,6 +29,21 @@ NXP-licensed SDK inputs.
 `freertos-x5h` is the FreeRTOS target for the R-Car X5H CR52 (Core1); see
 [`actuation_module/freertos_x5h/README.md`](actuation_module/freertos_x5h/README.md).
 
+### Hardware Requirements
+
+Preliminary; see the
+[full page](documentation/user_guide/hardware_requirements.rst) for how each
+figure was measured or estimated.
+
+| Item | Requirement |
+|---|---|
+| CPU | 1× Arm Cortex-R52, ~200–450 MHz for the 150 ms control period (estimate) |
+| RAM | ≥ 4–5 MiB, 8 MiB recommended |
+| Storage | ≥ 2 MiB |
+| Network | Ethernet (DDS over UDP), or RPMsg on a shared SoC |
+| Vehicle bus | ≥ 1 CAN-FD channel (CAN control output only) |
+| Timer | 1 kHz tick |
+
 ### Workflow
 
 ```mermaid
