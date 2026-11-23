@@ -1,11 +1,10 @@
-# TODO(autoware_launch PR "feat(autoware_launch): expose
-# diagnostic_graph_aggregator_graph_path in planning_simulator"): delete this
-# file, its mount in ../docker-compose.yaml and ../commands,
-# .github/scripts/check-demo-diag-graph.py and
-# .github/workflows/demo-diag-graph.yml once the demo image's
+# TODO(autowarefoundation/autoware_launch#2009): delete this file, its mount in
+# ../docker-compose.yaml and ../commands, .github/scripts/check-demo-diag-graph.py
+# and .github/workflows/demo-diag-graph.yml once the demo image's
 # planning_simulator.launch.xml declares diagnostic_graph_aggregator_graph_path.
 # Then mount autoware-safety-island.yaml next to autoware-main.yaml and pass it
 # as diagnostic_graph_aggregator_graph_path.
+# https://github.com/autowarefoundation/autoware_launch/pull/2009
 #
 # Interim replacement for autoware_launch's
 # config/system/diagnostics/autoware-main.yaml in the demo image

@@ -182,8 +182,8 @@ Remove the follower's diagnostic from the graph
       - { type: remove, path: /autoware/control/performance_monitoring/control_state }
 
   ``planning_simulator.launch.xml`` does not yet accept the argument: it
-  hard-codes ``autoware-main.yaml``. An autoware_launch PR, "feat(autoware_launch):
-  expose diagnostic_graph_aggregator_graph_path in planning_simulator", adds it.
+  hard-codes ``autoware-main.yaml``. `autowarefoundation/autoware_launch#2009
+  <https://github.com/autowarefoundation/autoware_launch/pull/2009>`_ adds it.
   Until the demo image includes that change, the demo mounts
   ``demo/launch/autoware-main.yaml`` over the image's ``autoware-main.yaml``.
   That file is the image's file verbatim plus the same ``remove`` edit.

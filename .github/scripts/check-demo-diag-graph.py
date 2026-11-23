@@ -3,11 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check the demo's interim copy of autoware-main.yaml against its pinned image.
 
-TODO(autoware_launch PR "feat(autoware_launch): expose
-diagnostic_graph_aggregator_graph_path in planning_simulator"): delete this
-script, .github/workflows/demo-diag-graph.yml and demo/launch/autoware-main.yaml
-once the demo image's planning_simulator.launch.xml declares
+TODO(autowarefoundation/autoware_launch#2009): delete this script,
+.github/workflows/demo-diag-graph.yml and demo/launch/autoware-main.yaml once
+the demo image's planning_simulator.launch.xml declares
 diagnostic_graph_aggregator_graph_path.
+https://github.com/autowarefoundation/autoware_launch/pull/2009
 
 demo/launch/autoware-main.yaml must be:
   - between its BEGIN/END markers, the demo image's
