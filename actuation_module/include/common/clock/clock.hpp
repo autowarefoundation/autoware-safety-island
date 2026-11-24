@@ -44,7 +44,13 @@ public:
      * Anything that measures elapsed time must use this clock instead, or a
      * backward step stalls it and a forward step fires it early. The value
      * has no meaning outside this process and is never written to a message.
-     * @return seconds since an arbitrary fixed point, never decreasing
+     *
+     * It is only as monotonic as the platform's steady_clock. On FreeRTOS
+     * S32Z2 and X5H, libstdc++ builds steady_clock (and system_clock) on
+     * gettimeofday(), which newlib_stubs.c derives from the 32-bit
+     * xTaskGetTickCount(): there this clock equals now() before SNTP, and it
+     * wraps after 2^32 ticks (about 49.7 days at 1 kHz).
+     * @return seconds since an arbitrary fixed point
      */
     static double monotonic() {
         auto time_point = std::chrono::steady_clock::now();

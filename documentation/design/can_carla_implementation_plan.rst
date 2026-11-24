@@ -164,9 +164,8 @@ Watchdog
   comparable.
 - If no accepted commit arrives within the configured timeout, apply a
   safe stop and hold it until a new valid cycle is accepted.
-- POSIX default timeout is 0.5 s, matching controller
-  ``timeout_thr_sec`` and covering a skipped 150 ms tick (~300 ms to the
-  next frame). Do not use 200 ms: that is tighter than one missed period.
+- POSIX default timeout is 0.5 s, covering a skipped 150 ms tick (~300 ms to
+  the next frame). Do not use 200 ms: that is tighter than one missed period.
 - FVP is not real-time. The FVP demo and TAP integration job use a much
   larger configured timeout; they do not share the 0.5 s POSIX default.
 

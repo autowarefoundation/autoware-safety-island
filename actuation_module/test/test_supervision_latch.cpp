@@ -119,7 +119,7 @@ int main()
   assert(w.ageSec(1.0e9) == -1.0);
 
   // Seen: fresh inside the timeout, stale strictly past it, age is now - last.
-  const double t0 = 1.7e9;  // epoch-scale, the value Clock::now() hands in
+  const double t0 = 1.7e9;  // any time base works; the watchdogs get Clock::monotonic()
   w.note(t0);
   assert(w.ever());
   assert(!w.stale(t0 + 0.5, 0.5));

@@ -96,10 +96,16 @@ caused it. The payload of an ``SI_STOP`` or ``HOLD`` command is the stop
 command itself, so a receiver that only applies the payload still stops.
 
 The CRC covers all three frames. A receiver must reject a command whose CRC
-does not match, which also rejects a command assembled from frames of
-different cycles, and must reject a status frame without the ``0x10`` flag:
+does not match, and must reject a status frame without the ``0x10`` flag:
 that is the earlier layout, which carried a 32-bit timestamp in bytes 4-7 and
 no decision, fault id or CRC.
+
+The CRC also catches most commands assembled from frames of different cycles,
+but not all: ``0x100`` and ``0x101`` carry no sequence number, so a stale
+lateral or longitudinal frame combined with a fresh status frame is rejected
+only when the 8-bit CRC differs, about 255 times in 256. A receiver that needs
+a deterministic check uses the CAN-FD frame ``0x103`` below, which carries all
+three payloads in one frame.
 
 ``freertos-posix`` can instead send the same three payloads as one 24-byte
 CAN-FD frame ``0x103`` when ``SAFETY_ISLAND_CAN_FORMAT=fd`` is set. That mode

@@ -147,7 +147,9 @@ inline uint8_t crc8_j1850_update(const uint8_t * data, const std::size_t size, u
 
 // CRC of one command: the lateral payload, the longitudinal payload and the
 // first seven status bytes, in that order. Covering all three frames lets the
-// receiver detect a command assembled from frames of different cycles.
+// receiver detect most commands assembled from frames of different cycles;
+// 0x100 and 0x101 carry no sequence number, so an 8-bit CRC collision (about
+// 1 in 256) still passes. CAN-FD 0x103 carries all three in one frame.
 inline uint8_t command_crc(
   const CanFrame & lateral, const CanFrame & longitudinal, const CanFrame & status)
 {
