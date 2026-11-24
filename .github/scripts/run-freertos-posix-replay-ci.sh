@@ -79,6 +79,9 @@ timeout --kill-after=5s 120s ros2 bag play "${ROSBAG_DIR}/rosbag" \
   >"${bag_log}" 2>&1
 bag_rc=$?
 set -e
+# When the inputs stopped, on the clock the recorder stamps commands with
+# (CLOCK_MONOTONIC, shared by every process on the host).
+bag_end_s="$(python3 -c 'import time; print(f"{time.monotonic():.6f}")')"
 if [ "${bag_rc}" -ne 0 ]; then
   dump_log "${bag_log}"
   echo "ros2 bag play failed: ${bag_rc}" >&2
@@ -97,7 +100,8 @@ controller_pid=""
 
 if ! python3 "${ROOT_DIR}/.github/scripts/check-rosbag-replay.py" \
   "${commands_csv}" "${controller_log}" \
-  "${ROSBAG_DIR}/test_control_cmd_outputs/autoware_original_control_cmd.yaml"; then
+  "${ROSBAG_DIR}/test_control_cmd_outputs/autoware_original_control_cmd.yaml" \
+  "${bag_end_s}"; then
   dump_log "${controller_log}"
   dump_log "${recorder_log}"
   exit 1

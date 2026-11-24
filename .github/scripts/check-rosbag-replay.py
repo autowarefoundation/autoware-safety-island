@@ -10,13 +10,18 @@ the control_cmd it publishes. This script checks three things:
      the stop command, with steering close to what Autoware's own follower
      produced for the same bag.
   2. When the bag ends and the inputs stop, the controller latches SI_STOP on a
-     source watchdog (its log says which).
+     source watchdog (its log says which), and not earlier: it follows until
+     about the end of the bag, so a watchdog that fired mid-replay fails the
+     check even when enough commands were followed before it.
   3. From then on it publishes only the stop command, and the speed target
      never rises. The recorded sequence must therefore be stop commands (HOLD),
      then followed commands, then stop commands: a stop command between two
      followed ones means the controller resumed following after it stopped.
 
-Usage: check-rosbag-replay.py COMMANDS.csv CONTROLLER.log REFERENCE.yaml
+Usage: check-rosbag-replay.py COMMANDS.csv CONTROLLER.log REFERENCE.yaml BAG_END_S
+
+BAG_END_S is when the bag finished playing, on the monotonic clock the
+recorder stamps commands with (received_s).
 """
 
 import csv
@@ -34,6 +39,10 @@ MIN_FOLLOWED_COMMANDS = 150
 MAX_MEAN_STEERING_DIFF_RAD = 0.02
 MAX_ALIGNMENT_SHIFT = 20
 MIN_STOP_COMMANDS = 5
+# Every replayed input ends within 0.07 s of the bag's end, and the shortest
+# source watchdog is 0.4 s, so following stops about at the end of the bag.
+# A latch mid-replay stops it seconds earlier.
+MAX_STOP_BEFORE_BAG_END_S = 1.0
 WATCHDOG_SOURCES = ("odometry", "acceleration", "steering report", "trajectory")
 
 
@@ -45,7 +54,12 @@ def fail(message: str) -> None:
 def load_commands(path: str):
     with open(path, newline="") as source:
         return [
-            (float(row["steering_tire_angle"]), float(row["velocity"]), float(row["acceleration"]))
+            (
+                float(row["steering_tire_angle"]),
+                float(row["velocity"]),
+                float(row["acceleration"]),
+                float(row["received_s"]),
+            )
             for row in csv.DictReader(source)
         ]
 
@@ -85,6 +99,7 @@ def main() -> int:
     with open(sys.argv[2], errors="replace") as source:
         log = source.read()
     reference = load_reference_steering(sys.argv[3])
+    bag_end_s = float(sys.argv[4])
 
     if not commands:
         fail("no control_cmd was recorded")
@@ -108,6 +123,12 @@ def main() -> int:
         fail(
             f"{len(resumed)} stop commands between followed ones (first at command "
             f"{resumed[0] + 1} of {len(commands)}): the controller resumed following after a stop"
+        )
+    stopped_early_s = bag_end_s - commands[followed_indexes[-1]][3]
+    if stopped_early_s > MAX_STOP_BEFORE_BAG_END_S:
+        fail(
+            f"the controller stopped following {stopped_early_s:.2f} s before the bag ended "
+            f"(limit {MAX_STOP_BEFORE_BAG_END_S} s): a source watchdog latched during the replay"
         )
     followed = [commands[i][0] for i in followed_indexes]
     alignment = mean_steering_diff(followed, reference)
@@ -137,7 +158,8 @@ def main() -> int:
 
     print(
         f"rosbag replay OK: {len(followed)} followed commands, steering within "
-        f"{diff:.4f} rad of the Autoware reference (shift {shift}); SI_STOP latched on "
+        f"{diff:.4f} rad of the Autoware reference (shift {shift}); following stopped "
+        f"{-stopped_early_s:+.2f} s after the bag ended, SI_STOP latched on "
         f"{latch.group(1)}, then {len(tail)} stop commands"
     )
     return 0
