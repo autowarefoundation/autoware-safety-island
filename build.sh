@@ -324,6 +324,18 @@ function normalize_platform() {
   esac
 }
 
+# Put the CycloneDDS host tools first on PATH and LD_LIBRARY_PATH. An unset
+# LD_LIBRARY_PATH must not leave a trailing ":": the dynamic loader reads an
+# empty component as the current working directory.
+function export_cyclonedds_host_env() {
+  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
+  if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:"${LD_LIBRARY_PATH}"
+  else
+    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib
+  fi
+}
+
 function clean() {
   rm -rf "${ROOT_DIR}"/build "${ROOT_DIR}"/install
 }
@@ -362,8 +374,7 @@ function build_cyclonedds_target_posix() {
 
 function build_zephyr_actuation_module() {
   echo -e "${GREEN}Building Zephyr Actuation Module...${NC}"
-  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
-  export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:${LD_LIBRARY_PATH:-}
+  export_cyclonedds_host_env
   export CMAKE_PREFIX_PATH=""
   export AMENT_PREFIX_PATH=""
   local target_base="${ZEPHYR_TARGET%%@*}"
@@ -440,8 +451,7 @@ function build_freertos_posix() {
   build_cyclonedds_host
   build_cyclonedds_target_posix
 
-  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
-  export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:${LD_LIBRARY_PATH:-}
+  export_cyclonedds_host_env
   local freertos_args=(
     actuation_module/freertos
     -B "${app_build_dir}"
@@ -534,18 +544,7 @@ function build_freertos_x5h() {
   # process tree -- can find it too. Mirrors build_freertos_s32z2()'s
   # identical export pair.
   build_cyclonedds_host
-  export PATH="${CYCLONEDDS_HOST_PREFIX}"/bin:$PATH
-  # Only prepend a ":" separator when LD_LIBRARY_PATH already has a value
-  # (review round 1 fix): the old unconditional
-  # "${CYCLONEDDS_HOST_PREFIX}/lib:${LD_LIBRARY_PATH:-}" left a trailing
-  # colon whenever LD_LIBRARY_PATH was unset (the common case), which the
-  # dynamic loader treats as an empty path component meaning "the current
-  # working directory" -- silently adding CWD to the loader search path.
-  if [ -n "${LD_LIBRARY_PATH:-}" ]; then
-    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib:"${LD_LIBRARY_PATH}"
-  else
-    export LD_LIBRARY_PATH="${CYCLONEDDS_HOST_PREFIX}"/lib
-  fi
+  export_cyclonedds_host_env
 
   FREERTOS_X5H_BUILD_ROOT="${app_build_dir}" \
   FREERTOS_X5H_CDDS_HOST_PREFIX="${CYCLONEDDS_HOST_PREFIX}" \

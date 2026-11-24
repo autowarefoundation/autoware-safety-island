@@ -91,9 +91,9 @@ have them.
 Measurement
 ***********
 
-Measured on the branch of pull request #77 (``dea86dd``), which is not on
-``main`` yet. The ``zephyr-s32z`` figures are the same for the v0.3.0 release
-image, and the ``freertos-x5h`` image differs by 720 bytes.
+Measured on ``dea86dd``, the branch of pull request #77 before it was merged
+to ``main`` as ``578252a``. The ``zephyr-s32z`` figures are the same for the
+v0.3.0 release image, and the ``freertos-x5h`` image differs by 720 bytes.
 
 Memory
 ======

@@ -17,7 +17,9 @@ Release assets
 **************
 
 Every release from v0.2.0 on carries these assets, each listed in
-``sha256sums.txt``:
+``sha256sums.txt``. From v0.4.0 on, the FreeRTOS POSIX runtime is published
+once per architecture; v0.2.0 and v0.3.0 publish a single amd64 binary named
+``actuation_freertos``.
 
 .. list-table::
    :widths: 30 70
@@ -25,11 +27,13 @@ Every release from v0.2.0 on carries these assets, each listed in
 
    * - Asset
      - Contents
-   * - ``actuation_freertos``
-     - FreeRTOS POSIX runtime, linux/amd64. Domain 2, ``DDS_ONLY`` output,
+   * - ``actuation_freertos-x86_64``, ``actuation_freertos-aarch64``
+     - FreeRTOS POSIX runtime for linux/amd64 and linux/arm64, named as
+       ``uname -m`` prints the architecture. Domain 2, ``DDS_ONLY`` output,
        compile-time DDS interface ``lo``. Built in the 22.04-based
-       devcontainer; release CI runs it in plain ``ubuntu:22.04`` and
-       ``ubuntu:24.04`` containers before publishing.
+       devcontainer on each architecture's own runner; release CI runs each in
+       plain ``ubuntu:22.04`` and ``ubuntu:24.04`` containers before
+       publishing.
    * - ``bridge-config.yaml``
      - The Safety Island's domain-bridge topic contract
        (``demo/bridge/bridge-config.yaml``). Release CI checks it against
@@ -47,12 +51,13 @@ Pin by release and checksum rather than copying the files:
 
 .. code-block:: console
 
-  $ TAG=v0.2.0
+  $ TAG=v0.4.0
+  $ BIN=actuation_freertos-$(uname -m)
   $ BASE=https://github.com/autowarefoundation/autoware-safety-island/releases/download/${TAG}
-  $ curl -fsSL -O "${BASE}/actuation_freertos" -O "${BASE}/bridge-config.yaml" \
+  $ curl -fsSL -O "${BASE}/${BIN}" -O "${BASE}/bridge-config.yaml" \
       -O "${BASE}/cyclonedds-domain2.xml" -O "${BASE}/sha256sums.txt"
   $ sha256sum --check --ignore-missing sha256sums.txt
-  $ chmod +x actuation_freertos
+  $ chmod +x "${BIN}"
 
 The binary needs only glibc, ``libstdc++`` and ``libgcc``, which every Ubuntu
 base image ships. CycloneDDS is linked statically.
@@ -132,7 +137,7 @@ The other runtime switches (``SI_SUPERVISION_MODE``, ``SI_TRAJECTORY_SOURCE``,
 
 .. code-block:: console
 
-  $ SI_DDS_INTERFACE=lo ./actuation_freertos
+  $ SI_DDS_INTERFACE=lo ./actuation_freertos-$(uname -m)
 
 **************************************
 Keeping Autoware's own controller off
@@ -182,8 +187,8 @@ Remove the follower's diagnostic from the graph
       - { type: remove, path: /autoware/control/performance_monitoring/control_state }
 
   ``planning_simulator.launch.xml`` does not yet accept the argument: it
-  hard-codes ``autoware-main.yaml``. An autoware_launch PR, "feat(autoware_launch):
-  expose diagnostic_graph_aggregator_graph_path in planning_simulator", adds it.
+  hard-codes ``autoware-main.yaml``. `autowarefoundation/autoware_launch#2009
+  <https://github.com/autowarefoundation/autoware_launch/pull/2009>`_ adds it.
   Until the demo image includes that change, the demo mounts
   ``demo/launch/autoware-main.yaml`` over the image's ``autoware-main.yaml``.
   That file is the image's file verbatim plus the same ``remove`` edit.

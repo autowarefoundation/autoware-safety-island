@@ -40,7 +40,7 @@ public:
 
         period_ms_ = period_ms;
         user_callback_ = user_callback;
-        last_execution_time_ = Clock::now();
+        last_execution_time_ = Clock::monotonic();
         timer_active_ = true;
 
         log_info("%s -> Timer created and set with period %u ms\n", node_name_.c_str(), period_ms);
@@ -66,7 +66,7 @@ public:
             return false;
         }
 
-        double current_time = Clock::now();
+        double current_time = Clock::monotonic();
         double elapsed_ms = (current_time - last_execution_time_) * 1000.0;
         
         return elapsed_ms >= static_cast<double>(period_ms_);
@@ -81,7 +81,7 @@ public:
             return;
         }
 
-        double current_time = Clock::now();
+        double current_time = Clock::monotonic();
         const double period_s = static_cast<double>(period_ms_) / 1000.0;
 
         // If a long time has passed, we want to skip the missed intervals and not

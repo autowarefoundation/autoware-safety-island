@@ -1,8 +1,8 @@
-# TODO(autoware_launch PR "feat(autoware_launch): expose
-# diagnostic_graph_aggregator_graph_path in planning_simulator"): delete this
-# workflow with demo/launch/autoware-main.yaml and
-# .github/scripts/check-demo-diag-graph.py once the demo image's
-# planning_simulator.launch.xml declares diagnostic_graph_aggregator_graph_path.
+# TODO(autowarefoundation/autoware_launch#2009): delete this workflow with
+# demo/launch/autoware-main.yaml and .github/scripts/check-demo-diag-graph.py
+# once the demo image's planning_simulator.launch.xml declares
+# diagnostic_graph_aggregator_graph_path.
+# https://github.com/autowarefoundation/autoware_launch/pull/2009
 name: Demo diagnostic graph
 
 on:

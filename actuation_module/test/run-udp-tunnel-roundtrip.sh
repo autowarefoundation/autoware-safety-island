@@ -58,12 +58,12 @@ root, bind, port, iface = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4
 sys.path.insert(0, os.path.join(root, "demo/can_tunnel_bridge"))
 sys.path.insert(0, os.path.join(root, "demo/can_carla_bridge"))
 from datagram import TunnelBatch, TunnelFrame, pack
-from decoder import ControlCommandDecoder, DecoderEvent
+from decoder import ControlCommandDecoder, DecoderEvent, pack_status
 
 sequence = 7
 lateral = struct.pack("<ii", 125000, -500000)
 longitudinal = struct.pack("<ii", 12250, -1500)
-status = bytes([1, 0x0B]) + struct.pack("<H", sequence) + struct.pack("<I", 12345)
+status = pack_status(lateral, longitudinal, sequence)
 datagram = pack(
     TunnelBatch(
         sequence=sequence,

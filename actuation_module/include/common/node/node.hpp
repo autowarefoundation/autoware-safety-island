@@ -92,6 +92,7 @@ public:
      */
     int spin() {
         int ret = pthread_create(&main_thread_, &main_thread_attr_, main_thread_entry_, this);
+        started_ = (ret == 0);
 #if defined(X5H_DIAG_TASK_TABLE) && (X5H_DIAG_TASK_TABLE)
         if (ret == 0) {
             // pthread_t on this port is a pointer to pthread_internal_t
@@ -113,15 +114,25 @@ public:
      * @brief Wait for the node thread to complete
      */
     void wait_for_completion() {
+        if (!started_) {
+            return;
+        }
         pthread_join(main_thread_, nullptr);
+        started_ = false;
     }
     
     /**
      * @brief Stop the node thread
      */
     void stop() {
+        // main_thread_ is only a valid handle between a successful spin()
+        // and the join: cancelling or joining it otherwise is undefined.
+        if (!started_) {
+            return;
+        }
         pthread_cancel(main_thread_);
         pthread_join(main_thread_, nullptr);
+        started_ = false;
     }
 
     /** 
@@ -289,7 +300,8 @@ private:
     std::unique_ptr<Timer> timer_;
 
     // Main thread
-    pthread_t main_thread_;
+    pthread_t main_thread_{};
+    bool started_ = false;
     pthread_attr_t main_thread_attr_;
 
     static void* main_thread_entry_(void* arg) {

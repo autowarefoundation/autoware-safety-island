@@ -66,8 +66,9 @@ name, an IPv4 address, or ``auto`` (let CycloneDDS choose):
 
   $ SI_DDS_INTERFACE=wlp2s0 ./build/freertos-posix/actuation_freertos
 
-The released ``actuation_freertos`` binary is built with ``lo`` and relies on
-this override for LAN use; see :doc:`open_ad_kit`.
+The released binaries (``actuation_freertos-x86_64`` and
+``actuation_freertos-aarch64``) are built with ``lo`` and rely on this override
+for LAN use; see :doc:`open_ad_kit`.
 
 *************
 Run Locally

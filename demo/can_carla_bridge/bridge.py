@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from decoder import ControlCommandDecoder, DecodedControlCommand, DecoderEvent
+from decoder import DECISION_NAMES, ControlCommandDecoder, DecodedControlCommand, DecoderEvent
 
 
 @dataclass
@@ -177,7 +177,12 @@ def main() -> int:
             else:
                 continue
             if args.dry_run:
-                print(event.name, control)
+                print(
+                    event.name,
+                    DECISION_NAMES[decoder.command.decision],
+                    f"fault_id={decoder.command.fault_id}",
+                    control,
+                )
                 continue
             apply_ackermann(vehicle, carla, control)
     except KeyboardInterrupt:

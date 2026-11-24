@@ -87,10 +87,8 @@ At construction the controller:
 1. Declares a control period. Default **150 ms**. Upstream Autoware uses
    30 ms; the safety island runs slower because the MPC solve is the
    dominant cost on a Cortex-R class core.
-2. Declares a stale-output timeout of **0.5 s**. The ``isTimeOut`` helper still
-   exists in ``controller_node.cpp``, but the call is currently disabled in the
-   timer callback. Input readiness is handled by ``processData`` and the
-   supervisor: before an input has ever arrived the tick publishes ``HOLD``;
+2. Sets up input supervision. Input readiness is handled by ``processData``
+   and the supervisor: before an input has ever arrived the tick publishes ``HOLD``;
    once a source has been seen, its own arrival watchdog governs, and a stale
    selected candidate or vehicle feedback latches ``SI_STOP`` until the explicit
    re-enable (see :doc:`vp_si_control_contract`).

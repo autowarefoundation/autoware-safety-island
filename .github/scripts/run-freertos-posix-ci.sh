@@ -104,4 +104,7 @@ echo "Phase 7 - CAN UDP tunnel pack/unpack"
 python3 "${ROOT_DIR}/demo/can_tunnel_bridge/test_datagram.py"
 echo "CAN UDP datagram tests OK"
 
+echo "Phase 8 - Rosbag replay against the Autoware reference, then source-loss stop"
+"${ROOT_DIR}/.github/scripts/run-freertos-posix-replay-ci.sh" "${BUILD_ROOT}/actuation_freertos"
+
 echo "FreeRTOS POSIX runtime validation OK"

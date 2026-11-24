@@ -33,6 +33,67 @@ Added
 - :doc:`user_guide/hardware_requirements`: preliminary hardware requirements,
   with the measured image footprint and an FVP-based CPU estimate. A short
   table in the README links to it.
+- CI replays the recorded follower inputs into the FreeRTOS POSIX controller,
+  compares its steering with Autoware's own follower on the same bag, and
+  checks that it latches ``SI_STOP`` when the inputs stop
+  (``.github/scripts/run-freertos-posix-replay-ci.sh``).
+
+Changed
+-------
+
+- **CAN status frame** ``0x102`` **(breaking for CAN receivers).** Byte 0 now
+  carries the supervisor decision (NORMAL / SI_STOP / HOLD) next to the output
+  mode, byte 6 the fault id, and byte 7 a CRC-8 over all three command
+  payloads; the timestamp shrinks to 16 bits and flag ``0x10`` marks the
+  layout. ``demo/can_carla_bridge/decoder.py`` rejects a command whose CRC
+  does not match and status frames in the earlier layout. The CAN-FD frame
+  ``0x103`` carries the same bytes. See ``documentation/design/can_output.rst``.
+- The control period, the per-source arrival watchdogs and the re-enable
+  window run on a monotonic clock, so a wall-clock step no longer stalls the
+  control tick, hides a dead source or latches a spurious ``SI_STOP``.
+
+Fixed
+-----
+
+- A subscription whose DDS reader could not be created is now a startup
+  failure: the controller logs which one and exits. It used to be reported as
+  created, and the Safety Island waited in ``HOLD`` for samples that could not
+  arrive. The failure is reported without an exception, since a throw ends in
+  ``std::terminate`` on S32Z2, whose image has no unwind tables.
+- ``Node`` no longer cancels and joins a thread that was never started.
+- The MPC's "trajectory shape is changed" line is throttled.
+- ``build.sh`` no longer leaves an empty component in ``LD_LIBRARY_PATH``.
+
+Removed
+-------
+
+- Code that was no longer built or called: ``input_staleness_gate.hpp`` and its
+  host test, ``autoware_osqp_interface``, ``qp_solver_osqp.cpp``, and the
+  unused ``timeout_thr_sec`` parameter with its ``isTimeOut`` helper.
+
+******
+v0.4.0
+******
+
+Publishes the FreeRTOS POSIX runtime for linux/arm64 as well as linux/amd64.
+
+Added
+-----
+
+- linux/arm64 FreeRTOS POSIX runtime. The release builds and smoke-tests the
+  binary on an arm64 runner as well as amd64, and PR CI builds and runs it on
+  both (``FreeRTOS POSIX arm64``).
+
+Changed
+-------
+
+- Release assets: the FreeRTOS POSIX runtime is published once per
+  architecture, named as ``uname -m`` prints it: ``actuation_freertos-x86_64``
+  and ``actuation_freertos-aarch64``. v0.3.0 and earlier publish a single amd64
+  ``actuation_freertos``; a consumer that pins the release (Open AD Kit) picks
+  ``actuation_freertos-$(uname -m)`` when it moves to this release.
+- PR CI keys the CycloneDDS build cache on the runner architecture as well as
+  the submodule pin.
 
 ******
 v0.3.0

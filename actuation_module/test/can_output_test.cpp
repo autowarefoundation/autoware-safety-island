@@ -108,10 +108,58 @@ static void test_encoder_payloads()
 
   ASSERT_MSG(encoded.frames[2].id == 0x102U, "status frame id");
   ASSERT_MSG(encoded.frames[2].dlc == 8U, "status frame dlc");
-  ASSERT_MSG(encoded.frames[2].data[0] == 2U, "status output mode");
-  ASSERT_MSG(encoded.frames[2].data[1] == 0x0BU, "status flags");
+  ASSERT_MSG(encoded.frames[2].data[0] == 0x02U, "status output mode, NORMAL decision");
+  ASSERT_MSG(encoded.frames[2].data[1] == 0x1BU, "status flags");
   ASSERT_MSG(read_u16_le(encoded.frames[2], 2) == 42U, "status sequence");
-  ASSERT_MSG(read_u32_le(encoded.frames[2], 4) == 12345U, "status timestamp milliseconds");
+  ASSERT_MSG(read_u16_le(encoded.frames[2], 4) == 12345U, "status timestamp milliseconds");
+  ASSERT_MSG(encoded.frames[2].data[6] == 0U, "no fault id without a fault");
+  // Cross-language vector: demo/can_carla_bridge/test_decoder.py checks the
+  // same bytes against the same CRC.
+  ASSERT_MSG(encoded.frames[2].data[7] == 0xA9U, "status CRC");
+}
+
+static void test_supervision_status_encoding()
+{
+  using common::can::ControlCommandOutputMode;
+  const auto msg = make_sample_control_msg();
+
+  const uint8_t check[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  ASSERT_MSG(
+    (common::can::detail::crc8_j1850_update(check, sizeof(check)) ^ 0xFFU) == 0x4BU,
+    "CRC-8 SAE J1850 check value");
+
+  const auto stop = common::can::encode_control_command(
+    msg, ControlCommandOutputMode::CAN_ONLY, 7U, {common::can::kCanDecisionSiStop, 3U});
+  ASSERT_MSG(stop.ok, "SI_STOP encodes");
+  ASSERT_MSG(stop.frames[2].data[0] == 0x11U, "CAN_ONLY mode with SI_STOP decision");
+  ASSERT_MSG(stop.frames[2].data[6] == 3U, "fault id byte");
+  ASSERT_MSG(stop.frames[2].data[7] == 0xB9U, "SI_STOP status CRC");
+
+  const auto hold = common::can::encode_control_command(
+    msg, ControlCommandOutputMode::DDS_AND_CAN, 42U, {common::can::kCanDecisionHold, 0U});
+  ASSERT_MSG(hold.ok, "HOLD encodes");
+  ASSERT_MSG(hold.frames[2].data[0] == 0x22U, "DDS_AND_CAN mode with HOLD decision");
+  ASSERT_MSG(hold.frames[2].data[7] == 0xC6U, "HOLD status CRC");
+
+  // The decision and the payload are both under the CRC.
+  const auto normal = common::can::encode_control_command(
+    msg, ControlCommandOutputMode::DDS_AND_CAN, 42U);
+  ASSERT_MSG(normal.frames[2].data[7] != hold.frames[2].data[7], "decision changes the CRC");
+  auto other = msg;
+  other.lateral.steering_tire_angle = 0.126F;
+  const auto steered = common::can::encode_control_command(
+    other, ControlCommandOutputMode::DDS_AND_CAN, 42U);
+  ASSERT_MSG(steered.frames[2].data[7] != normal.frames[2].data[7], "payload changes the CRC");
+
+  // A latched fault never encodes as "no fault", whatever its id.
+  ASSERT_MSG(common::can::detail::fault_id_byte(0U) == 0U, "no fault is 0");
+  ASSERT_MSG(common::can::detail::fault_id_byte(1U) == 1U, "first fault is 1");
+  ASSERT_MSG(common::can::detail::fault_id_byte(255U) == 255U, "fault 255 is 255");
+  ASSERT_MSG(common::can::detail::fault_id_byte(256U) == 1U, "fault ids wrap past 0");
+
+  const auto invalid = common::can::encode_control_command(
+    msg, ControlCommandOutputMode::CAN_ONLY, 0U, {3U, 0U});
+  ASSERT_MSG(!invalid.ok, "an unknown decision is rejected");
 }
 
 static void test_dds_only_encoding_has_no_frames()
@@ -149,10 +197,12 @@ static void test_fd_encoder_payloads()
   ASSERT_MSG(read_i32_le(encoded.frame, 4) == -500000, "FD steering rate scale");
   ASSERT_MSG(read_i32_le(encoded.frame, 8) == 12250, "FD velocity scale");
   ASSERT_MSG(read_i32_le(encoded.frame, 12) == -1500, "FD acceleration scale");
-  ASSERT_MSG(encoded.frame.data[16] == 2U, "FD output mode");
-  ASSERT_MSG(encoded.frame.data[17] == 0x0BU, "FD status flags");
+  ASSERT_MSG(encoded.frame.data[16] == 0x02U, "FD output mode, NORMAL decision");
+  ASSERT_MSG(encoded.frame.data[17] == 0x1BU, "FD status flags");
   ASSERT_MSG(read_u16_le(encoded.frame, 18) == 42U, "FD status sequence");
-  ASSERT_MSG(read_u32_le(encoded.frame, 20) == 12345U, "FD status timestamp milliseconds");
+  ASSERT_MSG(read_u16_le(encoded.frame, 20) == 12345U, "FD status timestamp milliseconds");
+  ASSERT_MSG(encoded.frame.data[22] == 0U, "FD fault id");
+  ASSERT_MSG(encoded.frame.data[23] == 0xA9U, "FD status CRC matches the classic frames");
 }
 
 static void test_fd_encoding_modes()
@@ -281,7 +331,7 @@ static constexpr std::array<uint8_t, common::can::kCanUdpTunnelDatagramSize> kGo
   0x00U, 0xE0U, 0x5EU, 0xF8U, 0xFFU, 0x01U, 0x01U, 0x00U,
   0x00U, 0x08U, 0xDAU, 0x2FU, 0x00U, 0x00U, 0x24U, 0xFAU,
   0xFFU, 0xFFU, 0x02U, 0x01U, 0x00U, 0x00U, 0x08U, 0x01U,
-  0x0BU, 0x2AU, 0x00U, 0x39U, 0x30U, 0x00U, 0x00U, 0x00U,
+  0x1BU, 0x2AU, 0x00U, 0x39U, 0x30U, 0x00U, 0x4EU, 0x00U,
 };
 
 static common::can::CanFrame make_wire_frame(
@@ -299,7 +349,7 @@ static void test_udp_tunnel_golden_datagram()
   const std::array<common::can::CanFrame, common::can::kControlCommandCanFrameCount> frames{
     make_wire_frame(0x100U, {0x48U, 0xE8U, 0x01U, 0x00U, 0xE0U, 0x5EU, 0xF8U, 0xFFU}),
     make_wire_frame(0x101U, {0xDAU, 0x2FU, 0x00U, 0x00U, 0x24U, 0xFAU, 0xFFU, 0xFFU}),
-    make_wire_frame(0x102U, {0x01U, 0x0BU, 0x2AU, 0x00U, 0x39U, 0x30U, 0x00U, 0x00U}),
+    make_wire_frame(0x102U, {0x01U, 0x1BU, 0x2AU, 0x00U, 0x39U, 0x30U, 0x00U, 0x4EU}),
   };
 
   const auto packed = common::can::pack_can_udp_tunnel(frames.data(), frames.size(), 42U);
@@ -405,6 +455,7 @@ int main()
   log_info("=== Starting CAN output tests ===");
   test_output_mode_helpers();
   test_encoder_payloads();
+  test_supervision_status_encoding();
   test_dds_only_encoding_has_no_frames();
   test_non_finite_values_are_rejected();
   test_fd_encoder_payloads();
