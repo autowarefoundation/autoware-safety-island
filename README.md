@@ -37,12 +37,12 @@ figure was measured or estimated.
 
 | Item | Requirement |
 |---|---|
-| CPU | 1× Arm Cortex-R52, ~200–450 MHz for the 150 ms control period (estimate) |
+| CPU | 1× Arm Cortex-R52, ~160–660 MHz for the 150 ms control period (estimate) |
 | RAM | ≥ 4–5 MiB, 8 MiB recommended |
 | Storage | ≥ 2 MiB |
-| Network | Ethernet (DDS over UDP), or RPMsg on a shared SoC |
-| Vehicle bus | ≥ 1 CAN-FD channel (CAN control output only) |
-| Timer | 1 kHz tick |
+| Network | Ethernet (DDS over UDP, IPv4, MTU ≥ 1500), or RPMsg on a shared SoC |
+| Vehicle bus | ≥ 1 classic CAN channel, CAN-FD optional (CAN control output only) |
+| Timer | System timer with 1 ms resolution |
 
 ### Workflow
 
