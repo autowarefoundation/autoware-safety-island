@@ -124,6 +124,25 @@ DDS loopback
 
 Builds ``actuation_module/test/dds_loopback_test.cpp`` for Zephyr targets.
 
+*************
+Rosbag replay
+*************
+
+.. code-block:: console
+
+  $ ./build.sh --platform freertos-posix
+  $ .github/scripts/run-freertos-posix-replay-ci.sh
+
+Runs the FreeRTOS POSIX controller against the recorded follower inputs in
+``actuation_module/test/rosbag_test/rosbag`` and records the ``control_cmd``
+it publishes. The check passes when the steering follows
+``test_control_cmd_outputs/autoware_original_control_cmd.yaml``, what
+Autoware's own follower produced for the same bag, and when the controller
+latches ``SI_STOP`` and publishes only the stop command once the bag ends and
+its inputs stop arriving. It needs ROS 2 and the Autoware message packages, so
+run it inside the devcontainer. CI runs it as the last phase of the FreeRTOS
+POSIX job.
+
 **********************
 Running tests
 **********************

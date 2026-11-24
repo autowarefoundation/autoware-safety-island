@@ -64,16 +64,20 @@ graph TD
 |--------------|---------------|
 | Zephyr RTOS  | [3.5.99](https://github.com/zephyrproject-rtos/zephyr/commit/339cd5a45fd2ebba064ef462b71c657336ca0dfe) |
 | CycloneDDS  | [0.11.0 (AWF fork)](https://github.com/autowarefoundation/cyclonedds/commit/2baf07a217cc7674226778a1659b09e333e863a3) |
-| Autoware    | [2025.02](https://github.com/autowarefoundation/autoware/tree/2025.02) |
-| Autoware.Universe | [0.40.0](https://github.com/autowarefoundation/autoware.universe/tree/0.40.0) |
+| Autoware (topic contract and demo) | [2.0.0](https://github.com/autowarefoundation/autoware/tree/2.0.0) |
+| Autoware (ported controller) | [2025.02](https://github.com/autowarefoundation/autoware/tree/2025.02) |
+| Autoware.Universe (ported controller) | [0.40.0](https://github.com/autowarefoundation/autoware.universe/tree/0.40.0) |
 | Autoware.msgs | [1.3.0](https://github.com/autowarefoundation/autoware_msgs/tree/1.3.0) |
+
+The Safety Island talks to Autoware 2.0.0: it reads the topics that release
+publishes, and the demo runs the `universe-humble-2.0.0` image. The controller
+code is a port of the Universe 0.40.0 sources.
 
 ## Autoware Components
 
 | Component | Description |
 |-----------|---------|
 | autoware_msgs | Autoware Messages |
-| autoware_osqp_interface | OSQP Interface |
 | autoware_universe_utils | Universe Utils |
 | autoware_motion_utils | Motion Utils |
 | autoware_interpolation | Interpolation Utils |

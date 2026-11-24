@@ -148,8 +148,9 @@ not enabled simultaneously with the first DDS rig.
 throughout the stop. Its speed target ramps down from the ego speed captured
 at the latch only when odometry is fresh; unseen, stale or invalid ego speed
 uses a zero-speed stop instead. Ramp duration uses a monotonic clock, so a
-wall-clock correction cannot restart a completed ramp. Output stamps and
-source-arrival watchdogs still use the SI system clock.
+wall-clock correction cannot restart a completed ramp. The source-arrival
+watchdogs, the re-enable window and the control period use the same monotonic
+clock; only output stamps use the SI system clock.
 
 Implementations and wire layout
 -------------------------------

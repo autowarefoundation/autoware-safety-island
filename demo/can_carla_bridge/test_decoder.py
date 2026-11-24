@@ -6,14 +6,67 @@ from __future__ import annotations
 import struct
 import sys
 
-from decoder import ControlCommandDecoder, DecoderEvent
+from decoder import (
+    DECISION_HOLD,
+    DECISION_NORMAL,
+    DECISION_SI_STOP,
+    ControlCommandDecoder,
+    DecoderEvent,
+    crc8_j1850,
+    pack_status,
+)
 
 
-def pack_cycle(sequence: int) -> list[tuple[int, bytes]]:
+def pack_cycle(sequence: int, **status_fields) -> list[tuple[int, bytes]]:
     lateral = struct.pack("<ii", 125000, -500000)
     longitudinal = struct.pack("<ii", 12250, -1500)
-    status = bytes([1, 0x0B]) + struct.pack("<H", sequence) + struct.pack("<I", 12345)
+    status = pack_status(lateral, longitudinal, sequence, **status_fields)
     return [(0x100, lateral), (0x101, longitudinal), (0x102, status)]
+
+
+def check_integrity() -> None:
+    assert crc8_j1850(b"123456789") == 0x4B
+
+    # Same bytes and CRCs as test_encoder_payloads() and
+    # test_supervision_status_encoding() in actuation_module/test/can_output_test.cpp.
+    assert pack_cycle(42, mode=2)[2][1] == bytes.fromhex("021b2a00393000a9")
+    assert pack_cycle(7, mode=1, decision=DECISION_SI_STOP, fault_id=3)[2][1] == bytes.fromhex(
+        "111b0700393003b9"
+    )
+    assert pack_cycle(42, mode=2, decision=DECISION_HOLD)[2][1] == bytes.fromhex(
+        "221b2a00393000c6"
+    )
+
+    stop = ControlCommandDecoder()
+    frames = pack_cycle(7, decision=DECISION_SI_STOP, fault_id=3)
+    for frame in frames[:2]:
+        assert feed(stop, *frame, 0.0) == DecoderEvent.STORED
+    assert feed(stop, *frames[2], 0.0) == DecoderEvent.ACCEPTED
+    assert stop.command.decision == DECISION_SI_STOP
+    assert stop.command.fault_id == 3
+    assert stop.command.output_mode == 1
+
+    def rejected(lateral: bytes, longitudinal: bytes, status: bytes) -> bool:
+        decoder = ControlCommandDecoder()
+        assert feed(decoder, 0x100, lateral, 0.0) == DecoderEvent.STORED
+        assert feed(decoder, 0x101, longitudinal, 0.0) == DecoderEvent.STORED
+        return feed(decoder, 0x102, status, 0.0) == DecoderEvent.REJECTED and not decoder.has_command
+
+    (_, lateral), (_, longitudinal), (_, status) = pack_cycle(5)
+    flip = lambda data, index: data[:index] + bytes([data[index] ^ 0x01]) + data[index + 1:]
+    # One flipped bit anywhere in the three payloads fails the CRC.
+    for index in range(8):
+        assert rejected(flip(lateral, index), longitudinal, status)
+        assert rejected(lateral, flip(longitudinal, index), status)
+        assert rejected(lateral, longitudinal, flip(status, index))
+    # A lateral frame from another cycle does not combine with this status.
+    other_lateral = struct.pack("<ii", 126000, -500000)
+    assert rejected(other_lateral, longitudinal, status)
+    # The earlier layout (no supervised flag, 32-bit timestamp, no CRC).
+    legacy = bytes([1, 0x0B]) + struct.pack("<H", 5) + struct.pack("<I", 12345)
+    assert rejected(lateral, longitudinal, legacy)
+    # A decision value the contract does not define.
+    assert rejected(*[data for _, data in pack_cycle(5, decision=3)])
 
 
 def pack_fd_cycle(sequence: int) -> bytes:
@@ -25,6 +78,8 @@ def feed(decoder: ControlCommandDecoder, can_id: int, data: bytes, now: float, d
 
 
 def main() -> int:
+    check_integrity()
+
     frames = pack_cycle(7)
     decoder = ControlCommandDecoder()
     assert feed(decoder, *frames[0], 0.0) == DecoderEvent.STORED
@@ -35,6 +90,8 @@ def main() -> int:
     assert abs(decoder.command.velocity - 12.25) < 1e-9
     assert abs(decoder.command.acceleration + 1.5) < 1e-9
     assert decoder.command.sequence == 7
+    assert decoder.command.decision == DECISION_NORMAL
+    assert decoder.command.fault_id == 0
 
     assert feed(decoder, 0x200, bytes(8), 0.1) == DecoderEvent.IGNORED
 
@@ -77,12 +134,15 @@ def main() -> int:
     assert feed(missing, *cyc[2], 0.0) == DecoderEvent.REJECTED
     assert feed(missing, *cyc[0], 0.0, dlc=7) == DecoderEvent.IGNORED
 
+    # The last lateral frame before the commit is the one that counts, and
+    # the status frame's CRC must be the one computed over it.
     duplicate = ControlCommandDecoder()
     assert feed(duplicate, *cyc[0], 0.0) == DecoderEvent.STORED
     changed_lateral = bytes([cyc[0][1][0] + 1]) + cyc[0][1][1:]
     assert feed(duplicate, 0x100, changed_lateral, 0.0) == DecoderEvent.STORED
     assert feed(duplicate, *cyc[1], 0.0) == DecoderEvent.STORED
-    assert feed(duplicate, *cyc[2], 0.0) == DecoderEvent.ACCEPTED
+    changed_status = pack_status(changed_lateral, cyc[1][1], 0)
+    assert feed(duplicate, 0x102, changed_status, 0.0) == DecoderEvent.ACCEPTED
     assert abs(duplicate.command.steering_tire_angle - 0.125001) < 1e-9
 
     bad_dlc = ControlCommandDecoder()

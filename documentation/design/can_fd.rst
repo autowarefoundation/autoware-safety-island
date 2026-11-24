@@ -51,8 +51,10 @@ of that length: ``12`` for 24 bytes. FD DLC values 9–15 cover 12/16/20/24/32/
 48/64 bytes and are not byte counts. SocketCAN maps ``length`` to the wire DLC;
 BRS stays off.
 
-The status slice keeps the classic sequence and timestamp, so the host decoder
-applies the same commit, replay, and watchdog rules to both formats. A bridge
+The status slice is the classic status frame byte for byte, including the
+decision, the fault id and the CRC over all 23 preceding bytes
+(:doc:`can_output`), so the host decoder applies the same integrity, commit,
+replay, and watchdog rules to both formats. A bridge
 instance decodes one format at a time (``--can-format``), ignores frames in
 the other format, and ignores extended-ID frames in both.
 

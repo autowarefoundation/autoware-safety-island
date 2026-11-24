@@ -377,9 +377,11 @@ target_link_options(actuation_freertos_s32z2 PRIVATE
     "-Wl,--defsym=SysTick_Handler=xPortSysTickHandler"
     # GCC's libgcc unwinder references __exidx_start/__exidx_end to walk
     # the .ARM.exidx exception-handling section. NXP's linker_ram_r52.ld
-    # doesn't emit those symbols (the section is unused on this build),
-    # so define them as an empty range. catch-based exceptions still
-    # work; uncaught throws end in std::terminate as expected.
+    # doesn't emit those symbols, and discard_unwind.ld drops the section,
+    # so define them as an empty range. With an empty index the unwinder
+    # finds no handler: EVERY throw, caught or not, ends in std::terminate
+    # (then _exit, which spins). Startup failures therefore log and exit
+    # instead of throwing.
     "-Wl,--defsym=__exidx_start=0"
     "-Wl,--defsym=__exidx_end=0"
     # The port's FPU handlers live together in one .handlers input section, so

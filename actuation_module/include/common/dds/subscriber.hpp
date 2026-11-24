@@ -29,6 +29,7 @@ public:
             , m_reader_entity(0)
             , callback_(callback)
             , callback_arg_(arg)
+            , ok_(false)
     {
         // Manipulate topic name and topic descriptor for ROS2 compatibility
         std::string topic_name_ros2 = transformTopicName(topic_name);
@@ -40,6 +41,11 @@ public:
         if (topic < 0) {
             log_error("%s -> dds_create_topic (%s): %s\n", 
                    node_name_.c_str(), topic_name_ros2.c_str(), dds_strretcode(-topic));
+            // A subscriber without a reader never delivers a sample. Report it
+            // through ok() so the caller sees it, instead of handing back an
+            // object that looks subscribed. Not an exception: the S32Z2 image
+            // has no unwind tables, so any throw ends in std::terminate there
+            // before a caller could report it (freertos_s32z2/discard_unwind.ld).
             return;
         }
 
@@ -49,14 +55,22 @@ public:
             log_error("%s -> dds_create_reader (%s): %s\n", 
                    node_name_.c_str(), topic_name_ros2.c_str(), dds_strretcode(-m_reader_entity));
             dds_delete(topic);
+            m_reader_entity = 0;
             return;
         }
 
+        ok_ = true;
         log_info("%s -> Subscriber created for topic %s\n", node_name_.c_str(), topic_name_ros2.c_str());
     }
 
+    /**
+     * @brief Whether the DDS topic and reader were created
+     * @return false when the constructor could not create them
+     */
+    bool ok() const { return ok_; }
+
     ~Subscriber() {
-        if (m_reader_entity != 0) {
+        if (m_reader_entity > 0) {
             dds_delete(m_reader_entity);
         }
     }
@@ -107,6 +121,7 @@ private:
     dds_entity_t m_reader_entity;
     callback_subscriber<T> callback_;
     void* callback_arg_;
+    bool ok_;
 };
 
 #endif  // COMMON__SUBSCRIBER_HPP_

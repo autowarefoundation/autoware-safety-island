@@ -3,16 +3,20 @@
 
 from __future__ import annotations
 
+import os
 import struct
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "can_carla_bridge"))
+
+from decoder import pack_status
 from datagram import FLAG_CLASSIC_BATCH, MAGIC, TunnelBatch, TunnelFrame, pack, unpack
 
 
 def sample(sequence: int = 42) -> TunnelBatch:
     lateral = struct.pack("<ii", 125000, -500000)
     longitudinal = struct.pack("<ii", 12250, -1500)
-    status = bytes([1, 0x0B]) + struct.pack("<H", sequence) + struct.pack("<I", 12345)
+    status = pack_status(lateral, longitudinal, sequence)
     return TunnelBatch(
         sequence=sequence,
         frames=(
@@ -31,7 +35,7 @@ GOLDEN = bytes([
     0x00, 0xE0, 0x5E, 0xF8, 0xFF, 0x01, 0x01, 0x00,
     0x00, 0x08, 0xDA, 0x2F, 0x00, 0x00, 0x24, 0xFA,
     0xFF, 0xFF, 0x02, 0x01, 0x00, 0x00, 0x08, 0x01,
-    0x0B, 0x2A, 0x00, 0x39, 0x30, 0x00, 0x00, 0x00,
+    0x1B, 0x2A, 0x00, 0x39, 0x30, 0x00, 0x4E, 0x00,
 ])
 
 
@@ -79,7 +83,7 @@ def main() -> int:
             TunnelFrame(
                 0x102,
                 8,
-                bytes([1, 0x0B]) + struct.pack("<H", 41) + struct.pack("<I", 12345),
+                pack_status(batch.frames[0].data, batch.frames[1].data, 41),
             ),
         ),
     )

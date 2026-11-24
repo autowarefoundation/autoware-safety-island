@@ -38,7 +38,9 @@ public:
     return initialized_;
   }
 
-  bool send(const ControlMsg & msg, const ControlCommandOutputMode mode)
+  bool send(
+    const ControlMsg & msg, const ControlCommandOutputMode mode,
+    const CommandSupervisionStatus & supervision = {})
   {
     LockGuard lock(mutex_);
 
@@ -52,7 +54,7 @@ public:
     }
 
     if (fd_active_) {
-      const auto encoded = encode_control_command_fd(msg, mode, sequence_);
+      const auto encoded = encode_control_command_fd(msg, mode, sequence_, supervision);
       if (!encoded.ok) {
         common::logger::log_error("CAN-FD control command encoding failed: %s", encoded.error);
         return false;
@@ -67,7 +69,7 @@ public:
       return true;
     }
 
-    const auto encoded = encode_control_command(msg, mode, sequence_);
+    const auto encoded = encode_control_command(msg, mode, sequence_, supervision);
     if (!encoded.ok) {
       common::logger::log_error("CAN control command encoding failed: %s", encoded.error);
       return false;

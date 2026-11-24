@@ -164,7 +164,12 @@ public:
             auto subscriber = std::make_shared<Subscriber<T>>(
                 node_name_, topic_name, m_dds_participant,
                 reader_qos ? reader_qos.get() : m_dds_qos, topic_descriptor, callback, arg);
-            
+            if (!subscriber->ok()) {
+                // The constructor logged why; a subscriber without a reader is
+                // not kept, so the caller sees the failure.
+                return nullptr;
+            }
+
             // Store as ISubscriptionHandler
             subscriptions_.push_back(std::static_pointer_cast<ISubscriptionHandler>(subscriber));
             return subscriber;
