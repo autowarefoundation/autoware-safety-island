@@ -17,7 +17,7 @@ Release assets
 **************
 
 Every release from v0.2.0 on carries these assets, each listed in
-``sha256sums.txt``. Releases after v0.3.0 publish the FreeRTOS POSIX runtime
+``sha256sums.txt``. From v0.4.0 on, the FreeRTOS POSIX runtime is published
 once per architecture; v0.2.0 and v0.3.0 publish a single amd64 binary named
 ``actuation_freertos``.
 
@@ -51,7 +51,7 @@ Pin by release and checksum rather than copying the files:
 
 .. code-block:: console
 
-  $ TAG=vX.Y.Z   # a release after v0.3.0
+  $ TAG=v0.4.0
   $ BIN=actuation_freertos-$(uname -m)
   $ BASE=https://github.com/autowarefoundation/autoware-safety-island/releases/download/${TAG}
   $ curl -fsSL -O "${BASE}/${BIN}" -O "${BASE}/bridge-config.yaml" \

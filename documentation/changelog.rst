@@ -27,6 +27,14 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
+No unreleased changes.
+
+******
+v0.4.0
+******
+
+Publishes the FreeRTOS POSIX runtime for linux/arm64 as well as linux/amd64.
+
 Added
 -----
 
