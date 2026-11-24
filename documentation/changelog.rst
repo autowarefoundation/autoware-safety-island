@@ -27,7 +27,23 @@ Releases are listed newest-first. Unreleased work lives under
 Unreleased
 **********
 
-No unreleased changes.
+Added
+-----
+
+- linux/arm64 FreeRTOS POSIX runtime. The release builds and smoke-tests the
+  binary on an arm64 runner as well as amd64, and PR CI builds and runs it on
+  both (``FreeRTOS POSIX arm64``).
+
+Changed
+-------
+
+- Release assets: the FreeRTOS POSIX runtime is published once per
+  architecture, named as ``uname -m`` prints it: ``actuation_freertos-x86_64``
+  and ``actuation_freertos-aarch64``. v0.3.0 and earlier publish a single amd64
+  ``actuation_freertos``; a consumer that pins the release (Open AD Kit) picks
+  ``actuation_freertos-$(uname -m)`` when it moves to this release.
+- PR CI keys the CycloneDDS build cache on the runner architecture as well as
+  the submodule pin.
 
 ******
 v0.3.0

@@ -74,8 +74,19 @@ jobs:
           retention-days: 7
 
   build-freertos:
-    name: FreeRTOS POSIX
-    runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The release publishes the POSIX binary for both architectures, so
+          # both build and run here. The devcontainer image is multi-arch; the
+          # amd64 job keeps the check name it always had.
+          - name: FreeRTOS POSIX
+            runner: ubuntu-latest
+          - name: FreeRTOS POSIX arm64
+            runner: ubuntu-24.04-arm
     container:
       image: ${{ inputs.devcontainer_image || 'ghcr.io/autowarefoundation/autoware-safety-island:devcontainer' }}
 
@@ -107,7 +118,7 @@ jobs:
           path: |
             build/cyclonedds_host
             build/cyclonedds_target_out
-          key: cdds-${{ steps.cdds.outputs.sha }}
+          key: cdds-${{ runner.arch }}-${{ steps.cdds.outputs.sha }}
 
       - name: Run FreeRTOS POSIX validation
         shell: bash
@@ -155,7 +166,7 @@ jobs:
           path: |
             build/cyclonedds_host
             build/cyclonedds_target_out
-          key: cdds-${{ steps.cdds.outputs.sha }}
+          key: cdds-${{ runner.arch }}-${{ steps.cdds.outputs.sha }}
 
       - name: Run SocketCAN vcan roundtrip
         shell: bash

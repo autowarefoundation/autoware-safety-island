@@ -111,9 +111,19 @@ jobs:
           retention-days: 1
 
   build-freertos:
-    name: FreeRTOS POSIX Runtime Build
+    name: FreeRTOS POSIX Runtime Build (${{ matrix.arch }})
     needs: verify-tag
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        # One binary per architecture, named as `uname -m` prints it, so a
+        # consumer picks its own with actuation_freertos-$(uname -m). The pinned
+        # devcontainer is multi-arch.
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
     container:
       # Pinned, so a tag always builds with the same toolchain. Move it to the
       # devcontainer-<sha> tag docker-build-push.yml published when .devcontainer changes.
@@ -140,51 +150,69 @@ jobs:
         shell: bash
         run: .github/scripts/run-freertos-posix-ci.sh
 
+      - name: Collect artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          machine="$(uname -m)"
+          if [ "${machine}" != "${{ matrix.arch }}" ]; then
+            echo "built on ${machine}, expected ${{ matrix.arch }}" >&2
+            exit 1
+          fi
+          cp build/freertos-posix/actuation_freertos "actuation_freertos-${machine}"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: freertos-posix
-          path: build/freertos-posix/actuation_freertos
+          name: actuation_freertos-${{ matrix.arch }}
+          path: actuation_freertos-${{ matrix.arch }}
           retention-days: 1
 
   smoke-freertos:
     # The released POSIX binary must start on a plain Ubuntu host, not only in
     # the devcontainer it was built in: pin the glibc floor (22.04) and the
-    # current LTS (24.04), on the default loopback interface and with the
-    # SI_DDS_INTERFACE runtime override.
-    name: FreeRTOS POSIX smoke (${{ matrix.image }})
+    # current LTS (24.04), on each architecture's own runner, on the default
+    # loopback interface and with the SI_DDS_INTERFACE runtime override.
+    name: FreeRTOS POSIX smoke (${{ matrix.arch }}, ${{ matrix.image }})
     needs: build-freertos
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         image: ['ubuntu:22.04', 'ubuntu:24.04']
+        arch: [x86_64, aarch64]
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Download FreeRTOS POSIX binary
         uses: actions/download-artifact@v4
         with:
-          name: freertos-posix
+          name: actuation_freertos-${{ matrix.arch }}
           path: bin/
 
       - name: Run on ${{ matrix.image }}
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x bin/actuation_freertos
+          binary="actuation_freertos-${{ matrix.arch }}"
+          chmod +x "bin/${binary}"
           for env in "" "SI_DDS_INTERFACE=lo" "SI_DDS_INTERFACE=auto"; do
             echo "::group::${{ matrix.image }} ${env:-<default>}"
             set +e
             env_args=()
             [ -n "$env" ] && env_args=(-e "$env")
             docker run --rm -v "$PWD/bin:/si:ro" "${env_args[@]}" "${{ matrix.image }}" \
-              timeout 15s /si/actuation_freertos > run.log 2>&1
+              timeout 15s "/si/${binary}" > run.log 2>&1
             rc=$?
             set -e
             cat run.log
             echo "::endgroup::"
             # 124 = still running when timeout stopped it, which is the pass case.
             if [ "$rc" -ne 124 ]; then
-              echo "actuation_freertos exited early with status ${rc} on ${{ matrix.image }} (${env:-default})" >&2
+              echo "${binary} exited early with status ${rc} on ${{ matrix.image }} (${env:-default})" >&2
               exit 1
             fi
             grep -Fq "Network interface" run.log
