@@ -53,8 +53,10 @@ Fixed
 -----
 
 - A subscription whose DDS reader could not be created is now a startup
-  failure. It used to be reported as created, and the Safety Island waited in
-  ``HOLD`` for samples that could not arrive.
+  failure: the controller logs which one and exits. It used to be reported as
+  created, and the Safety Island waited in ``HOLD`` for samples that could not
+  arrive. The failure is reported without an exception, since a throw ends in
+  ``std::terminate`` on S32Z2, whose image has no unwind tables.
 - ``Node`` no longer cancels and joins a thread that was never started.
 - The MPC's "trajectory shape is changed" line is throttled.
 - ``build.sh`` no longer leaves an empty component in ``LD_LIBRARY_PATH``.

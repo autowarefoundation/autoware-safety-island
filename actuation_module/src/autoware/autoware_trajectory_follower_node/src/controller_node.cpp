@@ -154,10 +154,14 @@ Controller::Controller(const StartupConfig & config)
   // Every subscription below is required: the vehicle feedback gates NORMAL
   // output, and without the re-enable topic a latched stop could never be
   // cleared. A reader that cannot be created is fatal at startup rather than
-  // a node that waits forever for a sample that cannot arrive.
+  // a node that waits forever for a sample that cannot arrive. It logs and
+  // exits like the other startup failures here, without an exception: the
+  // S32Z2 image has no unwind tables, so a throw would end in std::terminate
+  // before main() could report it.
   const auto require = [](bool created, const char * what) {
       if (!created) {
-        throw std::runtime_error(std::string("cannot subscribe to ") + what);
+        log_error("Failed to start Controller Node: cannot subscribe to %s", what);
+        std::exit(1);
       }
     };
   require(
@@ -169,19 +173,19 @@ Controller::Controller(const StartupConfig & config)
     if (startup_config_.trajectory_source == StartupConfig::TrajectorySource::VP) {
       // VP's own path + speed schedule; the SI places it with the same-frame
       // ego pose (vp_reference.hpp), so no adapter sits between VP and SI.
-      if (!create_subscription<DrivingReferenceMsg>(
-        "/vehicle/driving_reference",
-        &visionpilot_msgs_msg_DrivingReference_desc,
-        callbackDrivingReference, this))
-      {
-        throw std::runtime_error("cannot subscribe to selected VP driving reference");
-      }
-    } else if (!create_subscription<TrajectoryMsg_Raw>(
-      // The trajectory Autoware 2.0's own follower reads.
-      "/planning/trajectory",
-      &autoware_planning_msgs_msg_Trajectory_desc, callbackTrajectory, this))
-    {
-      throw std::runtime_error("cannot subscribe to selected Autoware trajectory");
+      require(
+        create_subscription<DrivingReferenceMsg>(
+          "/vehicle/driving_reference",
+          &visionpilot_msgs_msg_DrivingReference_desc,
+          callbackDrivingReference, this),
+        "selected VP driving reference");
+    } else {
+      require(
+        create_subscription<TrajectoryMsg_Raw>(
+          // The trajectory Autoware 2.0's own follower reads.
+          "/planning/trajectory",
+          &autoware_planning_msgs_msg_Trajectory_desc, callbackTrajectory, this),
+        "selected Autoware trajectory");
     }
   }
   require(
@@ -218,12 +222,12 @@ Controller::Controller(const StartupConfig & config)
   // and the single actuator-facing supervised output (ApprovedRequest carrying
   // session/sequence/decision/source/cycle identity alongside the control
   // payload).
-  if (supervision_mode_ == supervision::Mode::VP_CONTROL &&
-    !create_subscription<DrivingCommandMsg>(
-      "/vehicle/driving_command", &visionpilot_msgs_msg_DrivingCommand_desc,
-      callbackDrivingCommand, this))
-  {
-    throw std::runtime_error("cannot subscribe to selected VP driving command");
+  if (supervision_mode_ == supervision::Mode::VP_CONTROL) {
+    require(
+      create_subscription<DrivingCommandMsg>(
+        "/vehicle/driving_command", &visionpilot_msgs_msg_DrivingCommand_desc,
+        callbackDrivingCommand, this),
+      "selected VP driving command");
   }
   require(
     create_subscription<BoolMsg>(
