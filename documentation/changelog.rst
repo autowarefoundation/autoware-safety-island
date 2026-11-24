@@ -30,6 +30,9 @@ Unreleased
 Added
 -----
 
+- :doc:`user_guide/hardware_requirements`: preliminary hardware requirements,
+  with the measured image footprint and an FVP-based CPU estimate. A short
+  table in the README links to it.
 - CI replays the recorded follower inputs into the FreeRTOS POSIX controller,
   compares its steering with Autoware's own follower on the same bag, and
   checks that it latches ``SI_STOP`` when the inputs stop
