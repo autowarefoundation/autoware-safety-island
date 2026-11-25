@@ -56,13 +56,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r documentation/requirements.txt
 
-      # Warnings do not fail the build yet: the tree has existing ones to fix
-      # first. (SPHINXOPTS was set here but never read; sphinx-build is called
-      # directly, not through make.)
+      # Any warning fails the build, so a broken toctree entry or reference
+      # cannot reach the site; --keep-going reports all of them at once.
       - name: Build documentation
         run: |
           cd documentation
-          sphinx-build -b html . _build/html
+          sphinx-build -W --keep-going -b html . _build/html
 
       - name: Setup Pages
         if: github.event_name != 'pull_request'
