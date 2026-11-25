@@ -14,11 +14,11 @@ Runtime design, DDS topic contracts, and forward-looking design work.
    :maxdepth: 2
    :caption: Contents
 
-    architecture
-    topics
-    vp_si_control_contract
-    can_output
-    can_carla_integration
-    can_carla_implementation_plan
-    can_fd
-    freertos-s32z2-bringup
+   architecture
+   topics
+   vp_si_control_contract
+   can_output
+   can_carla_integration
+   can_carla_implementation_plan
+   can_fd
+   freertos-s32z2-bringup
