@@ -1,16 +1,19 @@
 name: Build and Deploy Documentation
 
+# The site documents the latest release, not main: it is deployed once the
+# Release workflow has published a release (not a pre-release such as
+# v0.4.0-rc.1), from that release's commit, so it never describes assets that
+# are not published yet. Pull requests only build it. A manual run deploys the
+# commit it runs on; run it on a release tag to redeploy that release.
 on:
-  push:
-    branches: [ "main", "master" ]
-    paths:
-      - 'documentation/**'
-      - '.github/workflows/docs.yml'
   pull_request:
     branches: [ "main", "master" ]
     paths:
       - 'documentation/**'
-  # Allow manual triggering
+      - '.github/workflows/docs.yml'
+  workflow_run:
+    workflows: [ "Release" ]
+    types: [ completed ]
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -28,10 +31,19 @@ concurrency:
 jobs:
   # Build job
   build:
+    # After Release: only when it succeeded, and not for a pre-release tag.
+    # head_branch is the tag a tag-triggered run was started by.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       !contains(github.event.workflow_run.head_branch, '-'))
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # After Release, the released commit; otherwise the run's own.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -44,13 +56,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r documentation/requirements.txt
 
+      # Warnings do not fail the build yet: the tree has existing ones to fix
+      # first. (SPHINXOPTS was set here but never read; sphinx-build is called
+      # directly, not through make.)
       - name: Build documentation
         run: |
           cd documentation
           sphinx-build -b html . _build/html
-        env:
-          # Treat warnings as errors for clean builds
-          SPHINXOPTS: "-W --keep-going"
 
       - name: Setup Pages
         if: github.event_name != 'pull_request'
@@ -62,7 +74,7 @@ jobs:
         with:
           path: './documentation/_build/html'
 
-  # Deployment job (only runs on push to main/master, not on PRs)
+  # Deployment job: after a release and on manual runs, never on PRs.
   deploy:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04

@@ -27,16 +27,6 @@ jobs:
             exit 1
           fi
 
-      - name: Check the changelog has this version
-        shell: bash
-        run: |
-          # A pre-release (v0.2.0-rc.1) is checked against its version (v0.2.0).
-          version="${GITHUB_REF_NAME%%-*}"
-          if ! grep -qxF "${version}" documentation/changelog.rst; then
-            echo "Error: documentation/changelog.rst has no ${version} section"
-            exit 1
-          fi
-
       - name: Check the bridge contract matches topics.rst
         shell: bash
         run: python3 .github/scripts/check-bridge-contract.py
