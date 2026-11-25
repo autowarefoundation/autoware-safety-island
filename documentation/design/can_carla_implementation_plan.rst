@@ -95,9 +95,9 @@ Shared decisions
 - **Mock is test-only.** It is compiled into ``--can-output-test``, not
   selected by an unset environment variable.
 
-**********************
+*************************
 Common transport contract
-**********************
+*************************
 
 Keep ``encode_control_command()`` and the three-frame layout. Change how
 frames leave the controller.
@@ -126,9 +126,9 @@ Keep ``platform::can_send(frame)`` only where a backend truly is
 frame-at-a-time (native Zephyr CAN, the test mock). The POSIX SocketCAN
 and FVP UDP backends implement the batch entry point directly.
 
-**********************
+*************************
 Decoder and CARLA mapping
-**********************
+*************************
 
 The host's Python decoder in ``demo/can_carla_bridge/decoder.py`` is the only
 assembler. The Safety Island encoder remains C++; both runtimes inject classic
@@ -458,16 +458,16 @@ Open-loop and closed-loop with ``zephyr-fvp --network tap``. Same
 ``vcan0`` decoder as PR 1 / PR 2.
 
 13. **Zephyr UDP transport and gateway**
-   Kconfig as above (output modes do not ``select CAN``), TAP conf
-   fragment, ``build.sh`` flags, 48-byte pack/unpack unit tests, host
-   gateway.
+    Kconfig as above (output modes do not ``select CAN``), TAP conf
+    fragment, ``build.sh`` flags, 48-byte pack/unpack unit tests, host
+    gateway.
 
 14. **Zephyr FVP TAP integration**
-   Run FVP with hostbridge TAP, gateway, ``vcan0``, same decoder, FVP
-   watchdog timeout. No CARLA.
+    Run FVP with hostbridge TAP, gateway, ``vcan0``, same decoder, FVP
+    watchdog timeout. No CARLA.
 
 15. **CARLA bridge (FVP demo)**
-   Same bridge as PR 1, documented TAP + gateway host demo.
+    Same bridge as PR 1, documented TAP + gateway host demo.
 
 PR 4 (#54) — CAN-FD (opt-in)
 ==============================
